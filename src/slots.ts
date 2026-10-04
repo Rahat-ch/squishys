@@ -1,6 +1,7 @@
 // The roster layout: how many slots fit the pane, which agents get them and
-// which wait in the overflow. Pure: it takes plain data and never touches
-// Claude Code, so the pane and the tests share it.
+// which wait in the overflow; and the band's, which squishys it shows above
+// the prompt. Pure: it takes plain data and never touches Claude Code, so the
+// pane, the band and the tests share it.
 
 import { PICTURE_SIZE } from './composer'
 import { SLOT_GIVING_ORDER, isEnded } from './states'
@@ -34,6 +35,18 @@ export const FOOTER_ROW_GAP = 1
 export const FOOTER_COLUMNS = 10
 export const FOOTER_COLUMN_GAP = 2
 export const FOOTER_BUTTON_GAP = 2
+
+/** A mini squishy's picture in the band, in cells: half a picture across, two pixels down a cell. */
+const MINI_COLUMNS = Math.floor(PICTURE_COLUMNS / 2)
+const MINI_ROWS = Math.ceil(MINI_COLUMNS / 2)
+/** The most of a squishy's Name the band shows. */
+export const BAND_NAME_COLUMNS = 10
+/** A squishy's place in the band, with its mini picture over its Name. */
+export const BAND_PICTURE_COLUMNS = Math.max(MINI_COLUMNS, BAND_NAME_COLUMNS)
+/** The rows the band needs for its mini pictures; in fewer it shows the Names alone. */
+export const BAND_PICTURE_ROWS = MINI_ROWS + 1
+/** The columns between the band's squishys, the overflow count and the hint. */
+export const BAND_GAP = 1
 
 /** Where the pane sits and how big its body is, as its render props say. */
 export type RosterSize = {
@@ -113,6 +126,45 @@ export function liveSquishys<A extends RosterAgent>(agents: readonly A[], onScre
   return agents
     .filter(agent => onScreen === undefined || !isEnded(agent.state) || onScreen.includes(agent.id))
     .map(agent => agent.squishy)
+}
+
+/** The band's room: its body columns, the rows it may take and its hint's width. */
+type BandSize = { bodyColumns: number; maxRows: number; hintColumns: number }
+
+type BandLayout<A extends RosterAgent> = {
+  /** The agents the band shows, in order. */
+  shown: A[]
+  /** The agents it has no room for, counted as "+N". */
+  overflow: A[]
+  /** Whether it shows mini pictures over the Names, or the Names alone. */
+  pictured: boolean
+  /** How wide each squishy's place is. */
+  placeColumns: number
+}
+
+/**
+ * Lays out the band: one row of squishys, then the overflow count and the
+ * hint. Running squishys come first, then ended ones, those that give up
+ * roster slots last (SLOT_GIVING_ORDER) first, each in the order first seen.
+ * With BAND_PICTURE_ROWS it shows mini pictures, the count stacked over the
+ * hint; with fewer, the Names alone, the count beside the hint. As many
+ * squishys show as leave room for the count and the hint.
+ */
+export function layoutBand<A extends RosterAgent>({ agents, bodyColumns, maxRows, hintColumns }: BandSize & { agents: readonly A[] }): BandLayout<A> {
+  const pictured = maxRows >= BAND_PICTURE_ROWS
+  const placeColumns = pictured ? BAND_PICTURE_COLUMNS : BAND_NAME_COLUMNS
+  const giving = (agent: A) => SLOT_GIVING_ORDER.indexOf(agent.state)
+  const ended = agents.filter(agent => isEnded(agent.state)).sort((a, b) => giving(b) - giving(a))
+  const ordered = [...agents.filter(agent => !isEnded(agent.state)), ...ended]
+  const width = (across: number) => {
+    const left = ordered.length - across
+    const count = left > 0 ? `+${left}`.length : 0
+    const side = pictured ? Math.max(hintColumns, count) : hintColumns + (count > 0 ? count + BAND_GAP : 0)
+    return across * (placeColumns + BAND_GAP) + side
+  }
+  let across = ordered.length
+  while (across > 0 && width(across) > bodyColumns) across -= 1
+  return { shown: ordered.slice(0, across), overflow: ordered.slice(across), pictured, placeColumns }
 }
 
 /** How many slots fit across the pane, at most `slotCap`. */

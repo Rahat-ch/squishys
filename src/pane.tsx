@@ -40,6 +40,11 @@ export const PICK_PREFIX = 'squishy-'
  */
 export const OPEN_PANE = { id: PANE_ID, title: 'Squishys', rows: SLOT_ROWS } as const
 
+/** The toast for an open the user asked for that a `ui.open` hook refused. */
+export function openRefused(error: unknown): string {
+  return `Squishys couldn't open its pane: ${error instanceof Error ? error.message : String(error)}`
+}
+
 /** How long each animation frame shows, in milliseconds. */
 export const FRAME_MS = 200
 
@@ -137,14 +142,18 @@ export function registerPane(on: On): void {
   })
 
   // A toggle. Claude Code's own list of open panes is the truth, since the
-  // user can also close the pane themselves (ctrl+x x). A pane that waits
-  // unplaced (opened unasked on a narrow terminal) is opened: asked for, it's
-  // placed at any width, and the band (src/band.tsx) is drawn again to step aside.
+  // user can also close the pane themselves (ctrl+x x). An unplaced pane
+  // (opened unasked on a narrow terminal) is opened: asked for, it's placed
+  // at any width, and the band (src/band.tsx) is drawn again to step aside.
   on('command.run', { command: 'squishys' }, async $ => {
     const panes = await $.ui.panes()
     if (panes.some(pane => pane.id === PANE_ID && pane.isPlaced)) await $.ui.close({ id: PANE_ID })
     else {
-      await $.ui.open(OPEN_PANE)
+      try {
+        await $.ui.open(OPEN_PANE)
+      } catch (error) {
+        $.ui.toast(openRefused(error))
+      }
       $.ui.invalidate('ui.render')
     }
     return {}
