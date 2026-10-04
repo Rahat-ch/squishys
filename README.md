@@ -12,6 +12,19 @@ A Claude Code mod that gives every agent your orchestrator starts its own tiny p
 
 Clicking a squishy needs Claude Code's fullscreen rendering (`/tui fullscreen`, or `CLAUDE_CODE_NO_FLICKER=1`). In the classic rendering, clicks don't reach the pane: use Ctrl+X Tab and the hotkeys.
 
+### Keys
+
+Everything in the pane has a key, shown before its label (`i: Redirect`). Keys work while the pane has the keyboard. Ctrl+X Tab is two presses, Ctrl+X and then Tab.
+
+| Where | Keys |
+| --- | --- |
+| Roster | `1`–`9` pick a squishy (letters after that), `m` the `+N` list, `o` settings, `d` Squishydex |
+| An agent's view | `i` type a redirect (Enter sends, Esc leaves), `s` stop (press twice), `x` share, `m` switch model (experimental), `1` or `r` back to the roster |
+| Settings | `m` model for new agents, `s` roster slots, `l` live model switch (experimental), `c` chime, `r` back |
+| Squishydex | `1`–`9` open a squishy's card, `n`/`p` next and previous page, `r` roster; on a card `m` make partner, `c` palette, `x` share, `b` back |
+
+Keys that pick from a few choices (model, slots, palette) step to the next choice on each press. The label shows the current choice and the next one.
+
 ## Docs
 
 - [Domain glossary](CONTEXT.md)

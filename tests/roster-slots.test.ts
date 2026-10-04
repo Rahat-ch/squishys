@@ -112,6 +112,8 @@ test('picking +N lists the overflow agents, and picking one opens its focus view
   expect(await ui.find({ type: 'Text', text: 'Task 4' })).toBeDefined()
   // Named as in their slots: by their squishy's Name
   for (const button of listed) expect(button?.props.label).toMatch(/^[A-Z]/)
+  // and picked by digits, as the slots are, which the list shows in place of
+  expect(listed.map(button => button?.props.hotkey)).toEqual(['1', '2'])
   const name = String(listed[1]?.props.label)
   // The list shows in place of the slots, so it fits an inline pane too
   expect(await slotted(ui)).toEqual([])

@@ -403,12 +403,15 @@ test('a species card shows the variants met and the date first met, and makes it
   expect(await ui.find({ type: 'Text', text: 'Variants met: 3' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: `${OTHER_PALETTE.id}, shiny ${PALETTE.id}, ${PALETTE.id} with ${DRESSED.id}` })).toBeDefined()
   expect((await ui.find({ type: 'Raster', key: 'squishydex-card-picture' }))?.props.cells).toBe(stillPicture(drawn(OTHER, OTHER_PALETTE.id)).cells)
-  // The plain palettes it was met in, the first met first
-  const palettes = await ui.find({ type: 'Select', key: 'squishydex-palette' })
-  expect(palettes?.props.options).toEqual([{ value: OTHER_PALETTE.id }, { value: PALETTE.id }])
-  expect(palettes?.props.value).toBe(OTHER_PALETTE.id)
+  // c steps through the plain palettes it was met in, the first met first, and wraps around
+  const palette = async () => (await ui.find({ type: 'Button', key: 'squishydex-palette' }))?.props
+  expect(await palette()).toMatchObject({ hotkey: 'c', label: `Partner palette  ${OTHER_PALETTE.id} ▸ ${PALETTE.id}` })
+  await $.ui.press({ plugin: 'squishys', key: 'squishydex-palette' })
+  expect((await palette())?.label).toBe(`Partner palette  ${PALETTE.id} ▸ ${OTHER_PALETTE.id}`)
+  await $.ui.press({ plugin: 'squishys', key: 'squishydex-palette' })
+  expect((await palette())?.label).toBe(`Partner palette  ${OTHER_PALETTE.id} ▸ ${PALETTE.id}`)
 
-  await $.ui.select({ plugin: 'squishys', key: 'squishydex-palette', value: PALETTE.id })
+  await $.ui.press({ plugin: 'squishys', key: 'squishydex-palette' })
   expect((await ui.find({ type: 'Raster', key: 'squishydex-card-picture' }))?.props.cells).toBe(stillPicture(drawn(OTHER, PALETTE.id)).cells)
   expect((await ui.find({ type: 'Button', key: 'squishydex-partner' }))?.props.hotkey).toBe('m')
   await $.ui.press({ plugin: 'squishys', key: 'squishydex-partner' })

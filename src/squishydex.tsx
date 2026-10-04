@@ -13,6 +13,7 @@ import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
 import { OPEN_PANE_ASKED, PANE_ID, notePaneOpened, openRefused } from './pane'
 import { PARTNER_KEY, partnerFrom, stillPicture } from './partner'
+import { cycleLabel, nextOf, pickKeys } from './keys'
 import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
 import { bareAccessory, legendaryKey, speciesSquishy, squishyOf } from './roller'
@@ -68,6 +69,12 @@ export const DEX_TITLE_ROWS = 1
 export const DEX_GAP = 1
 /** The columns between the counts, and between buttons in a row. */
 export const DEX_ITEM_GAP = 2
+
+/** The keys the Squishydex's own controls take (Next, Prev, Roster, Back), which no place's pick does. */
+const PAGE_KEYS = ['n', 'p', 'r', 'b']
+
+/** The key that steps a species' card to the next palette it was met in. */
+const PALETTE_HOTKEY = 'c'
 
 /**
  * The color every unmet species is drawn in: its shape alone, solid. A
@@ -161,7 +168,7 @@ export function registerSquishydex(on: On): void {
   // spelled out, since the engine reads a matcher off this file alone.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'squishydex') return next(e)
-    const { Box, Button, Link, Raster, Select, Text } = $.ui.resolve(e)
+    const { Box, Button, Link, Raster, Text } = $.ui.resolve(e)
     const { bodyColumns, scroll } = e.props
     const bodyRows = scroll.bodyRows
     const dex = await readSquishydex($)
@@ -233,17 +240,21 @@ export function registerSquishydex(on: On): void {
     const page = Math.min(Math.max(0, await read($, squishydexPage)), pages - 1)
     const shown = places.slice(page * perPage, (page + 1) * perPage)
     const rows = Array.from({ length: Math.ceil(shown.length / layout.across) }, (_, row) => shown.slice(row * layout.across, (row + 1) * layout.across))
-    // Digits pick the places met on the page, in page order
-    let digit = 0
-    const pick = (place: Place, name: string) => (
-      <Button
-        key={`squishydex-pick-${place.key}`}
-        {...((digit += 1) <= 9 ? { hotkey: String(digit) } : {})}
-        plain
-        label={nameCut(name)}
-        onPress={() => void openCard($, place)}
-      />
-    )
+    // Digits, then the letters the pages leave free, pick the places met on the page, in page order
+    const pickHotkeys = pickKeys(shown.length, PAGE_KEYS)
+    let picks = 0
+    const pick = (place: Place, name: string) => {
+      const hotkey = pickHotkeys[picks++]
+      return (
+        <Button
+          key={`squishydex-pick-${place.key}`}
+          {...(hotkey === undefined ? {} : { hotkey })}
+          plain
+          label={nameCut(name)}
+          onPress={() => void openCard($, place)}
+        />
+      )
+    }
     // A place met shiny or legendary since its card was last viewed says so, over its picture's corner
     const newMark = (place: Place) =>
       isNewIn(dex, dexPlaceOf(place)) ? (
@@ -329,12 +340,15 @@ export function registerSquishydex(on: On): void {
             <Text wrap="wrap">{met.variants.map(variantName).join(', ')}</Text>
           </Box>
           {palettes.length > 1 ? (
-            <Select
+            // Steps through the plain palettes it was met in, the first met first
+            <Button
               key="squishydex-palette"
-              label="Partner palette"
-              options={palettes.map(value => ({ value }))}
-              value={squishy.palette}
-              onSelect={value => void update($, squishydexPalette, () => value)}
+              hotkey={PALETTE_HOTKEY}
+              plain
+              label={cycleLabel('Partner palette', squishy.palette, nextOf(palettes, squishy.palette) ?? squishy.palette)}
+              onPress={() =>
+                void update($, squishydexPalette, chosen => nextOf(palettes, chosen !== null && palettes.includes(chosen) ? chosen : palettes[0]) ?? null)
+              }
             />
           ) : null}
           {rowsOf('squishydex-card-footer', actions)}

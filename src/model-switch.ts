@@ -1,7 +1,7 @@
 // Experimental: the live model switch. Behind an off-by-default setting, the
-// focus view's model picker switches a running agent to another model from
+// focus view's model key switches a running agent to another model from
 // its next request on, by rewriting that agent's requests in turn.step. The
-// focus view draws the picker; this module keeps the switches.
+// focus view draws the key; this module keeps the switches.
 //
 // Claude Code exposes no way to resolve an alias to a model id or to check
 // a model against the organization's allowlist for a turn.step request
@@ -13,14 +13,25 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Model } from '../types'
+import { nextOf } from './keys'
 import { MODELS, SETTINGS_KEY, isModel, settingsFrom } from './settings'
 import { isEnded } from './states'
 
-/** What keys the focus view's model picker: this, then the agent id. */
+/** What keys the focus view's model key: this, then the agent id. */
 export const MODEL_SWITCH_PREFIX = 'model-switch-'
 
-/** The model picker's value for the model the agent started on. */
+/** The model key's choice of the model the agent started on. */
 export const AS_STARTED = 'as-started'
+
+/** The model key's choices, in the order it steps through them: as started, then each model allowed. */
+export function modelCycle(allowed: readonly Model[]): string[] {
+  return [AS_STARTED, ...MODELS.filter(model => allowed.includes(model))]
+}
+
+/** How a model key's choice reads. */
+export function modelChoiceName(choice: string): string {
+  return choice === AS_STARTED ? 'as started' : choice
+}
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -70,24 +81,37 @@ export function registerModelSwitch(on: On): void {
     return await response.result
   })
 
-  // A pick in the focus view's model picker. Its own onSelect does nothing.
-  on('ui.select', { plugin: 'squishys', element: /^model-switch-/ }, async ($, e, next) => {
+  // A press of the focus view's model key (m) steps the agent to the next
+  // model the allowlist names, after the last back to the one it started
+  // on. Its own onPress does nothing.
+  on('ui.press', { plugin: 'squishys', element: /^model-switch-/ }, async ($, e, next) => {
     const agentId = e.element.slice(MODEL_SWITCH_PREFIX.length)
-    if (e.value === AS_STARTED) await endSwitch($, agentId)
-    else if (isModel(e.value)) {
-      const model = e.value
-      const refusal = await refusalOf($, agentId, model)
-      if (refusal !== undefined) $.ui.toast(`Squishys: not switched to ${model}. ${refusal}`)
-      else await update($, switchedModels, all => ({ ...all, [agentId]: { model, sent: false } }))
+    let allowed: Model[]
+    try {
+      allowed = allowedModels((await $.settings.read()).availableModels)
+    } catch {
+      $.ui.toast('Squishys: not switched. Claude Code’s settings can’t be read, so the model allowlist can’t be checked.')
+      return next(e)
+    }
+    const picked = nextOf(modelCycle(allowed), (await read($, switchedModels))[agentId]?.model ?? AS_STARTED)
+    if (picked === AS_STARTED) await endSwitch($, agentId)
+    else if (isModel(picked)) {
+      const refusal = await refusalOf($, agentId, picked)
+      if (refusal !== undefined) $.ui.toast(`Squishys: not switched to ${picked}. ${refusal}`)
+      else await update($, switchedModels, all => ({ ...all, [agentId]: { model: picked, sent: false } }))
     }
     return next(e)
   })
 
-  // The setting turned off ends every switch.
-  on('ui.select', { plugin: 'squishys', element: 'liveModelSwitch' }, async ($, e, next) => {
-    const picked = await next(e)
-    if (e.value !== String(true)) await update($, switchedModels, () => ({}))
-    return picked
+  // The setting turned off ends every switch: a press of its key while it's on.
+  on('ui.press', { plugin: 'squishys', element: 'liveModelSwitch' }, async ($, e, next) => {
+    let wasOn = false
+    try {
+      wasOn = settingsFrom(await $.store.get(SETTINGS_KEY)).liveModelSwitch === true
+    } catch {}
+    const pressed = await next(e)
+    if (wasOn) await update($, switchedModels, () => ({}))
+    return pressed
   })
 
   // An agent's switch ends with its run, however it ended.

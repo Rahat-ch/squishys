@@ -22,39 +22,47 @@ test('o opens settings in place of the roster, and r returns to the roster', asy
   expect(await ui.find({ type: 'Text', text: 'Settings' })).toBeUndefined()
 })
 
+// Each setting is a key that steps it to its next choice, its label saying
+// what it's on and what the next press picks
+const label = async (ui: { find: (query: { type: 'Button'; key: string }) => Promise<{ props: Record<string, unknown> } | undefined> }, key: string) =>
+  (await ui.find({ type: 'Button', key }))?.props.label
+
 test('settings start as "let Claude choose" and the most slots', async ($, on) => {
   stubStore(on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  expect((await ui.find({ type: 'Select', key: 'model' }))?.props.value).toBe('let-claude-choose')
-  expect((await ui.find({ type: 'Select', key: 'slotCap' }))?.props.value).toBe('9')
+  expect(await label(ui, 'model')).toBe('Model for new agents  Let Claude choose ▸ haiku')
+  expect(await label(ui, 'slotCap')).toBe('Roster slots, at most  9 ▸ 1')
 })
 
-test('no setting’s label ends in a colon, since Claude Code draws one after it', async ($, on) => {
+test('every setting answers to a key of its own, and r returns to the roster', async ($, on) => {
   stubStore(on)
+  on('fs.exists', () => ({ value: true }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  const labels = (await ui.findAll({ type: 'Select' })).map(select => String(select.props.label))
-  expect(labels.length).toBeGreaterThan(0)
-  for (const label of labels) expect(label).not.toMatch(/:\s*$/)
+  const keys = Object.fromEntries((await ui.findAll({ type: 'Button' })).map(button => [String(button.props.key), button.props.hotkey]))
+  expect(keys).toEqual({ model: 'm', slotCap: 's', liveModelSwitch: 'l', chime: 'c', back: 'r' })
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
 })
 
-test('picked settings are saved to the store', async ($, on) => {
+test('each press steps a setting to its next choice, wrapping around, and is saved to the store', async ($, on) => {
   const stored = stubStore(on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  await $.ui.select({ plugin: 'squishys', key: 'model', value: 'haiku' })
-  await $.ui.select({ plugin: 'squishys', key: 'slotCap', value: '4' })
+  await $.ui.press({ plugin: 'squishys', key: 'model' })
+  for (let press = 0; press < 4; press += 1) await $.ui.press({ plugin: 'squishys', key: 'slotCap' })
 
   expect(stored.get('settings')).toEqual({ model: 'haiku', slotCap: 4 })
-  expect((await ui.find({ type: 'Select', key: 'model' }))?.props.value).toBe('haiku')
-  expect((await ui.find({ type: 'Select', key: 'slotCap' }))?.props.value).toBe('4')
+  expect(await label(ui, 'model')).toBe('Model for new agents  haiku ▸ sonnet')
+  expect(await label(ui, 'slotCap')).toBe('Roster slots, at most  4 ▸ 5')
 
-  await $.ui.select({ plugin: 'squishys', key: 'model', value: 'let-claude-choose' })
+  // haiku, then sonnet, opus and fable, then back to letting Claude choose
+  for (let press = 0; press < 4; press += 1) await $.ui.press({ plugin: 'squishys', key: 'model' })
   expect(stored.get('settings')).toEqual({ slotCap: 4 })
+  expect(await label(ui, 'model')).toBe('Model for new agents  Let Claude choose ▸ haiku')
 })
 
 test('settings saved in an earlier session come back', async ($, on) => {
@@ -62,8 +70,8 @@ test('settings saved in an earlier session come back', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  expect((await ui.find({ type: 'Select', key: 'model' }))?.props.value).toBe('fable')
-  expect((await ui.find({ type: 'Select', key: 'slotCap' }))?.props.value).toBe('3')
+  expect(await label(ui, 'model')).toBe('Model for new agents  fable ▸ Let Claude choose')
+  expect(await label(ui, 'slotCap')).toBe('Roster slots, at most  3 ▸ 4')
 })
 
 test('a stored setting that is no longer valid falls back to its default', async ($, on) => {
@@ -71,8 +79,8 @@ test('a stored setting that is no longer valid falls back to its default', async
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  expect((await ui.find({ type: 'Select', key: 'model' }))?.props.value).toBe('let-claude-choose')
-  expect((await ui.find({ type: 'Select', key: 'slotCap' }))?.props.value).toBe('9')
+  expect(await label(ui, 'model')).toBe('Model for new agents  Let Claude choose ▸ haiku')
+  expect(await label(ui, 'slotCap')).toBe('Roster slots, at most  9 ▸ 1')
 })
 
 // Answers each agent.spawn as Claude Code would, keeping the model each one
@@ -133,7 +141,8 @@ test('a model picked in settings applies to the next spawn', async ($, on) => {
   await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  await $.ui.select({ plugin: 'squishys', key: 'model', value: 'sonnet' })
+  await $.ui.press({ plugin: 'squishys', key: 'model' })
+  await $.ui.press({ plugin: 'squishys', key: 'model' })
   await $.agent.spawn(spawnOf('toolu_1'))
 
   expect(models).toEqual(['sonnet'])

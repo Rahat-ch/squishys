@@ -207,13 +207,15 @@ test('on macOS, settings offer the chime, off by default, and turning it on save
   stubPlatform(on, 'macos')
   const ui = await openSettings($)
 
-  expect((await ui.find({ type: 'Select', key: 'chime' }))?.props.value).toBe('false')
+  const chime = async () => (await ui.find({ type: 'Button', key: 'chime' }))?.props
+  expect((await chime())?.hotkey).toBe('c')
+  expect((await chime())?.label).toBe('Chime on a shiny or legendary  Off ▸ On')
 
-  await $.ui.select({ plugin: 'squishys', key: 'chime', value: 'true' })
+  await $.ui.press({ plugin: 'squishys', key: 'chime' })
   expect(stored.get('settings')).toEqual({ slotCap: 9, chime: true })
-  expect((await ui.find({ type: 'Select', key: 'chime' }))?.props.value).toBe('true')
+  expect((await chime())?.label).toBe('Chime on a shiny or legendary  On ▸ Off')
 
-  await $.ui.select({ plugin: 'squishys', key: 'chime', value: 'false' })
+  await $.ui.press({ plugin: 'squishys', key: 'chime' })
   expect(stored.get('settings')).toEqual({ slotCap: 9 })
 })
 
@@ -222,8 +224,8 @@ test('where $.audio makes no sound, settings hide the chime', async ($, on) => {
   stubPlatform(on, 'linux')
   const ui = await openSettings($)
 
-  expect(await ui.find({ type: 'Select', key: 'model' })).toBeDefined()
-  expect(await ui.find({ type: 'Select', key: 'chime' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'model' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'chime' })).toBeUndefined()
 })
 
 test('with the chime on, a shiny or legendary roll plays the chime, and a plain one plays nothing', async ($, on) => {
