@@ -26,6 +26,19 @@ export function stubSpawns(on: On): void {
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `agent-${++spawned}` }))
 }
 
+// A mock of the mod's store, kept between sessions, that the test can read
+// back. It starts with `entries`, as a store an earlier session left.
+export function stubStore(on: On, entries: Record<string, unknown> = {}): Map<string, unknown> {
+  const stored = new Map(Object.entries(entries))
+  on('store.get', ($, e) => ({ value: stored.get(e.key) }))
+  on('store.set', ($, e) => {
+    // A store holds JSON, so it hands back a copy, not the object it was given
+    stored.set(e.key, JSON.parse(JSON.stringify(e.value)))
+    return { value: undefined }
+  })
+  return stored
+}
+
 // The glyph of every cell in a Raster's packed `cells`
 export function glyphsOf(cells: unknown): string[] {
   const bytes = atob(String(cells))

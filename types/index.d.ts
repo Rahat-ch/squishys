@@ -22,11 +22,19 @@ export type Agent = {
   squishy: Squishy
 }
 
+/**
+ * What the pane is showing. Later modes (starter pick, focus view,
+ * Squishydex) join this union.
+ */
+export type PaneMode = 'roster' | 'settings'
+
 declare module 'claude-code' {
   interface PluginState {
     squishys: {
       /** Every agent seen this session, in the order they were first seen. */
       agents: Agent[]
+      /** What the pane is showing; the roster until the user picks another. */
+      mode: PaneMode
     }
   }
 }

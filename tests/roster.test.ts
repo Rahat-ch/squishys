@@ -1,8 +1,9 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 import { PANE, glyphsOf, readFrom, spawnOf, stubSpawns } from './fixtures'
 
 test('spawning an agent adds a roster entry with a 16x16 half-block squishy and a named button', async ($, on) => {
+  mock.store(on)
   stubSpawns(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
@@ -19,6 +20,7 @@ test('spawning an agent adds a roster entry with a 16x16 half-block squishy and 
 })
 
 test('each agent gets its own roster entry', async ($, on) => {
+  mock.store(on)
   stubSpawns(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
@@ -27,7 +29,8 @@ test('each agent gets its own roster entry', async ($, on) => {
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.findAll({ type: 'Raster' })).toHaveLength(3)
-  const names = (await ui.findAll({ type: 'Button' })).map(button => button.text)
+  const slots = (await ui.findAll({ type: 'Button' })).filter(button => button.key !== 'settings')
+  const names = slots.map(button => button.text)
   expect(names).toEqual(['Squishy 1', 'Squishy 2', 'Squishy 3'])
 })
 
@@ -47,6 +50,7 @@ test('an agent first seen through a tool call gets one squishy too', async ($, o
 })
 
 test('a spawned agent keeps its one squishy as it calls tools', async ($, on) => {
+  mock.store(on)
   stubSpawns(on)
   on('agent.list', () => ({
     value: [{ id: 'agent-1', description: 'Find config parser', type: 'general-purpose', status: 'running' }],

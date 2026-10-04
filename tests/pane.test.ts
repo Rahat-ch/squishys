@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { PANE_ID } from '../src/pane'
@@ -45,6 +45,7 @@ test('/squishys opens the pane and running it again closes it', async ($, on) =>
 })
 
 test('off the terminal, the pane is Claude Code’s own drawing', async ($, on) => {
+  mock.store(on)
   stubSpawns(on)
   // Stands for what Claude Code would draw in the pane
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['drawn by Claude Code'] }))

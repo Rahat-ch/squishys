@@ -11,7 +11,11 @@
 - `hooks/register.tsx` only wires features. Each feature is a module in `src/` exporting `register<Feature>(on)`. Pure modules (the roller, sprite composer) take plain data, never `$`, and their tests call them directly with seeded randomness. Everything else is tested through the mod test kit in `tests/`, with shared inputs in `tests/fixtures.ts`.
 - One hook per event per plugin: the engine refuses a second unmatched `on('tool.call')` anywhere in the module graph. A new behaviour on an event already hooked joins that event's existing hook.
 - The engine reads `$.state` references off each file statically, so every file that reads or writes a value declares its own `atom({ plugin: 'squishys', key }, initial)` const; an imported atom fails to load. Each value is declared in `types/index.d.ts`.
+- `$` is followed only into functions declared in the same file as the hook, never across an import. Logic shared between feature files takes plain data (as `settingsFrom` and `withModelDefault` in `src/settings.tsx` do), and the hook makes the `$` calls itself.
 - Drawing hooks return `next(e)` unless `e.surface === 'terminal'`.
+- The pane shows one mode at a time: the `mode` value in `$.state` (`PaneMode` in `types/index.d.ts`). Each mode is a feature module with its own `ui.render` hook on `{ component: 'Pane', requestId: 'squishys' }` (spelled out, so the engine can read the matcher) that draws only while `mode` names it and returns `next(e)` otherwise. Several matched hooks on one event are allowed. A new mode adds its name to `PaneMode` and a module like `src/settings.tsx`.
+- A `Button` `hotkey` is one digit or one lowercase letter; the engine refuses anything else, so the spec's `,` for settings is `o`, and `r` returns to the roster.
+- Lasting values live in `$.store` (settings under `settings`). The test kit leaves the store unanswered, and a hook whose store call goes unanswered is skipped, so every test that spawns an agent answers it with `mock.store(on)`, or with `stubStore(on)` from `tests/fixtures.ts` to read back what was saved.
 - The version lives only in `.claude-plugin/plugin.json`.
 
 ## Agent skills

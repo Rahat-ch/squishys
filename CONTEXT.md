@@ -112,6 +112,10 @@ _Avoid_: bar, strip, mini roster
 The agents that currently have no slot, shown in the roster only as a count.
 _Avoid_: queue, backlog, hidden
 
+**Settings**:
+The pane mode where the user changes the lasting options, such as the model default for new agents and the slot cap.
+_Avoid_: preferences, config
+
 **Focus view**:
 The pane mode given over to one agent's live activity and controls, reached by picking its squishy.
 _Avoid_: detail view, main panel, expanded view
