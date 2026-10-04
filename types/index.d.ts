@@ -111,6 +111,12 @@ declare module 'claude-code' {
       /** The agents that have a feed, so feeds of agents no longer known can be emptied. */
       fedAgentIds: string[]
       /**
+       * Experimental: the model each agent was switched to in its focus view,
+       * by agent id, which its requests use from then on. Emptied when the
+       * live model switch is turned off.
+       */
+      switchedModels: Record<string, string>
+      /**
        * Claude Code's `prefersReducedMotion` setting, read at session start
        * and after each /config change: while it's on, nothing animates.
        */

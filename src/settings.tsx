@@ -17,6 +17,11 @@ export type Settings = {
   model?: Model
   /** The most slots the roster shows. */
   slotCap: number
+  /**
+   * Experimental: the focus view can switch a running agent's model from
+   * its next request. Off when absent.
+   */
+  liveModelSwitch?: true
 }
 
 /** Where the settings live in the mod's store. */
@@ -28,13 +33,15 @@ const LET_CLAUDE_CHOOSE = 'let-claude-choose'
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
 const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
+const switchedModels = atom({ plugin: 'squishys', key: 'switchedModels' } as const, {})
 
 /** The settings a stored value holds, with defaults for anything missing or no longer valid. */
 export function settingsFrom(stored: unknown): Settings {
-  const { model, slotCap } = (typeof stored === 'object' && stored !== null ? stored : {}) as Record<string, unknown>
+  const { model, slotCap, liveModelSwitch } = (typeof stored === 'object' && stored !== null ? stored : {}) as Record<string, unknown>
   return {
     ...(isModel(model) ? { model } : {}),
     slotCap: isSlotCap(slotCap) ? slotCap : MAX_SLOTS,
+    ...(liveModelSwitch === true ? { liveModelSwitch } : {}),
   }
 }
 
@@ -48,7 +55,7 @@ export function withModelDefault(spawn: AgentSpawnInput, settings: Settings): Ag
   return { ...spawn, model: settings.model }
 }
 
-function isModel(value: unknown): value is Model {
+export function isModel(value: unknown): value is Model {
   return MODELS.includes(value as Model)
 }
 
@@ -84,10 +91,29 @@ export function registerSettings(on: On): void {
           value={String(settings.slotCap)}
           onSelect={value => void saveSettings($, current => ({ ...current, slotCap: Number(value) }))}
         />
+        <Select
+          key="liveModelSwitch"
+          label="Experimental: switch a running agent's model from its focus view: "
+          options={[
+            { value: 'off', label: 'Off' },
+            { value: 'on', label: 'On' },
+          ]}
+          value={settings.liveModelSwitch ? 'on' : 'off'}
+          onSelect={value => void setLiveModelSwitch($, value === 'on')}
+        />
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>
     )
   })
+}
+
+/**
+ * Turns the experimental live model switch on or off. Off undoes every
+ * switch made, so no agent's requests are rewritten any longer.
+ */
+async function setLiveModelSwitch($: EngineInterface, on: boolean): Promise<void> {
+  await saveSettings($, ({ liveModelSwitch: _, ...rest }) => (on ? { ...rest, liveModelSwitch: true } : rest))
+  if (!on) await update($, switchedModels, () => ({}))
 }
 
 async function readSettings($: EngineInterface): Promise<Settings> {
