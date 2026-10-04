@@ -13,7 +13,7 @@ import { REMEMBERED_KEY } from '../src/rebuild'
 import type { Remembered } from '../src/rebuild'
 import { legendaryKey, speciesSquishy, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
-import { REPO_URL, SHARE_LINK_LABEL, agentShareKey, cardFileName, speciesShareKey } from '../src/share'
+import { COPIED_NOTE, REPO_URL, SHARE_LINK_LABEL, agentShareKey, cardFileName, pasteReminder, speciesShareKey } from '../src/share'
 import { speciesKey } from '../src/squishydex-record'
 import { DEX_COLUMN_GAP, DEX_PLACE_COLUMNS, DEX_PLACE_ROWS } from '../src/squishydex'
 import { PANE, PARTNERED, finishOf, paneSized, spawnOf, stubAgentList, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
@@ -59,12 +59,9 @@ function commandOf(argv: readonly string[]): string {
   return 'sh'
 }
 
-/** The one toast of a share that went through. */
-const COPIED = 'Card copied: paste it into your post'
-
-/** The share text's last line on macOS, and on any other system. */
-const MAC_REMINDER = '\n\n(⌘V to paste your squishy, then delete this line)'
-const CTRL_REMINDER = '\n\n(Ctrl+V to paste your squishy, then delete this line)'
+/** The share text's last line on macOS, and on Linux. */
+const MAC_REMINDER = pasteReminder('⌘V')
+const CTRL_REMINDER = pasteReminder('Ctrl+V')
 
 /**
  * A post's length as X counts it, or a little over: two for each code point
@@ -184,7 +181,7 @@ test('on macOS, one press saves the squishy’s card, copies it to the clipboard
   expect(runs).toHaveLength(3)
   expect(composed(openedUrl(runs))).toEqual({ text: `My squishy ${squishy.name} just finished: Find config parser 🥟${MAC_REMINDER}`, url: REPO_URL })
   expect(openedUrl(runs)).not.toMatch(/[\s⌘]/)
-  expect(toasts).toEqual([COPIED])
+  expect(toasts).toEqual([COPIED_NOTE])
   // The browser opened, so no link is offered
   expect(await ui.find({ type: 'Link' })).toBeUndefined()
 })
@@ -209,7 +206,7 @@ test('on Linux, one press copies the card with wl-copy or xclip, then opens the 
   expect(runs[2]?.finishedBefore).toBe(2)
   expect(runs).toHaveLength(3)
   expect(composed(openedUrl(runs))).toEqual({ text: `My squishy ${squishy.name} just finished: Find config parser 🥟${CTRL_REMINDER}`, url: REPO_URL })
-  expect(toasts).toEqual([COPIED])
+  expect(toasts).toEqual([COPIED_NOTE])
   // xdg-open runs in the background, so whether X opened is never known: the link is always offered
   const link = await ui.find({ type: 'Link' })
   expect(link?.props).toMatchObject({ href: openedUrl(runs), label: SHARE_LINK_LABEL })
@@ -229,7 +226,7 @@ test('on Linux without wl-copy or xclip, Share shows the card’s folder and pat
   expect(composed(openedUrl(runs))?.url).toBe(REPO_URL)
   expect(toasts).toHaveLength(1)
   expect(toasts[0]).toContain(path)
-  expect(toasts[0]).not.toContain(COPIED)
+  expect(toasts[0]).not.toContain(COPIED_NOTE)
   // Nothing was copied, so there's nothing to paste
   expect(composed(openedUrl(runs))?.text?.endsWith(' 🥟')).toBe(true)
 })
@@ -299,7 +296,7 @@ test('a browser that won’t open on macOS still toasts the copied card, and off
   await $.ui.press({ plugin: 'squishys', key: agentShareKey('agent-1') })
 
   expect(toasts).toHaveLength(2)
-  expect(toasts[0]).toBe(COPIED)
+  expect(toasts[0]).toBe(COPIED_NOTE)
   expect(toasts[1]).toContain('No application knows how to open URL')
   expect((await ui.find({ type: 'Link' }))?.props.label).toBe(SHARE_LINK_LABEL)
 })

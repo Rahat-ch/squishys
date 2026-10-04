@@ -102,17 +102,19 @@ const CLIPBOARD_SCRIPT = ['on run argv', 'set the clipboard to (read (POSIX file
  * else xclip (X11), whichever is installed and takes it. Both stay running
  * in the background to hold the clipboard, so their output is dropped, or
  * they would hold `$.process.run` open until the timeout. Fails, saying
- * why, when neither copied it.
+ * why, when neither copied it: neither is installed, or each installed one
+ * refused (no display to reach, as over SSH).
  */
 const LINUX_CLIPBOARD_SCRIPT = [
-  'if command -v wl-copy >/dev/null 2>&1 && wl-copy --type image/png < "$1" >/dev/null 2>&1; then exit 0; fi',
-  'if command -v xclip >/dev/null 2>&1 && xclip -selection clipboard -t image/png -i "$1" >/dev/null 2>&1; then exit 0; fi',
-  'if command -v wl-copy >/dev/null 2>&1 || command -v xclip >/dev/null 2>&1; then echo "the clipboard refused the card" >&2; exit 1; fi',
+  'wl=$(command -v wl-copy 2>/dev/null); xc=$(command -v xclip 2>/dev/null)',
+  'if [ -n "$wl" ] && wl-copy --type image/png < "$1" >/dev/null 2>&1; then exit 0; fi',
+  'if [ -n "$xc" ] && xclip -selection clipboard -t image/png -i "$1" >/dev/null 2>&1; then exit 0; fi',
+  'if [ -n "$wl$xc" ]; then echo "the clipboard refused the card" >&2; exit 1; fi',
   'echo "neither wl-copy nor xclip is installed" >&2; exit 127',
 ].join('\n')
 
 /** The one toast of a share that went through. */
-const COPIED_NOTE = 'Card copied: paste it into your post'
+export const COPIED_NOTE = 'Card copied: paste it into your post'
 
 /** The system Share is on, by what `uname -s` says. */
 type Platform = 'macos' | 'linux' | 'other'
@@ -166,11 +168,12 @@ function metText(squishy: Squishy, met: number, total: number): string {
 
 /**
  * The share text's last line, after a blank one, once the card is on the
- * clipboard: how to paste it, by the platform's shortcut. With the longest Name and description, the text,
- * this and the link (23 as X counts it) stay within a post's 280.
+ * clipboard: how to paste it, by the platform's `pasteKey`. With the
+ * longest Name and description, the text, this and the link (23 as X counts
+ * it) stay within a post's 280.
  */
-function pasteReminder(platform: Platform): string {
-  return `\n\n(${platform === 'macos' ? '⌘V' : 'Ctrl+V'} to paste your squishy, then delete this line)`
+export function pasteReminder(pasteKey: string): string {
+  return `\n\n(${pasteKey} to paste your squishy, then delete this line)`
 }
 
 /** X's compose page with the text and the repository's link filled in. Opening it posts nothing. */
@@ -254,18 +257,23 @@ async function share($: EngineInterface, buttonKey: string, { squishy, text }: S
   const [uname = '', written = ''] = saved.stdout.split('\n').map(line => line.trim())
   const path = saved.ok && written !== '' ? written : undefined
   if (path === undefined) notes.push(`Couldn't save the card: ${saved.reason}`)
-  const { url, offerLink } = await handOver($, platformOf(uname), path, text, notes)
+  const { url, offerLink } = await runPlatformCommands($, platformCommands(platformOf(uname)), path, text, notes)
   if (offerLink) unopened.set(buttonKey, url)
   else unopened.delete(buttonKey)
   $.ui.invalidate('ui.render')
 }
 
-/** How a platform hands a card and a compose page over: the commands for each step, and whether it learns that the page opened. */
-type Handing = {
+/**
+ * How a platform hands a card and a compose page over: the commands that
+ * copy the card, show it where it's saved, and open the page; whether it
+ * learns that the page opened; and the shortcut that pastes.
+ */
+type PlatformCommands = {
   copy: (path: string) => readonly string[]
   reveal: (path: string) => readonly string[]
   open: (url: string) => readonly string[]
   knowsOpened: boolean
+  pasteKey: string
 }
 
 /** The folder a path is in. */
@@ -274,12 +282,13 @@ function folderOf(path: string): string {
 }
 
 /**
- * How each platform hands things over, the one place that tells platforms
- * apart: none for a platform with no clipboard or browser Share knows.
- * xdg-open runs in the background, so on Linux whether X opened is never
- * known.
+ * Each platform's commands, the one place that tells platforms apart: none
+ * for a platform where Share knows no clipboard or browser command. On
+ * Linux, a failed copy (no wl-copy or xclip, or the clipboard refused, as
+ * over SSH) shows the card's folder; xdg-open runs in the background, so
+ * whether X opened is never known.
  */
-function handingOn(platform: Platform): Handing | undefined {
+function platformCommands(platform: Platform): PlatformCommands | undefined {
   switch (platform) {
     case 'macos':
       return {
@@ -287,6 +296,7 @@ function handingOn(platform: Platform): Handing | undefined {
         reveal: path => ['open', '-R', path],
         open: url => ['open', url],
         knowsOpened: true,
+        pasteKey: '⌘V',
       }
     case 'linux':
       return {
@@ -294,6 +304,7 @@ function handingOn(platform: Platform): Handing | undefined {
         reveal: path => ['sh', '-c', XDG_OPEN_SCRIPT, 'sh', folderOf(path)],
         open: url => ['sh', '-c', XDG_OPEN_SCRIPT, 'sh', url],
         knowsOpened: false,
+        pasteKey: 'Ctrl+V',
       }
     case 'other':
       return undefined
@@ -307,31 +318,30 @@ function handingOn(platform: Platform): Handing | undefined {
  * card was copied. Gives the compose page and whether to offer it as a
  * link: wherever it may not have opened.
  */
-async function handOver(
+async function runPlatformCommands(
   $: EngineInterface,
-  platform: Platform,
+  commands: PlatformCommands | undefined,
   path: string | undefined,
   text: string,
   notes: string[],
 ): Promise<{ url: string; offerLink: boolean }> {
-  const handing = handingOn(platform)
-  if (handing === undefined) {
+  if (commands === undefined) {
     if (path !== undefined) notes.push(`Card saved to ${path}: attach it to your post.`)
     notes.push('Use the Post on X link to write your post.')
     return { url: composeUrl(text), offerLink: true }
   }
   let copied = false
   if (path !== undefined) {
-    const copy = await run($, handing.copy(path))
+    const copy = await run($, commands.copy(path))
     copied = copy.ok
     if (copied) notes.push(COPIED_NOTE)
     else {
-      await run($, handing.reveal(path))
+      await run($, commands.reveal(path))
       notes.push(`Couldn't copy the card (${copy.reason}). It's saved at ${path}`)
     }
   }
-  const url = composeUrl(copied ? text + pasteReminder(platform) : text)
-  const opened = await run($, handing.open(url))
+  const url = composeUrl(copied ? text + pasteReminder(commands.pasteKey) : text)
+  const opened = await run($, commands.open(url))
   if (!opened.ok) notes.push(`Couldn't open your browser (${opened.reason}): use the Post on X link.`)
-  return { url, offerLink: !opened.ok || !handing.knowsOpened }
+  return { url, offerLink: !opened.ok || !commands.knowsOpened }
 }
