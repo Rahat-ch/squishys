@@ -6,9 +6,10 @@ import type { Mounted } from 'claude-code/testing'
 import { KIT } from '../src/kit'
 import { PANE_ID } from '../src/pane'
 import { PARTNER_KEY } from '../src/partner'
+import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { FOOTER_COLUMN_GAP, FOOTER_COLUMNS, FOOTER_ROW_GAP, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP, footerRows } from '../src/slots'
 import type { RosterSize } from '../src/slots'
-import { speciesSquishy } from '../src/roller'
+import { speciesSquishy, squishyOf } from '../src/roller'
 import type { ForcedRoll } from '../src/roller'
 import { SQUISHYDEX_KEY, squishydexFrom, withMet } from '../src/squishydex-record'
 
@@ -135,6 +136,16 @@ export function stubStore(on: On, entries: Record<string, unknown> = {}): Map<st
     return { value: undefined }
   })
   return stored
+}
+
+// The whole Name of the squishy an agent was rolled, as the store keeps it.
+// A roster slot's Button cuts a long Name to fit (slotLabel), so a test that
+// looks for the Name elsewhere reads it here, never from that label.
+export function nameOfAgent(stored: Map<string, unknown>, agentId: string): string {
+  const key = rememberedFrom(stored.get(REMEMBERED_KEY)).find(([id]) => id === agentId)?.[1]
+  const squishy = key === undefined ? undefined : squishyOf(KIT, key)
+  if (squishy === undefined) throw new Error(`${agentId} has no squishy in the store`)
+  return squishy.name
 }
 
 // The glyph of every cell in a Raster's packed `cells`

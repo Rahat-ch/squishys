@@ -7,21 +7,22 @@ import { KIT } from '../src/kit'
 import { FEED_ROWS, MARKDOWN_LIMIT, focusHint } from '../src/focus'
 import { FRAME_MS, OPEN_PANE, OPEN_PANE_ASKED, PANE_ID, pictureKey } from '../src/pane'
 import { halfBlocks } from '../src/raster'
-import { PANE, bashFrom, finishOf, readFrom, spawnOf, stepOf, stubBlits, stubPanes, stubSpawns, stubTurns } from './fixtures'
+import { PANE, bashFrom, finishOf, nameOfAgent, readFrom, spawnOf, stepOf, stubBlits, stubPanes, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, spawnAndWatch } from './pictures'
 
 test('pressing a squishy’s button opens its focus view, and r returns to the roster', async ($, on) => {
-  mock.store(on)
+  const stored = stubStore(on)
   stubSpawns(on)
   await $.agent.spawn(spawnOf('toolu_1'))
   await $.agent.spawn({ ...spawnOf('toolu_2'), description: 'Run the tests' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const name = (await ui.find({ key: 'squishy-agent-2' }))?.props.label
+  // Whole, as the focus view shows it: the slot's Button may cut it
+  const name = nameOfAgent(stored, 'agent-2')
 
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-2' })
 
   expect(await ui.find({ key: 'slot-agent-1' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: String(name) })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: name })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Run the tests' })).toBeDefined()
   expect((await ui.find({ type: 'Button', key: 'back' }))?.props.hotkey).toBe('r')
 
