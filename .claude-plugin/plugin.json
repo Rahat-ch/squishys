@@ -1,0 +1,10 @@
+{
+  "name": "squishys",
+  "version": "0.1.0",
+  "description": "Gives every agent the orchestrator starts its own tiny pixel-art squishy.",
+  "author": { "name": "Rahat" },
+  "homepage": "https://github.com/Rahat-ch/squishys",
+  "repository": "https://github.com/Rahat-ch/squishys",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

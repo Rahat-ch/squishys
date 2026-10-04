@@ -1,0 +1,14 @@
+{
+  "name": "squishys",
+  "private": true,
+  "description": "Dev tooling for the squishys Claude Code mod. The mod's version lives in .claude-plugin/plugin.json.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "typecheck": "node -e \"require('fs').existsSync('.claude-plugin/types/claude-code/index.d.ts') || (console.error('No engine types yet. Load the mod once with: claude --plugin-dir .'), process.exit(1))\" && tsc --noEmit -p .",
+    "test": "claude plugin test ."
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
