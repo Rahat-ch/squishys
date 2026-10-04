@@ -1,11 +1,11 @@
 // The focus view: the pane mode given over to one agent, reached by picking
 // its squishy. It shows the squishy at 2×, who the agent is, and the agent's
-// live activity.
+// live activity, and lets the user redirect it with a message.
 
 import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
-import type { ActivityRow, Agent, Model, Squishy, SquishyState } from '../types'
+import type { ActivityRow, Agent, Delivery, Model, RedirectOutcome, Squishy, SquishyState } from '../types'
 import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
 import { OPEN_PANE, PANE_ID, PICK_PREFIX, animatedPicture, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
@@ -33,6 +33,7 @@ const focusedAgentId = atom({ plugin: 'squishys', key: 'focusedAgentId' } as con
 const fedAgentIds = atom({ plugin: 'squishys', key: 'fedAgentIds' } as const, [])
 const switchedModels = atom({ plugin: 'squishys', key: 'switchedModels' } as const, {})
 const stopControl = atom({ plugin: 'squishys', key: 'stopControl' } as const, null)
+const delivery = atom({ plugin: 'squishys', key: 'delivery' } as const, null)
 /** The feeds, one member per agent id, each read as `atom({ ...activity, id }, [])`. */
 const activity = { plugin: 'squishys', key: 'activity' } as const
 
@@ -47,6 +48,15 @@ const CUT_SHORT = '\n\n… (cut short)'
 
 /** The longest a tool call's summary runs, in characters. */
 const SUMMARY_LIMIT = 80
+
+/** The longest a redirect's row in the feed runs, in characters. */
+const REDIRECT_ROW_LIMIT = 500
+
+/**
+ * Claude Code's refusal of an append to an agent with no running loop
+ * (`no running loop is <agent id>`), the one refusal a send can stand in for.
+ */
+const NO_RUNNING_LOOP = /no running loop/
 
 /** The arguments that say most about a tool call, the most telling first. */
 const TELLING_ARGUMENTS = ['command', 'file_path', 'notebook_path', 'path', 'pattern', 'url', 'query', 'description', 'prompt', 'skill']
@@ -102,8 +112,12 @@ function summaryOf(call: Record<string, unknown>): string {
     (entry): entry is [string, string] => !ENVELOPE_FIELDS.includes(entry[0]) && typeof entry[1] === 'string',
   )
   const telling = TELLING_ARGUMENTS.map(name => strings.find(([key]) => key === name)).find(found => found !== undefined)
-  const line = printable((telling ?? strings[0])?.[1] ?? '').replace(/\s+/g, ' ').trim()
-  return line.length > SUMMARY_LIMIT ? `${cut(line, SUMMARY_LIMIT - 1)}…` : line
+  return shortened(printable((telling ?? strings[0])?.[1] ?? '').replace(/\s+/g, ' ').trim(), SUMMARY_LIMIT)
+}
+
+/** Text of at most `limit` characters, ending in … where it was cut. */
+function shortened(text: string, limit: number): string {
+  return text.length > limit ? `${cut(text, limit - 1)}…` : text
 }
 
 /** An answer as a Markdown can draw it: printable, and cut short, saying so, past its limit. */
@@ -159,6 +173,8 @@ export function registerFocus(on: On): void {
     if (agentId === undefined) return completed
     const row = wasStoppedByUser(agentId) ? { kind: 'stopped' as const } : rowAfterRun(e.reason, e.answer)
     if (row !== undefined) await addActivity($, agentId, row)
+    // A redirect's delivery is out of date once its agent ends
+    await update($, delivery, latest => (latest?.agentId === agentId ? null : latest))
     return completed
   })
 
@@ -167,10 +183,13 @@ export function registerFocus(on: On): void {
   // handler for every place a squishy can be picked from. Picked outside the
   // pane (from the band, while the pane is unplaced), it opens the pane too:
   // asked for by the press, it's placed at any width, and the band is drawn
-  // again to step aside.
-  on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e, next) => {
+  // again to step aside. It answers the press itself: the Buttons' own
+  // onPress is a no-op, and the redraw these writes bring drops the handler
+  // that next(e) would reach.
+  on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e) => {
     const agentId = e.element.slice(PICK_PREFIX.length)
     await leaveStop($)
+    await update($, delivery, latest => (latest?.agentId === agentId ? latest : null))
     await update($, focusedAgentId, () => agentId)
     await update($, mode, () => 'focus')
     if (pickedOutsidePane(e)) {
@@ -181,7 +200,7 @@ export function registerFocus(on: On): void {
       }
       $.ui.invalidate('ui.render')
     }
-    return next(e)
+    return { element: e.element }
   })
 
   // Stop takes two presses: the first arms it, and a second within
@@ -204,7 +223,7 @@ export function registerFocus(on: On): void {
   // since the engine reads a matcher off this file alone.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'focus') return next(e)
-    const { Box, Button, Markdown, Raster, Select, Text } = $.ui.resolve(e)
+    const { Box, Button, Input, Markdown, Raster, Select, Text } = $.ui.resolve(e)
     const id = await read($, focusedAgentId)
     const agent = (await read($, agents)).find(each => each.id === id)
     const back = <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void leaveFocus($)} />
@@ -237,6 +256,9 @@ export function registerFocus(on: On): void {
     const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
     const control = await read($, stopControl)
     const note = stopNote(agent, control?.agentId === agent.id && isArmed(control, agent.id, await $.clock.now()))
+    // The latest redirect, while its agent has neither ended nor resumed since
+    const latest = await read($, delivery)
+    const shownDelivery = latest?.agentId === agent.id && latest.wasEnded === isEnded(agent.state) ? latest : undefined
     return (
       <Box key="focus" flexDirection="column" rowGap={1}>
         <Box flexDirection="row" columnGap={2}>
@@ -265,7 +287,7 @@ export function registerFocus(on: On): void {
           {back}
           {canStop(agent) ? <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> : null}
           {partner !== undefined ? (
-            <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void update($, mode, () => 'roster')} />
+            <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void leaveFocus($)} />
           ) : null}
         </Box>
         {note === undefined ? null : (
@@ -273,11 +295,29 @@ export function registerFocus(on: On): void {
             <Text color="yellow">{note}</Text>
           </Box>
         )}
+        {/* Typing into it never presses a hotkey: AGENTS.md, "While an Input has the focus" */}
+        <Box key="redirect-row" flexDirection="column">
+          <Input key="redirect" label="Redirect" placeholder="a message for this agent" submitLabel="send" onSubmit={text => void redirect($, agent, text)} />
+          {shownDelivery === undefined ? null : shownDelivery.outcome === undefined ? (
+            <Text dimColor>Sending…</Text>
+          ) : shownDelivery.outcome.isDelivered ? (
+            <Text>{shownDelivery.outcome.viaResume ? `Sent to ${agent.squishy.name}. It had finished; the message resumed it.` : `Sent to ${agent.squishy.name}`}</Text>
+          ) : (
+            <Text color="red">Not sent: {printable(shownDelivery.outcome.reason)}</Text>
+          )}
+        </Box>
         <Box key="activity" flexDirection="column">
           {feed.length === 0 && agent.state !== 'thinking' ? <Text dimColor>No activity yet.</Text> : null}
           {feed.map((row, index) => {
             const key = `activity-${index}`
             if (row.kind === 'answer') return <Markdown key={key} text={row.text} />
+            if (row.kind === 'redirect') {
+              return (
+                <Box key={key}>
+                  <Text bold>You: {shortened(row.text, REDIRECT_ROW_LIMIT)}</Text>
+                </Box>
+              )
+            }
             if (row.kind !== 'tool') {
               return (
                 <Box key={key}>
@@ -303,6 +343,70 @@ export function registerFocus(on: On): void {
       </Box>
     )
   })
+}
+
+/**
+ * The agents a redirect is being sent to, so a second Enter while one is on
+ * its way sends nothing. Kept here rather than in $.state, whose reads in a
+ * second dispatch may predate the first one's write.
+ */
+const sending = new Set<string>()
+
+/**
+ * Sends the user's message to an agent and records the delivery: shown in
+ * the focus view, and once delivered, added to the agent's feed.
+ */
+async function redirect($: EngineInterface, agent: Agent, typed: string): Promise<void> {
+  const text = typed.trim()
+  if (text === '' || sending.has(agent.id)) return
+  sending.add(agent.id)
+  try {
+    const wasEnded = isEnded(agent.state)
+    const pending: Delivery = { agentId: agent.id, wasEnded }
+    await update($, delivery, () => pending)
+    const outcome = await deliver($, agent, fromUser(text))
+    await update($, delivery, () => ({ ...pending, outcome }))
+    if (outcome.isDelivered) await addActivity($, agent.id, { kind: 'redirect', text: printable(text) })
+  } finally {
+    sending.delete(agent.id)
+  }
+}
+
+/** A redirect as the agent reads it: from its user, never from another agent or the coordinator. */
+function fromUser(text: string): string {
+  return `Message from your user, typed into the squishys focus view (not from another agent or the coordinator): ${text}`
+}
+
+/**
+ * Delivers a message to an agent: a running one reads it, appended to its
+ * conversation, at the start of its next step; an ended one is sent it,
+ * which resumes it, and the tracker wakes its squishy on its next activity.
+ * A running agent's append refused for want of a running loop (it ended
+ * before its squishy showed it) is sent instead; any other refusal stands.
+ * The test kit can't append: AGENTS.md, "A redirect goes".
+ */
+async function deliver($: EngineInterface, agent: Agent, message: string): Promise<RedirectOutcome> {
+  if (!isEnded(agent.state)) {
+    let refusal: string
+    try {
+      const appended = await $.session.append({ agentId: agent.id, message: { type: 'user', content: [{ type: 'text', text: message }] } })
+      if (appended.deny === undefined) return { isDelivered: true, viaResume: false }
+      refusal = appended.deny
+    } catch (error) {
+      refusal = reasonOf(error)
+    }
+    if (!NO_RUNNING_LOOP.test(refusal)) return { isDelivered: false, reason: refusal }
+  }
+  try {
+    const sent = await $.session.send({ to: { agentId: agent.id }, text: message })
+    return sent.isDelivered ? { isDelivered: true, viaResume: true } : { isDelivered: false, reason: sent.reason }
+  } catch (error) {
+    return { isDelivered: false, reason: reasonOf(error) }
+  }
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -344,9 +448,10 @@ function stopNote(agent: Agent, armed: boolean): string | undefined {
   return `Stopping ${name} at its next step: its tool calls are refused.${why}`
 }
 
-/** Back to the roster, disarming Stop on the way. */
+/** Back to the roster, disarming Stop and clearing the latest redirect's delivery on the way. */
 async function leaveFocus($: EngineInterface): Promise<void> {
   await leaveStop($)
+  await update($, delivery, () => null)
   await update($, mode, () => 'roster')
 }
 
