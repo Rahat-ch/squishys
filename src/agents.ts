@@ -295,15 +295,16 @@ async function checkAgentList($: EngineInterface): Promise<void> {
 
 /**
  * Opens the pane at the session's first agent, unless it's open already,
- * without the keyboard (OPEN_PANE). Unasked, Claude Code places it only on a wide terminal (144 columns, 110
- * once the user has opened it before) and leaves it unplaced otherwise,
- * while the band (src/band.tsx) shows instead.
+ * never asking for the keyboard (OPEN_PANE). Unasked, Claude Code places it
+ * only on a wide terminal (144 columns, 110 once the user has opened it
+ * before) and leaves it unplaced otherwise, while the band (src/band.tsx)
+ * shows instead.
  */
 async function openPaneUnasked($: EngineInterface): Promise<void> {
   try {
     if ((await $.ui.panes()).some(pane => pane.id === PANE_ID)) return
     await $.ui.open(OPEN_PANE)
-    notePaneOpened(false)
+    notePaneOpened(OPEN_PANE)
   } catch {} // a refused open leaves the agent its squishy all the same
 }
 

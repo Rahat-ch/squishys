@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 
 import { compose } from '../src/composer'
 import { KIT } from '../src/kit'
-import { FEED_ROWS, MARKDOWN_LIMIT } from '../src/focus'
+import { FEED_ROWS, MARKDOWN_LIMIT, focusHint } from '../src/focus'
 import { FRAME_MS, pictureKey } from '../src/pane'
 import { halfBlocks } from '../src/raster'
 import { PANE, bashFrom, finishOf, readFrom, spawnOf, stepOf, stubBlits, stubSpawns, stubTurns } from './fixtures'
@@ -28,6 +28,30 @@ test('pressing a squishy’s button opens its focus view, and r returns to the r
   await $.ui.press({ plugin: 'squishys', key: 'back' })
   expect(await ui.find({ key: 'slot-agent-1' })).toBeDefined()
   expect(await ui.find({ key: 'focus' })).toBeUndefined()
+})
+
+test('while the pane lacks the keyboard, as after a pick from the band, the focus view says how to give it one beside the picture', async ($, on) => {
+  mock.store(on)
+  stubSpawns(on)
+  await $.agent.spawn(spawnOf('toolu_1'))
+  const unfocused = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
+
+  // Beside the 2× picture, cut short rather than wrapped, so it never adds a row
+  const hint = await unfocused.find({ type: 'Text', text: focusHint(true) })
+  expect(hint?.props.wrap).toBe('truncate-end')
+  expect(JSON.stringify(await unfocused.find({ key: 'focus-header' }))).toContain(focusHint(true))
+  await unfocused.unmount()
+
+  // On the main screen a click never reaches the pane
+  const classic = await $.ui.mount({ ...PANE, viewport: { ...PANE.viewport, isFullscreen: false }, surface: 'terminal' })
+  expect(await classic.find({ type: 'Text', text: focusHint(false) })).toBeDefined()
+  expect(focusHint(false)).not.toMatch(/click/i)
+  await classic.unmount()
+
+  const focused = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' })
+  expect(await focused.find({ key: 'focus' })).toBeDefined()
+  expect(await focused.find({ type: 'Text', text: focusHint(true) })).toBeUndefined()
 })
 
 test('each squishy in the roster answers to its digit, in slot order', async ($, on) => {

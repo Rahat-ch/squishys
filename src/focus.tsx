@@ -146,6 +146,15 @@ function pickedOutsidePane(press: { component: string }): boolean {
   return press.component !== 'Pane'
 }
 
+/**
+ * What the focus view says while the pane lacks the keyboard, as after a
+ * pick from the band, whose press holds the keys. On the main screen
+ * (Claude Code's classic rendering) a click never reaches the pane.
+ */
+export function focusHint(isFullscreen: boolean): string {
+  return isFullscreen ? 'Click here or press Ctrl+X Tab' : 'Press Ctrl+X Tab'
+}
+
 export function registerFocus(on: On): void {
   // The feed's hooks fit agents' events alone. They must run after the
   // agent tracker's hooks on the same events, which record an agent first
@@ -176,11 +185,11 @@ export function registerFocus(on: On): void {
   // a roster slot's, by click or digit) opens that agent's focus view. One
   // handler for every place a squishy can be picked from. Picked outside the
   // pane (from the band, while the pane is unplaced), it opens the pane too:
-  // asked for by the press, it's placed at any width and takes the keyboard
-  // (OPEN_PANE_ASKED), and the band is drawn
-  // again to step aside. It answers the press itself: the Buttons' own
-  // onPress is a no-op, and the redraw these writes bring drops the handler
-  // that next(e) would reach.
+  // asked for by the press, it's placed at any width and asks for the
+  // keyboard (OPEN_PANE_ASKED, likely refused while the band holds the keys),
+  // and the band is drawn again to step aside. It answers the press itself:
+  // the Buttons' own onPress is a no-op, and the redraw these writes bring
+  // drops the handler that next(e) would reach.
   on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e) => {
     const agentId = e.element.slice(PICK_PREFIX.length)
     await leaveStop($)
@@ -190,7 +199,7 @@ export function registerFocus(on: On): void {
     if (pickedOutsidePane(e)) {
       try {
         await $.ui.open(OPEN_PANE_ASKED)
-        notePaneOpened(true)
+        notePaneOpened(OPEN_PANE_ASKED)
       } catch (error) {
         $.ui.toast(openRefused(error))
       }
@@ -273,7 +282,7 @@ export function registerFocus(on: On): void {
     const shownDelivery = latest?.agentId === agent.id && latest.wasEnded === isEnded(agent.state) ? latest : undefined
     return (
       <Box key="focus" flexDirection="column" rowGap={1}>
-        <Box flexDirection="row" columnGap={2}>
+        <Box key="focus-header" flexDirection="row" columnGap={2}>
           <Raster key={pictureKey(agent.id, 'double')} {...animatedPicture(agent, 'double')} />
           <Box flexDirection="column">
             <Text bold>{agent.squishy.name}</Text>
@@ -292,6 +301,12 @@ export function registerFocus(on: On): void {
               />
             )}
             <Text>{agent.description}</Text>
+            {/* Beside the 2× picture, which is taller than this column, and cut short: it never adds a row */}
+            {e.props.isFocused ? null : (
+              <Text dimColor wrap="truncate-end">
+                {focusHint(e.viewport?.isFullscreen === true)}
+              </Text>
+            )}
           </Box>
         </Box>
         {/* As many controls to a row as fit the pane */}

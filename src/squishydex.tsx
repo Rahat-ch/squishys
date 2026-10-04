@@ -133,8 +133,8 @@ const squishydexPalette = atom({ plugin: 'squishys', key: 'squishydexPalette' } 
 
 export function registerSquishydex(on: On): void {
   // /squishydex (registered with /squishys, in src/pane.tsx) opens the pane
-  // on the Squishydex's pages. Asked for, the pane is placed at any width
-  // and takes the keyboard, opened again if it lacks it, and the band
+  // on the Squishydex's pages. Asked for, the pane is placed at any width,
+  // and asks for the keyboard, opened again while it lacks it; the band
   // (src/band.tsx) is drawn again to step aside.
   on('command.run', { command: 'squishydex' }, async $ => {
     await showPages($)
@@ -142,7 +142,7 @@ export function registerSquishydex(on: On): void {
     if (!panes.some(pane => pane.id === PANE_ID && pane.isPlaced && pane.isFocused)) {
       try {
         await $.ui.open(OPEN_PANE_ASKED)
-        notePaneOpened(true)
+        notePaneOpened(OPEN_PANE_ASKED)
       } catch (error) {
         $.ui.toast(openRefused(error))
       }

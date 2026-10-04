@@ -100,7 +100,9 @@ export function registerPartner(on: On): void {
       <Box flexDirection="column">
         <Text bold>Pick your partner, the squishy that stands for the orchestrator.</Text>
         {/* The hint takes the blank row under the title, so the pick stays as tall as the inline pane asks for */}
-        <Text dimColor>{e.props.isFocused ? ' ' : starterHint(e.viewport?.isFullscreen === true)}</Text>
+        <Text dimColor wrap="truncate-end">
+          {e.props.isFocused ? ' ' : starterHint(e.viewport?.isFullscreen === true)}
+        </Text>
         <Box key="starters" flexDirection="column" rowGap={SLOT_ROW_GAP}>
           {rows.map((row, rowIndex) => (
             <Box key={`starter-row-${rowIndex}`} flexDirection="row" columnGap={SLOT_COLUMN_GAP}>

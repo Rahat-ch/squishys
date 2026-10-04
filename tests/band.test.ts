@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { On, PaneOpenArgs } from 'claude-code'
+import type { On } from 'claude-code'
 
 import { OPEN_HINT } from '../src/band'
 import { KIT } from '../src/kit'
@@ -9,7 +9,7 @@ import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { BAND_GAP, BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, nameCut } from '../src/slots'
-import { PANE, PARTNERED, SQUISHYS_COMMAND, readFrom, spawnOf, stubBlits, stubSpawns, stubStore } from './fixtures'
+import { PANE, PARTNERED, SQUISHYS_COMMAND, readFrom, spawnOf, stubBlits, stubPanes, stubSpawns, stubStore } from './fixtures'
 import { cellsOf } from './pictures'
 
 // The band's render input, as Claude Code passes it, with room for `across`
@@ -36,36 +36,6 @@ function bandSized(across: number, { pictured = true, overflow = 0, hasSurvey = 
 const BENEATH = 'drawn by Claude Code'
 function stubBandBeneath(on: On): void {
   on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: [BENEATH] }))
-}
-
-// Stands in for Claude Code's panes, placing an unasked open only on a wide
-// terminal (`wide`) and leaving it unplaced otherwise. Claude Code places an
-// open the user asked for (from the hook of a command they typed, or a
-// press) at any width: the test sets `asking` around such an act. With
-// `unplaced`, the pane starts open and unplaced, as an earlier open left it;
-// with `refusal`, an open the user asked for is refused so. Reads back every
-// open asked for.
-function stubPanes(
-  on: On,
-  { wide, unplaced = false, refusal }: { wide: boolean; unplaced?: boolean; refusal?: string },
-): { opens: PaneOpenArgs[]; asking: boolean } {
-  const stub = { opens: [] as PaneOpenArgs[], asking: false }
-  const open = new Map<string, boolean>(unplaced ? [[PANE_ID, false]] : [])
-  on('ui.panes', () => ({
-    value: [...open].map(([id, isPlaced]) => ({ id, title: id, isShown: true, isFocused: false, isPlaced })),
-  }))
-  on('ui.open', ($, e) => {
-    stub.opens.push(e)
-    if (stub.asking && refusal !== undefined) return { deny: refusal }
-    const isPlaced = wide || stub.asking || open.get(e.id) === true
-    open.set(e.id, isPlaced)
-    return { value: isPlaced ? { isPlaced } : { isPlaced, reason: 'An unasked pane needs 144 columns; the terminal has 100' } }
-  })
-  on('ui.close', ($, e) => {
-    open.delete(e.id)
-    return { value: undefined }
-  })
-  return stub
 }
 
 // Reads back every toast the mod shows

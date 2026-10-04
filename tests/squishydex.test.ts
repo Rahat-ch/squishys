@@ -3,7 +3,7 @@
 
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, Mounted } from 'claude-code/testing'
-import type { On, PaneOpenArgs } from 'claude-code'
+import type { On } from 'claude-code'
 
 import { compose } from '../src/composer'
 import { KIT, everySpecies } from '../src/kit'
@@ -28,6 +28,7 @@ import {
   roomFor,
   spawnOf,
   stubAgentList,
+  stubPanes,
   stubSessionStart,
   stubSpawns,
   stubStore,
@@ -245,12 +246,7 @@ test('/squishydex is registered to run mid-turn, and opens the pane on the Squis
     return { value: { command: e.name } }
   })
   on('session.start', () => ({ cwd: '/work' }))
-  const opens: PaneOpenArgs[] = []
-  on('ui.panes', () => ({ value: [] }))
-  on('ui.open', ($, e) => {
-    opens.push(e)
-    return { value: { isPlaced: true } }
-  })
+  const { opens } = stubPanes(on)
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
   expect(registered).toContainEqual(expect.objectContaining({ name: 'squishydex', immediate: true }))
 
@@ -263,25 +259,20 @@ test('/squishydex is registered to run mid-turn, and opens the pane on the Squis
 
 test('/squishydex gives the keyboard to an open pane that lacks it, and leaves one that has it be', async ($, on) => {
   stubStore(on, PARTNERED)
-  let isFocused = false
-  const opens: PaneOpenArgs[] = []
-  on('ui.panes', () => ({ value: [{ id: PANE_ID, title: 'Squishys', isShown: true, isFocused, isPlaced: true }] }))
-  on('ui.open', ($, e) => {
-    opens.push(e)
-    return { value: { isPlaced: true } }
-  })
+  const { opens, panes } = stubPanes(on)
+  panes.set(PANE_ID, { isPlaced: true, isFocused: false })
 
   await $.command.run(SQUISHYDEX_COMMAND)
   expect(opens).toEqual([{ ...OPEN_PANE, focus: true }])
 
-  isFocused = true
+  panes.set(PANE_ID, { isPlaced: true, isFocused: true })
   await $.command.run(SQUISHYDEX_COMMAND)
   expect(opens).toHaveLength(1)
 })
 
 test('/squishydex before the first partner is picked returns to the starter pick, never a roster without a partner', async ($, on) => {
   stubStore(on)
-  on('ui.panes', () => ({ value: [{ id: PANE_ID, title: 'Squishys', isShown: true, isFocused: false, isPlaced: true }] }))
+  stubPanes(on).panes.set(PANE_ID, { isPlaced: true, isFocused: false })
   await startSession($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 'starter-1' })).toBeDefined()
