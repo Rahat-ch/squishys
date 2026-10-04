@@ -8,7 +8,7 @@ import { CROWN, GLYPHS, GLYPH_ROWS, MISSING, SPARKLE } from './card-font'
 import type { Kit, Rarity } from './kit'
 import type { Bitmap } from './png'
 import type { Pixels } from './raster'
-import { SHINY_MARK } from './roller'
+import { withoutShinyMark } from './roller'
 import type { Squishy } from './roller'
 
 /** A card: its bitmap, and where the squishy's picture sits on it, each picture pixel `scale` card pixels each way. */
@@ -52,7 +52,7 @@ const BADGE_TEXT = 0xffffff
 export const CROWN_COLOR = 0xf2a900
 
 /** The card's own color, by the squishy's rarity, or gold for a legendary. */
-const CARD_COLORS: Readonly<Record<Rarity | 'legendary', number>> = {
+const CARD_COLORS: Readonly<Record<Standing, number>> = {
   common: 0xf3efe6,
   uncommon: 0xe2f1e4,
   rare: 0xe0e9f8,
@@ -60,7 +60,7 @@ const CARD_COLORS: Readonly<Record<Rarity | 'legendary', number>> = {
 }
 
 /** The badges' colors. */
-const BADGE_COLORS: Readonly<Record<Rarity | 'legendary' | 'shiny', number>> = {
+const BADGE_COLORS: Readonly<Record<Standing | 'shiny', number>> = {
   common: 0x7a7468,
   uncommon: 0x2f8a57,
   rare: 0x2f63c0,
@@ -106,7 +106,7 @@ export function drawCard(picture: Pixels, squishy: Squishy): Card {
   const lineTop = titleTop + CAP_ROWS * FOOTER_TITLE_SCALE + GAPS.footer
   const height = lineTop + GLYPH_ROWS * lineScale + GAPS.foot
 
-  const card = canvas(width, height, CARD_COLORS[squishy.kind === 'legendary' ? 'legendary' : squishy.rarity])
+  const card = canvas(width, height, CARD_COLORS[standingOf(squishy)])
   roundedRect(card, PADDING - PANEL_INSET, PADDING - PANEL_INSET, art + 2 * PANEL_INSET, art + 2 * PANEL_INSET, PANEL_RADIUS, PANEL_COLOR)
   picture.forEach((row, y) =>
     row.forEach((pixel, x) => {
@@ -127,18 +127,26 @@ export function drawCard(picture: Pixels, squishy: Squishy): Card {
   return { ...card, art: { left: PADDING, top: PADDING, scale } }
 }
 
-/** The Name as the card writes it: after a sparkle for a shiny (one the Name carries already isn't doubled). */
+/**
+ * The Name as the card writes it: a shiny's SHINY_MARK (an emoji the font
+ * can't draw) as the font's pixel sparkle.
+ */
 function nameOf(squishy: Squishy): string {
-  const bare = squishy.name.replace(/^✨️?\s*/, '')
+  const bare = withoutShinyMark(squishy.name)
   return squishy.shiny ? `${SPARKLE} ${bare}` : bare
 }
 
-/** The badges: legendary or the rarity, then shiny. */
+/** What sets a card's color and its first badge: legendary, or the squishy's rarity. */
+type Standing = Rarity | 'legendary'
+
+function standingOf(squishy: Squishy): Standing {
+  return squishy.kind === 'legendary' ? 'legendary' : squishy.rarity
+}
+
+/** The badges: legendary (crowned) or the rarity, then shiny. */
 function badgesOf(squishy: Squishy): Badge[] {
-  const first: Badge =
-    squishy.kind === 'legendary'
-      ? { text: `${CROWN} LEGENDARY`, color: BADGE_COLORS.legendary }
-      : { text: squishy.rarity.toUpperCase(), color: BADGE_COLORS[squishy.rarity] }
+  const standing = standingOf(squishy)
+  const first: Badge = { text: standing === 'legendary' ? `${CROWN} LEGENDARY` : standing.toUpperCase(), color: BADGE_COLORS[standing] }
   return squishy.shiny ? [first, { text: `${SPARKLE} SHINY`, color: BADGE_COLORS.shiny }] : [first]
 }
 

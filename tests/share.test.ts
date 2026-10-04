@@ -12,12 +12,10 @@ import { REMEMBERED_KEY } from '../src/rebuild'
 import type { Remembered } from '../src/rebuild'
 import { legendaryKey, speciesSquishy, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
-import { agentShareKey, speciesShareKey } from '../src/share'
+import { REPO_URL, SHARE_LINK_LABEL, agentShareKey, cardFileName, speciesShareKey } from '../src/share'
 import { speciesKey } from '../src/squishydex-record'
 import { PANE, PARTNERED, finishOf, spawnOf, stubAgentList, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { decodePng } from './png-reader'
-
-const REPO = 'https://github.com/Rahat-ch/squishys'
 
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
 
@@ -50,9 +48,9 @@ function commandOf(argv: readonly string[]): string {
   return /xdg-open/.test(argv[2] ?? '') ? 'xdg-open' : 'sh'
 }
 
-/** Where the save writes, as the stub's /tmp says: the file name it was given, under squishys-share. */
+/** Where the stub says the save wrote: the file name it was given, under a folder of the user's own. */
 function savedPath(argv: readonly string[]): string {
-  return `/tmp/squishys-share/${argv.at(-1) ?? ''}`
+  return `/home/me/.cache/squishys/share/${argv.at(-1) ?? ''}`
 }
 
 function stubToasts(on: On): string[] {
@@ -148,8 +146,10 @@ test('on macOS, Share saves the squishy’s card, copies it to the clipboard and
   expect(runs[1]?.argv).toContain(path)
   expect(runs[2]?.argv).toEqual(['open', openedUrl(runs)])
   expect(runs).toHaveLength(3)
-  expect(composed(openedUrl(runs))).toEqual({ text: `My squishy ${squishy.name} just finished: Find config parser 🥟`, url: REPO })
+  expect(composed(openedUrl(runs))).toEqual({ text: `My squishy ${squishy.name} just finished: Find config parser 🥟`, url: REPO_URL })
   expect(toasts.join('\n')).toContain('clipboard')
+  // The browser opened, so no link is offered
+  expect(await ui.find({ type: 'Link' })).toBeUndefined()
 })
 
 test('on Linux, Share saves the card, shows its folder and path, and opens the compose page through xdg-open', async ($, on) => {
@@ -165,24 +165,25 @@ test('on Linux, Share saves the card, shows its folder and path, and opens the c
   expect(runs[1]?.argv.at(-1)).toBe(folder)
   expect(commandOf(runs[1]?.argv ?? [])).toBe('xdg-open')
   expect(commandOf(runs[2]?.argv ?? [])).toBe('xdg-open')
-  expect(composed(openedUrl(runs))?.url).toBe(REPO)
+  expect(composed(openedUrl(runs))?.url).toBe(REPO_URL)
   expect(toasts.join('\n')).toContain(path)
+  // xdg-open runs in the background, so whether X opened is never known: the link is always offered
+  const link = await ui.find({ type: 'Link' })
+  expect(link?.props).toMatchObject({ href: openedUrl(runs), label: SHARE_LINK_LABEL })
 })
 
-test('the card is saved in a squishys-share folder under the temp dir, named after the squishy', async ($, on) => {
+test('the card is saved under a file name made from the squishy’s key', async ($, on) => {
   const runs = stubProcesses(on)
   stubToasts(on)
-  const { ui, squishy } = await finishedAgent($, on)
+  const { squishy } = await finishedAgent($, on)
 
   await $.ui.press({ plugin: 'squishys', key: agentShareKey('agent-1') })
 
-  const script = runs[0]?.argv[2] ?? ''
-  expect(script).toContain('TMPDIR:-/tmp')
-  expect(script).toContain('squishys-share')
-  expect(runs[0]?.argv.at(-1)).toBe(`${squishy.key.replace(/[^a-z0-9]+/gi, '-')}.png`)
+  expect(runs[0]?.argv.at(-1)).toBe(cardFileName(squishy))
+  expect(cardFileName(squishy)).toMatch(/^[a-z0-9-]+\.png$/i)
 })
 
-test('a long task is cut short in the share text', async ($, on) => {
+test('a long description is cut short in the share text', async ($, on) => {
   const runs = stubProcesses(on)
   stubToasts(on)
   const long = `Refactor the payment service ${'and its secrets '.repeat(20)}`
@@ -195,6 +196,29 @@ test('a long task is cut short in the share text', async ($, on) => {
   expect(text).toContain('…')
   expect(text.endsWith(' 🥟')).toBe(true)
   expect(text.length).toBeLessThan(`My squishy ${squishy.name} just finished:  🥟`.length + 80)
+})
+
+test('a description with a lone surrogate half still makes a compose page, the half replaced', async ($, on) => {
+  const runs = stubProcesses(on)
+  stubToasts(on)
+  const { squishy } = await finishedAgent($, on, 'Fix \ud83d the build')
+
+  await $.ui.press({ plugin: 'squishys', key: agentShareKey('agent-1') })
+
+  expect(composed(openedUrl(runs))?.text).toBe(`My squishy ${squishy.name} just finished: Fix \ufffd the build 🥟`)
+})
+
+test('a browser that won’t open on macOS still toasts the copied card, and offers the compose page as a link', async ($, on) => {
+  stubProcesses(on, 'Darwin', { open: { exitCode: 1, stderr: 'No application knows how to open URL' } })
+  const toasts = stubToasts(on)
+  const { ui } = await finishedAgent($, on)
+
+  await $.ui.press({ plugin: 'squishys', key: agentShareKey('agent-1') })
+
+  expect(toasts).toHaveLength(2)
+  expect(toasts[0]).toContain('clipboard')
+  expect(toasts[1]).toContain('No application knows how to open URL')
+  expect((await ui.find({ type: 'Link' }))?.props.label).toBe(SHARE_LINK_LABEL)
 })
 
 test('a card that can’t be saved says why in a toast, and the compose page still opens', async ($, on) => {
@@ -268,7 +292,7 @@ test('a met species’ Squishydex card has Share, which shares what was met and 
 
   await $.ui.press({ plugin: 'squishys', key: speciesShareKey(squishy.key) })
 
-  expect(composed(openedUrl(runs))).toEqual({ text: `I met ${squishy.name} in squishys 🥟 · 1/${everySpecies(KIT).length} species`, url: REPO })
+  expect(composed(openedUrl(runs))).toEqual({ text: `I met ${squishy.name} in squishys 🥟 · 1/${everySpecies(KIT).length} species`, url: REPO_URL })
   expect([...decodePng(savedPng(runs)).pixels]).toEqual([...shareCard(KIT, squishy).pixels])
 })
 

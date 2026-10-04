@@ -12,12 +12,12 @@ import { compose } from './composer'
 import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
 import { OPEN_PANE, PANE_ID, openRefused } from './pane'
-import { SHARE_HOTKEY, speciesShareKey, unopenedShare } from './share'
 import { PARTNER_KEY, partnerFrom, stillPicture } from './partner'
 import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
 import { bareAccessory, legendaryKey, speciesSquishy, squishyOf } from './roller'
 import type { AssembledSquishy, LegendarySquishy } from './roller'
+import { SHARE_HOTKEY, SHARE_LINK_LABEL, speciesShareKey, unopenedShare } from './share'
 import { BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, PICTURE_ROWS, buttonColumns, linedUp, nameCut } from './slots'
 import { SQUISHYDEX_KEY, isNewIn, partnerPalettes, progressOf, recordMet, recordViewed, speciesKey, squishydexFrom, variantOfKey } from './squishydex-record'
 import type { DexPlace, MetLegendary, MetSpecies, Squishydex } from './squishydex-record'
@@ -336,7 +336,7 @@ export function registerSquishydex(on: On): void {
             />
           ) : null}
           {rowsOf('squishydex-card-footer', actions)}
-          {shareLink !== undefined ? <Link key="squishydex-share-link" href={shareLink} label="Post on X" /> : null}
+          {shareLink !== undefined ? <Link key="squishydex-share-link" href={shareLink} label={SHARE_LINK_LABEL} /> : null}
         </Box>
       )
     }

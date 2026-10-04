@@ -10,8 +10,9 @@ import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
 import { OPEN_PANE, PANE_ID, PICK_PREFIX, animatedPicture, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
-import { SHARE_HOTKEY, agentShareKey, unopenedShare } from './share'
-import { endedState, isEnded } from './states'
+import { SHARE_HOTKEY, SHARE_LINK_LABEL, agentShareKey, unopenedShare } from './share'
+import { buttonColumns, linedUp } from './slots'
+import { canShare, endedState, isEnded } from './states'
 import {
   STOP_CONFIRM_MS,
   STOP_WAIT_MS,
@@ -25,6 +26,7 @@ import {
   taskIdOf,
   wasStoppedByUser,
 } from './stop'
+import { printable } from './text'
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -46,6 +48,12 @@ export const MARKDOWN_LIMIT = 10_000
 
 /** What ends an answer cut to fit a Markdown. */
 const CUT_SHORT = '\n\n… (cut short)'
+
+/** What the focus view's Back button says. */
+const BACK_LABEL = 'Back to the roster'
+
+/** The columns between the focus view's controls. */
+const CONTROL_GAP = 2
 
 /** The longest a tool call's summary runs, in characters. */
 const SUMMARY_LIMIT = 80
@@ -82,21 +90,6 @@ const STATE_NAMES: Record<SquishyState, string> = {
 
 /** How each run that ended without an answer reads in the feed. */
 const ENDED_ROWS = { interrupted: 'Interrupted', failed: 'Failed', stopped: 'Stopped by you' } as const
-
-/**
- * Text with every control character but tab and newline taken out: terminal
- * escape sequences whole, then any other C0 or C1 character (`\r` too). A
- * Text or Markdown holding one is refused, and the whole tree with it.
- */
-function printable(text: string): string {
-  return (
-    text
-      // CSI sequences (colors, cursor moves), OSC sequences (titles, links), then lone escapes
-      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
-      .replace(/\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)?/g, '')
-      .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')
-  )
-}
 
 /** The first `length` UTF-16 units of `text`, never ending halfway through a surrogate pair. */
 function cut(text: string, length: number): string {
@@ -227,7 +220,7 @@ export function registerFocus(on: On): void {
     const { Box, Button, Input, Link, Markdown, Raster, Select, Text } = $.ui.resolve(e)
     const id = await read($, focusedAgentId)
     const agent = (await read($, agents)).find(each => each.id === id)
-    const back = <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void leaveFocus($)} />
+    const back = <Button key="back" hotkey="r" plain label={BACK_LABEL} onPress={() => void leaveFocus($)} />
     if (agent === undefined) {
       return (
         <Box flexDirection="column" rowGap={1}>
@@ -258,6 +251,20 @@ export function registerFocus(on: On): void {
     const control = await read($, stopControl)
     // The compose page of a Share the browser didn't open
     const shareLink = unopenedShare(agentShareKey(agent.id))
+    const controls: { columns: number; drawn: JSX.Element }[] = [
+      { columns: buttonColumns(BACK_LABEL, 'r'), drawn: back },
+      ...(canStop(agent) ? [{ columns: buttonColumns('Stop', 's'), drawn: <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> }] : []),
+      ...(partner !== undefined
+        ? [{ columns: buttonColumns(partner.name, '1'), drawn: <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void leaveFocus($)} /> }]
+        : []),
+      // Answered by the ui.press hook in share.tsx
+      ...(canShare(agent)
+        ? [{ columns: buttonColumns('Share', SHARE_HOTKEY), drawn: <Button key={agentShareKey(agent.id)} hotkey={SHARE_HOTKEY} plain label="Share" onPress={() => {}} /> }]
+        : []),
+      ...(canShare(agent) && shareLink !== undefined
+        ? [{ columns: SHARE_LINK_LABEL.length, drawn: <Link key="focus-share-link" href={shareLink} label={SHARE_LINK_LABEL} /> }]
+        : []),
+    ]
     const note = stopNote(agent, control?.agentId === agent.id && isArmed(control, agent.id, await $.clock.now()))
     // The latest redirect, while its agent has neither ended nor resumed since
     const latest = await read($, delivery)
@@ -285,16 +292,17 @@ export function registerFocus(on: On): void {
             <Text>{agent.description}</Text>
           </Box>
         </Box>
-        {/* Redirect (#13) joins the controls here. */}
-        <Box key="controls" flexDirection="row" columnGap={2}>
-          {back}
-          {canStop(agent) ? <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> : null}
-          {partner !== undefined ? (
-            <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void leaveFocus($)} />
-          ) : null}
-          {/* Answered by the ui.press hook in share.tsx */}
-          {agent.state === 'asleep' ? <Button key={agentShareKey(agent.id)} hotkey={SHARE_HOTKEY} plain label="Share" onPress={() => {}} /> : null}
-          {agent.state === 'asleep' && shareLink !== undefined ? <Link key="share-link" href={shareLink} label="Post on X" /> : null}
+        {/* As many controls to a row as fit the pane */}
+        <Box key="controls" flexDirection="column">
+          {linedUp(
+            controls.map(control => control.columns),
+            e.props.bodyColumns,
+            CONTROL_GAP,
+          ).map((line, index) => (
+            <Box key={`controls-${index}`} flexDirection="row" columnGap={CONTROL_GAP}>
+              {line.map(at => controls[at]?.drawn)}
+            </Box>
+          ))}
         </Box>
         {note === undefined ? null : (
           <Box key="stop-note">
