@@ -187,6 +187,35 @@ test('with every part and legendary, a squishy moves when Working or Thinking, s
   }
 })
 
+/** How many pixels differ between two pictures of one size. */
+function pixelsChanged(one: ReturnType<typeof compose>, other: ReturnType<typeof compose>): number {
+  return one.reduce((count, row, r) => count + row.filter((pixel, c) => pixel !== other[r]?.[c]).length, 0)
+}
+
+// The fewest pixels that read as motion at any size: a lone pixel flickering
+// on the mini is easy to miss
+const VISIBLY = 2
+
+test('with every part and legendary, at every size, a Working squishy’s wiggle and a Thinking one’s bounce visibly move', () => {
+  const [mochi, flower] = [KIT.bodies.find(body => body.id === 'mochi'), KIT.accessories.find(accessory => accessory.id === 'flower')]
+  if (mochi === undefined || flower === undefined) throw new Error('The kit has the mochi body and the flower accessory')
+  const [first] = eachPart(KIT).filter(squishy => squishy.kind === 'assembled')
+  if (first?.kind !== 'assembled') throw new Error('The kit makes assembled squishys')
+  // The mochi with the flower once held still on the mini
+  const squishys = [{ ...first, body: mochi.id, accessory: flower.id }, ...eachPart(KIT)]
+  for (const squishy of squishys) {
+    for (const size of Object.keys(SIDES) as Size[]) {
+      const at = (state: SquishyState, frame: number) => compose(KIT, squishy, { state, frame, size })
+      const what = `${JSON.stringify(squishy)} ${size}`
+      // The wiggle holds each frame for two ticks
+      const wiggled = pixelsChanged(at('working', 0), at('working', 2))
+      if (wiggled < VISIBLY) throw new Error(`${what} wiggles by ${wiggled} pixels`)
+      const bounced = pixelsChanged(at('thinking', 0), at('thinking', 1))
+      if (bounced < VISIBLY) throw new Error(`${what} bounces by ${bounced} pixels`)
+    }
+  }
+})
+
 test('kit art the composer can’t draw is an error, not a gap in the picture', () => {
   const [face] = TEST_KIT.faces
   if (face === undefined) throw new Error('TEST_KIT has a face')
@@ -239,6 +268,17 @@ test('a Working squishy wiggles: upright for two frames, then its top leans over
   expect(drawnIn(at(2), LOW)).toEqual([COLUMN])
   expect(at(3)).toEqual(at(2))
   expect(at(4)).toEqual(at(0))
+})
+
+test('on the mini, a Working squishy leans a whole pixel of the mini, down through its middle row', () => {
+  const at = (frame: number) => posed(kitWith(grid('b')), 'working', frame, 'mini')
+  const middle = Math.floor(SIDES.mini / 2)
+  const every = Array.from({ length: SIDES.mini }, (_, column) => column)
+
+  expect(at(0).map((_, row) => drawnIn(at(0), row))).toEqual(at(0).map(() => every))
+  expect(at(2).map((_, row) => drawnIn(at(2), row))).toEqual(at(2).map((_, row) => (row <= middle ? every.slice(1) : every)))
+  expect(at(1)).toEqual(at(0))
+  expect(at(3)).toEqual(at(2))
 })
 
 test('a Thinking squishy bounces every frame, twice as fast as the wiggle: a pixel down, then back up', () => {

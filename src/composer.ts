@@ -41,8 +41,22 @@ export type Pose = {
 /** The key that draws nothing in a part's grid, letting what lies beneath show. */
 export const SEE_THROUGH = '.'
 
-/** How many rows from the top lean as a Working squishy wiggles: those above the middle. */
-const LEANING_ROWS = PICTURE_SIZE / 2 - 1
+/** How a Working squishy leans: its top `rows` rows moved `by` pixels sideways. */
+type Lean = { by: number; rows: number }
+
+/** How a Working squishy leans as it wiggles: its rows above the middle, a pixel over. */
+const LEAN: Lean = { by: 1, rows: PICTURE_SIZE / 2 - 1 }
+
+/** How many pixels of the PICTURE_SIZE picture shrink to one of the mini's, across and down. */
+const MINI_STEP = PICTURE_SIZE / SIDES.mini
+
+/**
+ * How the mini leans, drawn at full size before it is shrunk: a whole pixel
+ * of the mini over, since LEAN's one pixel is half of one there and shrinking
+ * can lose it, and down through the mini's middle row, since its top rows are
+ * mostly its flat outline, which shows no lean.
+ */
+const MINI_LEAN: Lean = { by: MINI_STEP, rows: Math.ceil(SIDES.mini / 2) * MINI_STEP }
 
 /** How wide an Asleep squishy's shut eye is, at least. */
 export const SHUT_EYE_WIDTH = Math.ceil(PICTURE_SIZE / 6)
@@ -53,7 +67,8 @@ export const SHUT_EYE_WIDTH = Math.ceil(PICTURE_SIZE / 6)
  * every part and legendary has every pose without art of its own.
  *
  * `frame` counts the animator's ticks: a Working squishy's wiggle moves
- * every second frame, and a Thinking squishy's bounce every frame.
+ * every second frame, and a Thinking squishy's bounce every frame. The
+ * mini leans further (MINI_LEAN), so its wiggle survives shrinking.
  *
  * A squishy that Needs you holds still, with its "!" bubble drawn over the
  * picture once it is at its final size, so the mark keeps its shape there.
@@ -99,28 +114,34 @@ const MINI_Z: Grid = ['#'.padStart(PICTURE_SIZE / 2, '.')]
  */
 function mini(painting: Painting, pose: Pose): Pixels {
   const { colors } = painting
-  const posed = posedPicture(painting, pose, { showZ: false })
-  const marked = posedPicture(painting, pose, { showZ: false, eyeColor: EYE_MARK })
+  const posed = posedPicture(painting, pose, { showZ: false, lean: MINI_LEAN })
+  const marked = posedPicture(painting, pose, { showZ: false, eyeColor: EYE_MARK, lean: MINI_LEAN })
   const small = shrunk(posed, marked, colors.outline, colors[KEY_COLORS[EYE_KEY]])
   return pose.state === 'asleep' ? overlaid(small, MINI_Z, { '#': ZZZ_COLOR }) : small
 }
 
-/** What a pose is drawn with besides the squishy's own art. */
+/** Whether a Working squishy leans at this frame: a 2-frame wiggle, upright then leaning, each frame held for two ticks. */
+function leansAt(frame: number): boolean {
+  return Math.floor(frame / 2) % 2 === 1
+}
+
+/** What a pose is drawn with besides the squishy's own art, and how far it leans. */
 type PoseMarks = {
   /** The eyes' color, in place of their own: EYE_MARK, to find where they went. */
   eyeColor?: number
   /** Whether an Asleep squishy shows its z; it does unless told not to. */
   showZ?: boolean
+  /** How a Working squishy leans: LEAN unless told otherwise. */
+  lean?: Lean
 }
 
-function posedPicture({ grids, colors }: Painting, { state, frame }: Pose, { eyeColor, showZ = true }: PoseMarks = {}): Pixels {
+function posedPicture({ grids, colors }: Painting, { state, frame }: Pose, { eyeColor, showZ = true, lean = LEAN }: PoseMarks = {}): Pixels {
   // Colors that stand in for their keys' own, by key
   const overrides: KeyOverrides = eyeColor === undefined ? {} : { [EYE_KEY]: eyeColor }
   const still = painted(grids, colors, { overrides })
   switch (state) {
     case 'working':
-      // A 2-frame wiggle, upright then leaning, each frame held for two ticks
-      return Math.floor(frame / 2) % 2 === 0 ? still : leaning(still, 1)
+      return leansAt(frame) ? leaning(still, lean) : still
     case 'thinking':
       // A pixel down and back up, a frame each. It starts low, so a Thinking
       // squishy differs from a Working one even standing still. The art keeps
@@ -333,9 +354,9 @@ function topKey(grids: readonly Grid[], row: number, column: number): string {
   return shown
 }
 
-/** The top rows moved sideways by `by` pixels; what moves off the edge is lost. */
-function leaning(pixels: Pixels, by: number): Pixels {
-  return pixels.map((row, index) => (index < LEANING_ROWS ? row.map((_, column) => row[column - by] ?? null) : row))
+/** The top `rows` rows moved sideways by `by` pixels; what moves off the edge is lost. */
+function leaning(pixels: Pixels, { by, rows }: Lean): Pixels {
+  return pixels.map((row, index) => (index < rows ? row.map((_, column) => row[column - by] ?? null) : row))
 }
 
 /** The whole picture moved down by `by` pixels; what moves off the bottom is lost. */
