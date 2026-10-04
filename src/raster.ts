@@ -23,7 +23,7 @@ const TERMINAL_DEFAULT = 0x01000000
  * Two pixel rows to a row of cells: ▀ in the top pixel's color over the
  * bottom one's, ▄ in the bottom one's where only it is drawn, a space where
  * neither is. An odd last row leaves the bottom halves see-through. The
- * Raster packer and the spinner's tiny face both draw through this.
+ * Raster packer and the spinner's mini both draw through this.
  */
 export function halfBlockRows(pixels: Pixels): HalfBlock[][] {
   return Array.from({ length: Math.ceil(pixels.length / 2) }, (_, row) =>
