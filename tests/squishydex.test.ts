@@ -9,7 +9,7 @@ import { compose } from '../src/composer'
 import { cycleLabel } from '../src/keys'
 import { KIT, everySpecies } from '../src/kit'
 import type { Species } from '../src/kit'
-import { OPEN_PANE, PANE_ID } from '../src/pane'
+import { OPEN_PANE, PANE_ID, SLOT_HOVER } from '../src/pane'
 import { PARTNER_KEY, PARTNER_PICTURE, stillPicture } from '../src/partner'
 import { halfBlocks } from '../src/raster'
 import { REMEMBERED_KEY } from '../src/rebuild'
@@ -24,6 +24,7 @@ import {
   PARTNERED,
   SQUISHYDEX_COMMAND,
   glyphsOf,
+  hoverOf,
   paneSized,
   readFrom,
   roomFor,
@@ -308,6 +309,20 @@ test('met species show in color, in the palette first met; unmet ones as solid s
   // Every species has its place, met or not, each keyed by its species
   const pictured = (await ui.findAll({ type: 'Raster' })).map(raster => speciesOfKey(String(raster.key).replace('squishydex-picture-', '')))
   expect(pictured).toEqual(everySpecies(KIT))
+})
+
+test('the pointer anywhere over a met place lights the whole place, as a roster slot does; an unmet one, with nothing to open, stays as it is', async ($, on) => {
+  stubStore(on, {
+    ...PARTNERED,
+    [SQUISHYDEX_KEY]: { species: { [speciesKey(MET)]: { met: MET_AT, variants: [bare(PALETTE.id)] } }, legendaries: { [LEGENDARY.id]: { met: MET_AT } } },
+  })
+  const ui = await openSquishydex($)
+
+  // Places are numbered from 1, every species first, then the legendaries
+  const placeOf = (species: Species) => `squishydex-place-${everySpecies(KIT).findIndex(each => speciesKey(each) === speciesKey(species)) + 1}`
+  expect(await hoverOf(ui, placeOf(MET))).toEqual(SLOT_HOVER)
+  expect(await hoverOf(ui, `squishydex-place-${SPECIES_COUNT + 1}`)).toEqual(SLOT_HOVER)
+  expect(await hoverOf(ui, placeOf(OTHER))).toBeUndefined()
 })
 
 // WCAG contrast: 3:1 is the least for shapes to read against what's behind them

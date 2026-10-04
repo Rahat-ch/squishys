@@ -262,3 +262,23 @@ export const SQUISHYDEX_COMMAND = {
   origin: { kind: 'composer' },
   presentation: { isFullscreen: true, columns: 160 },
 } as const
+
+// The hover styles of the element keyed `key` in a mounted drawing, as drawn.
+// `find` leaves an element's hover out (it lies beside its props), so this
+// walks the tree `drawn()` returns.
+export async function hoverOf(ui: { drawn: () => Promise<unknown> }, key: string): Promise<unknown> {
+  type Drawn = { props?: { key?: unknown }; hover?: unknown; children?: unknown[] }
+  const search = (node: unknown): Drawn | undefined => {
+    if (typeof node !== 'object' || node === null) return undefined
+    const element = node as Drawn
+    if (element.props?.key === key) return element
+    for (const child of element.children ?? []) {
+      const found = search(child)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  const found = search(await ui.drawn())
+  if (found === undefined) throw new Error(`Nothing drawn is keyed ${key}`)
+  return found.hover
+}
