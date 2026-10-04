@@ -6,6 +6,12 @@ A Claude Code mod that gives every agent your orchestrator starts its own tiny p
 
 > **Status:** early development. To try it from a clone, see [Developing the mod](CONTRIBUTING.md#developing-the-mod).
 
+## Using it
+
+`/squishys` opens or closes the pane, and `/squishydex` opens the Squishydex. Opened that way, the pane takes the keyboard, so its hotkeys (`1`, `o`, `d` and so on) work at once. Esc hands the keyboard back to the prompt, and Ctrl+X Tab gives it to the pane again.
+
+Clicking a squishy needs Claude Code's fullscreen rendering (`/tui fullscreen`, or `CLAUDE_CODE_NO_FLICKER=1`). In the classic rendering, clicks don't reach the pane: use Ctrl+X Tab and the hotkeys.
+
 ## Docs
 
 - [Domain glossary](CONTEXT.md)

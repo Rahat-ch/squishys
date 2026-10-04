@@ -73,6 +73,16 @@ test('while the pane lacks the keyboard, the starter pick says how to give it on
   expect(await focused.find(hint)).toBeUndefined()
 })
 
+test('on the main screen, where a click never reaches the pane, the hint names only the keys', async ($, on) => {
+  stubStore(on)
+  await startSession($, on)
+
+  const ui = await $.ui.mount({ ...PANE, viewport: { ...PANE.viewport, isFullscreen: false }, surface: 'terminal' })
+
+  expect(await ui.find({ type: 'Text', text: 'Press Ctrl+X Tab then 1–3' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Click a squishy, or press Ctrl+X Tab then 1–3' })).toBeUndefined()
+})
+
 test('on a pane narrower than three slots, the starters wrap onto rows that fit', async ($, on) => {
   stubStore(on)
   await startSession($, on)
