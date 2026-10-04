@@ -292,7 +292,7 @@ export async function hoverOf(ui: { drawn: () => Promise<RenderElement> }, key: 
   return 'hover' in found ? found.hover : undefined
 }
 
-// A Claude Code theme key, such as `userMessageBackground`: a name, never a
+// A Claude Code theme key, such as `selectionBg`: a name, never a
 // raw color (`#rrggbb`, `rgb(...)`, `ansi:...`), so it follows the theme
 export const THEME_KEY = /^[a-z][A-Za-z]*$/
 
