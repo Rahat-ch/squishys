@@ -45,9 +45,9 @@ function squishy(face: string): Squishy {
   return { kind: 'assembled', body: 'block', face, palette: 'grey', accessory: 'leaf', rarity: 'common', shiny: false, name: '', key: '' }
 }
 
-test('the tiny face is the picture where its face part is drawn, shrunk to one row of half blocks that keeps its features', () => {
-  // Shrunk by 2: each 2x2 block shows its color the face has least of, so
-  // the eyes, cheeks and mouth outlast the body around them
+test('the tiny face is the picture where its face part is drawn, shrunk to one row of half blocks that keeps eyes, mouth and blush', () => {
+  // Shrunk by 2: each 2x2 block shows its eye, else its mouth, else its
+  // blush, so they outlast the body around them
   expect(tinyFace(TEST_KIT, squishy('smile'))).toEqual([
     [
       { glyph: '▀', color: '#000000', backgroundColor: '#ff8899' },
@@ -62,6 +62,44 @@ test('a face that already fits one row is drawn pixel for pixel', () => {
     [
       { glyph: '▀', color: '#000000', backgroundColor: '#808080' },
       { glyph: '▀', color: '#808080', backgroundColor: '#993344' },
+    ],
+  ])
+})
+
+// The 4-color art: a 10x10 squishy whose eyes and mouth share the outline
+// color and whose blush is the dark shade
+const OUTLINE = 0x202030
+const DARK = 0x806070
+const BASE = 0xf0d0c0
+const ART = 10
+const AT = (PICTURE_SIZE - ART) / 2
+const FOUR_COLORS = { o: OUTLINE, s: DARK, b: BASE, h: 0xffffff, e: OUTLINE, m: OUTLINE, c: DARK }
+const FOUR_COLOR_KIT: Kit = {
+  bodies: [
+    {
+      id: 'blob',
+      rarity: 'common',
+      syllable: 'mo',
+      grid: grid('.', Object.fromEntries(Array.from({ length: ART }, (_, row) => [AT + row, row === 0 || row === ART - 1 ? 'o'.repeat(ART) : `o${'b'.repeat(ART - 2)}o`])), AT),
+    },
+  ],
+  // Each eye beside a blush, so an eye and a blush share a shrunk block
+  faces: [{ id: 'blush', rarity: 'common', syllable: 'chi', grid: grid('.', { [AT + 4]: 'ec....ce', [AT + 5]: 'ec....ce', [AT + 6]: '...mm...' }, AT + 1) }],
+  palettes: [{ id: 'gbc', rarity: 'common', syllable: '', colors: FOUR_COLORS, shiny: FOUR_COLORS }],
+  accessories: [{ id: 'none', rarity: 'common', syllable: '', grid: grid('.') }],
+  legendaries: [],
+  starters: [],
+}
+
+test('in the 4-color art, a shrunk block shows an eye over the blush beside it, and the mouth over the body', () => {
+  const blushing: Squishy = { kind: 'assembled', body: 'blob', face: 'blush', palette: 'gbc', accessory: 'none', rarity: 'common', shiny: false, name: '', key: '' }
+
+  expect(tinyFace(FOUR_COLOR_KIT, blushing)).toEqual([
+    [
+      { glyph: '▀', color: '#202030', backgroundColor: '#f0d0c0' },
+      { glyph: '▀', color: '#f0d0c0', backgroundColor: '#202030' },
+      { glyph: '▀', color: '#f0d0c0', backgroundColor: '#202030' },
+      { glyph: '▀', color: '#202030', backgroundColor: '#f0d0c0' },
     ],
   ])
 })

@@ -3,16 +3,24 @@
 // partner's beside Claude Code's own (src/spinner.tsx). Pure: it takes the
 // kit and a squishy as plain data and never touches Claude Code.
 
-import { compose } from './composer'
-import type { Kit } from './kit'
-import type { Pixel, Pixels } from './raster'
+import { SEE_THROUGH, stillPixels } from './composer'
+import type { Grid, Kit } from './kit'
+import { halfBlockRows, hexColor } from './raster'
+import type { Pixel } from './raster'
 import type { Squishy } from './roller'
 
 /** How many rows of text the tiny face takes. */
 export const FACE_ROWS = 1
 
-/** Two pixels to a row of text: the top one as ▀'s color, the bottom one as its background. */
+/** Two pixels to a row of text: half blocks. */
 const PIXELS_PER_ROW = 2
+
+/**
+ * The face keys a shrunk block shows first, in order: eyes, mouth, blush
+ * (see Grid in kit.ts). Told apart by key, not color: in the 4-color art,
+ * eyes and mouth share the outline color and blush the dark shade.
+ */
+const FEATURE_KEYS: readonly string[] = ['e', 'm', 'c']
 
 /** One cell of the tiny face: its glyph and colors, as `Text` props take them. */
 export type FaceCell = { glyph: string; color?: string; backgroundColor?: string }
@@ -22,6 +30,9 @@ export type FaceRow = readonly FaceCell[]
 
 type Region = { top: number; left: number; rows: number; columns: number }
 
+/** A pixel of the face, and the face key that shows there, if any (none where the accessory covers it). */
+type FacePixel = { pixel: Pixel; key: string | undefined }
+
 /**
  * The squishy's tiny face, at most FACE_ROWS rows of half blocks: its still
  * picture where its face part is drawn, shrunk as little as fits. Nothing
@@ -29,19 +40,37 @@ type Region = { top: number; left: number; rows: number; columns: number }
  * face part.
  */
 export function tinyFace(kit: Kit, squishy: Squishy): FaceRow[] {
-  const region = faceRegion(kit, squishy)
+  if (squishy.kind !== 'assembled') return []
+  const face = kit.faces.find(part => part.id === squishy.face)?.grid ?? []
+  const region = drawnRegion(face)
   if (region === undefined) return []
-  const picture = compose(kit, squishy, { state: 'working', frame: 0 })
-  const face = cropped(picture, region)
-  const by = Math.max(1, Math.ceil(region.rows / (FACE_ROWS * PIXELS_PER_ROW)))
-  return halfBlockRows(shrunk(face, by))
+  const accessory = kit.accessories.find(part => part.id === squishy.accessory)?.grid ?? []
+  const picture = stillPixels(kit, squishy)
+  const pixels = Array.from({ length: region.rows }, (_, down) =>
+    Array.from({ length: region.columns }, (_, across): FacePixel => {
+      const [row, column] = [region.top + down, region.left + across]
+      const covered = keyAt(accessory, row, column) !== SEE_THROUGH
+      const key = keyAt(face, row, column)
+      return { pixel: picture[row]?.[column] ?? null, key: covered || key === SEE_THROUGH ? undefined : key }
+    }),
+  )
+  const factor = Math.max(1, Math.ceil(region.rows / (FACE_ROWS * PIXELS_PER_ROW)))
+  return halfBlockRows(shrunk(pixels, factor)).map(row =>
+    row.map(({ glyph, foreground, background }) => ({
+      glyph,
+      ...(foreground === null ? {} : { color: hexColor(foreground) }),
+      ...(background === null ? {} : { backgroundColor: hexColor(background) }),
+    })),
+  )
 }
 
-/** Where the squishy's face part draws, in its picture: the box round every pixel it draws. */
-function faceRegion(kit: Kit, squishy: Squishy): Region | undefined {
-  if (squishy.kind !== 'assembled') return undefined
-  const grid = kit.faces.find(face => face.id === squishy.face)?.grid ?? []
-  const drawn = grid.flatMap((line, row) => [...line].flatMap((key, column) => (key === '.' ? [] : [{ row, column }])))
+function keyAt(grid: Grid, row: number, column: number): string {
+  return grid[row]?.[column] ?? SEE_THROUGH
+}
+
+/** The box round every key a grid draws; undefined for a grid that draws nothing. */
+function drawnRegion(grid: Grid): Region | undefined {
+  const drawn = grid.flatMap((line, row) => [...line].flatMap((key, column) => (key === SEE_THROUGH ? [] : [{ row, column }])))
   if (drawn.length === 0) return undefined
   const top = Math.min(...drawn.map(cell => cell.row))
   const left = Math.min(...drawn.map(cell => cell.column))
@@ -53,45 +82,30 @@ function faceRegion(kit: Kit, squishy: Squishy): Region | undefined {
   }
 }
 
-function cropped(picture: Pixels, { top, left, rows, columns }: Region): Pixels {
-  return picture.slice(top, top + rows).map(row => row.slice(left, left + columns))
-}
-
 /**
- * Each `by` x `by` block as one pixel: see-through where less than half
- * the block is drawn, otherwise the block's color the whole face has least
- * of (the first met on a tie), so eyes, cheeks and mouth outlast the body
- * around them.
+ * Each `factor` x `factor` block as one pixel: see-through where less than
+ * half the block is drawn; otherwise the color of the first eye pixel in
+ * it, or failing that mouth, then blush (FEATURE_KEYS); otherwise the
+ * block's most common color (the first met on a tie).
  */
-function shrunk(pixels: Pixels, by: number): Pixels {
-  if (by === 1) return pixels
-  const counts = new Map<number, number>()
-  for (const row of pixels) for (const pixel of row) if (pixel !== null) counts.set(pixel, (counts.get(pixel) ?? 0) + 1)
+function shrunk(pixels: readonly (readonly FacePixel[])[], factor: number): Pixel[][] {
   const columns = pixels[0]?.length ?? 0
-  return Array.from({ length: Math.ceil(pixels.length / by) }, (_, row) =>
-    Array.from({ length: Math.ceil(columns / by) }, (_, column): Pixel => {
-      const block = pixels.slice(row * by, (row + 1) * by).flatMap(line => line.slice(column * by, (column + 1) * by))
-      const drawn = block.filter((pixel): pixel is number => pixel !== null)
+  return Array.from({ length: Math.ceil(pixels.length / factor) }, (_, row) =>
+    Array.from({ length: Math.ceil(columns / factor) }, (_, column): Pixel => {
+      const block = pixels.slice(row * factor, (row + 1) * factor).flatMap(line => line.slice(column * factor, (column + 1) * factor))
+      const drawn = block.filter(({ pixel }) => pixel !== null)
       if (drawn.length * 2 < block.length) return null
+      for (const feature of FEATURE_KEYS) {
+        const shown = drawn.find(({ key }) => key === feature)
+        if (shown !== undefined) return shown.pixel
+      }
       let best: Pixel = null
-      for (const pixel of drawn) if (best === null || (counts.get(pixel) ?? 0) < (counts.get(best) ?? 0)) best = pixel
+      let bestCount = 0
+      for (const { pixel } of drawn) {
+        const count = drawn.filter(other => other.pixel === pixel).length
+        if (count > bestCount) [best, bestCount] = [pixel, count]
+      }
       return best
     }),
   )
-}
-
-/** Two pixel rows to a row of half-block cells: ▀ over its background, ▄ alone below, a space for neither. */
-function halfBlockRows(pixels: Pixels): FaceRow[] {
-  return Array.from({ length: Math.ceil(pixels.length / PIXELS_PER_ROW) }, (_, row) =>
-    (pixels[row * PIXELS_PER_ROW] ?? []).map((top, column): FaceCell => {
-      const bottom = pixels[row * PIXELS_PER_ROW + 1]?.[column] ?? null
-      if (top !== null) return bottom === null ? { glyph: '▀', color: hex(top) } : { glyph: '▀', color: hex(top), backgroundColor: hex(bottom) }
-      if (bottom !== null) return { glyph: '▄', color: hex(bottom) }
-      return { glyph: ' ' }
-    }),
-  )
-}
-
-function hex(pixel: number): string {
-  return `#${pixel.toString(16).padStart(6, '0')}`
 }

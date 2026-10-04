@@ -8,7 +8,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Squishy } from '../types'
-import { compose } from './composer'
+import { stillPixels } from './composer'
 import { KIT } from './kit'
 import { halfBlocks } from './raster'
 import type { RasterCells } from './raster'
@@ -48,10 +48,10 @@ export function partnerFrom(stored: unknown): Squishy | undefined {
 
 /**
  * The partner's picture, or a starter's: still, since the partner is no
- * agent and never animates (frame 0 of Working is the squishy at rest).
+ * agent and never animates.
  */
 export function stillPicture(squishy: Squishy): RasterCells {
-  return halfBlocks(compose(KIT, squishy, { state: 'working', frame: 0 }))
+  return halfBlocks(stillPixels(KIT, squishy))
 }
 
 export function registerPartner(on: On): void {

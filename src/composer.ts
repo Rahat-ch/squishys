@@ -24,6 +24,9 @@ export type Pose = {
   size?: Size
 }
 
+/** The key that draws nothing in a part's grid, letting what lies beneath show. */
+export const SEE_THROUGH = '.'
+
 /** A squishy picture's side in pixels, before any resizing: what the kit draws. */
 export const PICTURE_SIZE = 16
 
@@ -45,6 +48,14 @@ export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full
   const picture = posedPicture(kit, squishy, state, frame)
   const sized = size === 'double' ? doubled(picture) : size === 'mini' ? halved(picture) : picture
   return state === 'needsYou' ? withBubble(sized) : sized
+}
+
+/**
+ * The squishy at rest: frame 0 of Working, at full size. The partner's
+ * picture, a starter's, and what the spinner's tiny face is cut from.
+ */
+export function stillPixels(kit: Kit, squishy: Squishy): Pixels {
+  return compose(kit, squishy, { state: 'working', frame: 0 })
 }
 
 function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: number): Pixels {

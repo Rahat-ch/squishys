@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { halfBlocks } from '../src/raster'
+import { halfBlockRows, halfBlocks, hexColor } from '../src/raster'
 import { glyphsOf } from './fixtures'
 
 const RED = 0xff0000
@@ -20,4 +20,19 @@ test('an odd last pixel row leaves the bottom half see-through', () => {
   const picture = halfBlocks([[RED], [RED], [RED]])
   expect(picture).toMatchObject({ columns: 1, rows: 2 })
   expect(glyphsOf(picture.cells)).toEqual(['▀', '▀'])
+})
+
+test('each half block names its glyph and the colors it is drawn in, null for the terminal’s own', () => {
+  expect(halfBlockRows([[RED, null, null], [BLUE, BLUE, null]])).toEqual([
+    [
+      { glyph: '▀', foreground: RED, background: BLUE },
+      { glyph: '▄', foreground: BLUE, background: null },
+      { glyph: ' ', foreground: null, background: null },
+    ],
+  ])
+})
+
+test('a color is written as #rrggbb', () => {
+  expect(hexColor(BLUE)).toBe('#0000ff')
+  expect(hexColor(RED)).toBe('#ff0000')
 })
