@@ -28,6 +28,12 @@ export const PARTNER_KEY = 'partner'
 /** What the pane's Button that picks the partner is keyed. */
 export const PARTNER_BUTTON = 'partner'
 
+/**
+ * What the starter pick says while the pane lacks the keyboard, when its
+ * digits would go to the prompt instead.
+ */
+export const STARTER_HINT = `Click a squishy, or press Ctrl+X Tab then 1–${KIT.starters.length}`
+
 /** What the Raster showing the partner's still picture is keyed. */
 export const PARTNER_PICTURE = 'partner-picture'
 
@@ -88,6 +94,7 @@ export function registerPartner(on: On): void {
     return (
       <Box flexDirection="column" rowGap={1}>
         <Text bold>Pick your partner, the squishy that stands for the orchestrator.</Text>
+        {e.props.isFocused ? null : <Text dimColor>{STARTER_HINT}</Text>}
         <Box key="starters" flexDirection="column" rowGap={SLOT_ROW_GAP}>
           {rows.map((row, rowIndex) => (
             <Box key={`starter-row-${rowIndex}`} flexDirection="row" columnGap={SLOT_COLUMN_GAP}>

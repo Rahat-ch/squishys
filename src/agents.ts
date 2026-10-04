@@ -7,7 +7,7 @@ import type { AgentInfo, AgentStatus, EngineInterface, On, Timer } from 'claude-
 
 import type { Agent, Squishy, SquishyState } from '../types'
 import { KIT } from './kit'
-import { OPEN_PANE, PANE_ID, squishysOnScreen } from './pane'
+import { OPEN_PANE, PANE_ID, notePaneOpened, squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
 import { forcedMoment, rememberSquishys, takeFreshRolls } from './rebuild'
 import type { Rolled } from './rebuild'
@@ -294,8 +294,8 @@ async function checkAgentList($: EngineInterface): Promise<void> {
 }
 
 /**
- * Opens the pane at the session's first agent, unless it's open already.
- * Unasked, Claude Code places it only on a wide terminal (144 columns, 110
+ * Opens the pane at the session's first agent, unless it's open already,
+ * without the keyboard (OPEN_PANE). Unasked, Claude Code places it only on a wide terminal (144 columns, 110
  * once the user has opened it before) and leaves it unplaced otherwise,
  * while the band (src/band.tsx) shows instead.
  */
@@ -303,6 +303,7 @@ async function openPaneUnasked($: EngineInterface): Promise<void> {
   try {
     if ((await $.ui.panes()).some(pane => pane.id === PANE_ID)) return
     await $.ui.open(OPEN_PANE)
+    notePaneOpened(false)
   } catch {} // a refused open leaves the agent its squishy all the same
 }
 

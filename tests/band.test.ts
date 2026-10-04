@@ -237,7 +237,7 @@ test('band Buttons carry no hotkeys, so a digit typed into an empty prompt types
   for (const button of buttons) expect(button.props.hotkey).toBeUndefined()
 })
 
-test('clicking a mini squishy in the band opens the pane on its focus view, and the band steps aside', async ($, on) => {
+test('clicking a mini squishy in the band opens the pane with the keyboard on its focus view, and the band steps aside', async ($, on) => {
   const stored = stubStore(on)
   stubSpawns(on)
   stubBandBeneath(on)
@@ -249,8 +249,12 @@ test('clicking a mini squishy in the band opens the pane on its focus view, and 
   panes.asking = true
   await band.press({ key: 'squishy-agent-2' })
 
-  // Asked for by the click, so Claude Code places it at any width
-  expect(panes.opens.map(open => open.id)).toEqual([PANE_ID, PANE_ID])
+  // Asked for by the click, so Claude Code places it at any width, and it
+  // takes the keyboard, so the focus view's hotkeys work at once
+  expect(panes.opens.map(open => [open.id, open.focus])).toEqual([
+    [PANE_ID, undefined],
+    [PANE_ID, true],
+  ])
   expect(await band.find({ type: 'Button' })).toBeUndefined()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await pane.find({ key: 'focus' })).toBeDefined()
@@ -274,7 +278,7 @@ test('a pick from the band whose open is refused says why in a toast', async ($,
   expect(await band.find({ type: 'Button', key: 'squishy-agent-1' })).toBeDefined()
 })
 
-test('/squishys opens the unplaced pane rather than closing it, and the band steps aside', async ($, on) => {
+test('/squishys opens the unplaced pane with the keyboard rather than closing it, and the band steps aside', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
   stubBandBeneath(on)
@@ -286,7 +290,10 @@ test('/squishys opens the unplaced pane rather than closing it, and the band ste
   panes.asking = true
   await $.command.run(SQUISHYS_COMMAND)
 
-  expect(panes.opens.map(open => open.id)).toEqual([PANE_ID, PANE_ID])
+  expect(panes.opens.map(open => [open.id, open.focus])).toEqual([
+    [PANE_ID, undefined],
+    [PANE_ID, true],
+  ])
   expect(await band.find({ type: 'Text', text: OPEN_HINT })).toBeUndefined()
 })
 

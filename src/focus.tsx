@@ -7,7 +7,7 @@ import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
 import type { ActivityRow, Agent, Delivery, Model, RedirectOutcome, Squishy, SquishyState } from '../types'
 import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
-import { OPEN_PANE, PANE_ID, PICK_PREFIX, animatedPicture, openRefused, pictureKey } from './pane'
+import { OPEN_PANE_ASKED, PANE_ID, PICK_PREFIX, animatedPicture, notePaneOpened, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
 import { SHARE_HOTKEY, SHARE_LINK_LABEL, agentShareKey, unopenedShare } from './share'
@@ -176,7 +176,8 @@ export function registerFocus(on: On): void {
   // a roster slot's, by click or digit) opens that agent's focus view. One
   // handler for every place a squishy can be picked from. Picked outside the
   // pane (from the band, while the pane is unplaced), it opens the pane too:
-  // asked for by the press, it's placed at any width, and the band is drawn
+  // asked for by the press, it's placed at any width and takes the keyboard
+  // (OPEN_PANE_ASKED), and the band is drawn
   // again to step aside. It answers the press itself: the Buttons' own
   // onPress is a no-op, and the redraw these writes bring drops the handler
   // that next(e) would reach.
@@ -188,7 +189,8 @@ export function registerFocus(on: On): void {
     await update($, mode, () => 'focus')
     if (pickedOutsidePane(e)) {
       try {
-        await $.ui.open(OPEN_PANE)
+        await $.ui.open(OPEN_PANE_ASKED)
+        notePaneOpened(true)
       } catch (error) {
         $.ui.toast(openRefused(error))
       }

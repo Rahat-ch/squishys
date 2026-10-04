@@ -59,6 +59,20 @@ test('on first open, the pane shows the three starters and nothing else, each an
   expect(await ui.find({ key: 'settings' })).toBeUndefined()
 })
 
+test('while the pane lacks the keyboard, the starter pick says how to give it one, and the hint goes once it has it', async ($, on) => {
+  stubStore(on)
+  await startSession($, on)
+  const hint = { type: 'Text', text: 'Click a squishy, or press Ctrl+X Tab then 1–3' } as const
+
+  const unfocused = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await unfocused.find(hint)).toBeDefined()
+  await unfocused.unmount()
+
+  const focused = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' })
+  expect(await focused.find({ key: 'starter-1' })).toBeDefined()
+  expect(await focused.find(hint)).toBeUndefined()
+})
+
 test('on a pane narrower than three slots, the starters wrap onto rows that fit', async ($, on) => {
   stubStore(on)
   await startSession($, on)

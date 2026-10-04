@@ -43,10 +43,32 @@ export const PANE_ID = 'squishys'
 export const PICK_PREFIX = 'squishy-'
 
 /**
- * How the pane is opened, by the user's /squishys, a pick from the band or
- * the first spawn. Inline, rows are scarce: it asks for one row of slots.
+ * How the pane is opened unasked, at the first spawn: never taking the
+ * keyboard, so it can't steal what the user is typing. Inline, rows are
+ * scarce: it asks for one row of slots.
  */
 export const OPEN_PANE = { id: PANE_ID, title: 'Squishys', rows: SLOT_ROWS } as const
+
+/**
+ * How the pane is opened when the user asks for it (/squishys, /squishydex,
+ * a pick from the band): asking for the keyboard too, so its hotkeys work at
+ * once. Claude Code allows `focus` only on such an open, and grants it only
+ * over an empty prompt.
+ */
+export const OPEN_PANE_ASKED = { ...OPEN_PANE, focus: true } as const
+
+/**
+ * Whether the user asked for the pane since it last opened unasked. While
+ * they haven't, /squishys gives an open pane the keyboard rather than
+ * closing it. Kept here, not in $.state: a reload only makes the next
+ * /squishys give the keyboard first.
+ */
+let askedFor = false
+
+/** Notes how the pane was just opened: asked for by the user, or not. */
+export function notePaneOpened(asked: boolean): void {
+  askedFor = asked
+}
 
 /** The toast for an open the user asked for that a `ui.open` hook refused. */
 export function openRefused(error: unknown): string {
@@ -193,12 +215,16 @@ export function registerPane(on: On): void {
   // user can also close the pane themselves (ctrl+x x). An unplaced pane
   // (opened unasked on a narrow terminal) is opened: asked for, it's placed
   // at any width, and the band (src/band.tsx) is drawn again to step aside.
+  // Typing the command takes the keyboard back to the prompt, so a placed
+  // pane closes when it has the keyboard or the user asked for it before;
+  // one that only opened unasked is opened again, now with the keyboard.
   on('command.run', { command: 'squishys' }, async $ => {
-    const panes = await $.ui.panes()
-    if (panes.some(pane => pane.id === PANE_ID && pane.isPlaced)) await $.ui.close({ id: PANE_ID })
+    const pane = (await $.ui.panes()).find(each => each.id === PANE_ID)
+    if (pane?.isPlaced === true && (pane.isFocused || askedFor)) await $.ui.close({ id: PANE_ID })
     else {
       try {
-        await $.ui.open(OPEN_PANE)
+        await $.ui.open(OPEN_PANE_ASKED)
+        notePaneOpened(true)
       } catch (error) {
         $.ui.toast(openRefused(error))
       }

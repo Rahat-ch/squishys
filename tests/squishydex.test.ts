@@ -237,7 +237,7 @@ test('d in the roster opens the Squishydex in place of the roster, and r returns
   expect(await ui.find({ key: 'slot-agent-1' })).toBeDefined()
 })
 
-test('/squishydex is registered to run mid-turn, and opens the pane on the Squishydex', async ($, on) => {
+test('/squishydex is registered to run mid-turn, and opens the pane on the Squishydex with the keyboard', async ($, on) => {
   stubStore(on, PARTNERED)
   const registered: { name: string; immediate?: boolean }[] = []
   on('command.register', ($, e) => {
@@ -256,9 +256,27 @@ test('/squishydex is registered to run mid-turn, and opens the pane on the Squis
 
   await $.command.run(SQUISHYDEX_COMMAND)
 
-  expect(opens).toEqual([OPEN_PANE])
+  expect(opens).toEqual([{ ...OPEN_PANE, focus: true }])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 'squishydex-view' })).toBeDefined()
+})
+
+test('/squishydex gives the keyboard to an open pane that lacks it, and leaves one that has it be', async ($, on) => {
+  stubStore(on, PARTNERED)
+  let isFocused = false
+  const opens: PaneOpenArgs[] = []
+  on('ui.panes', () => ({ value: [{ id: PANE_ID, title: 'Squishys', isShown: true, isFocused, isPlaced: true }] }))
+  on('ui.open', ($, e) => {
+    opens.push(e)
+    return { value: { isPlaced: true } }
+  })
+
+  await $.command.run(SQUISHYDEX_COMMAND)
+  expect(opens).toEqual([{ ...OPEN_PANE, focus: true }])
+
+  isFocused = true
+  await $.command.run(SQUISHYDEX_COMMAND)
+  expect(opens).toHaveLength(1)
 })
 
 test('/squishydex before the first partner is picked returns to the starter pick, never a roster without a partner', async ($, on) => {
