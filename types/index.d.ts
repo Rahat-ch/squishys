@@ -187,9 +187,11 @@ declare module 'claude-code' {
        */
       switchedEfforts: Record<string, Effort>
       /**
-       * Whether each agent's latest request, as the engine made it, carried
-       * an effort, by agent id: the engine leaves it out for a model that
-       * takes none. Absent until the agent's first request.
+       * Experimental: whether each agent's latest request, as the engine made
+       * it, carried an effort, by agent id: the engine leaves it out for a
+       * model that takes none. Absent until the agent's first request, and
+       * cleared with the effort switches: as the agent's run ends, as the
+       * setting is turned off, and on /clear, /resume and a branch.
        */
       effortTaken: Record<string, boolean>
       /**

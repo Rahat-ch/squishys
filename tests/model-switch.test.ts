@@ -470,3 +470,65 @@ test('a store that can no longer be read stops the effort rewrite', async ($, on
   expect(sent).toEqual([{ agentId: 'agent-1', model: 'claude-opus-5-5', effort: 'high' }])
   expect(toasts).toEqual([expect.stringContaining('back to the effort it started on')])
 })
+
+test('a model switch availableModels stops naming ends alone: that same request carries the picked effort', async ($, on) => {
+  const sent = sentRequests(on)
+  const settings = stubClaudeSettings(on)
+  const toasts = stubToasts(on)
+  const { ui } = await focusOnAgent($, on, SWITCH_ON)
+  await pressEffortControl($, 3)
+  await pressModelControl($, 2)
+
+  settings.availableModels = ['opus']
+  await drain($.turn.step({ ...stepOf('agent-1'), effort: 'medium' }))
+
+  expect(sent).toEqual([{ agentId: 'agent-1', model: 'claude-opus-5-5', effort: 'high' }])
+  expect(toasts).toEqual([expect.stringContaining('back to the model it started on')])
+  expect((await effortControl(ui))?.label).toBe(effortLabel('high', 'xhigh'))
+})
+
+test('an effort press for an agent that has ended sets nothing, saying why', async ($, on) => {
+  const sent = sentRequests(on)
+  stubClaudeSettings(on)
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  const toasts = stubToasts(on)
+  await focusOnAgent($, on, SWITCH_ON)
+
+  await $.turn.complete(finishOf('agent-1'))
+  await pressEffortControl($)
+  await drain($.turn.step({ ...stepOf('agent-1'), effort: 'high' }))
+
+  expect(toasts).toEqual([expect.stringContaining('effort not set to low')])
+  expect(sent).toEqual([{ agentId: 'agent-1', model: 'claude-opus-5-5', effort: 'high' }])
+})
+
+test('an effort press on a switched model sets nothing, saying the mod can’t tell whether that model takes one', async ($, on) => {
+  stubClaudeSettings(on)
+  const toasts = stubToasts(on)
+  const { ui } = await focusOnAgent($, on, SWITCH_ON)
+  await pressModelControl($, 2)
+
+  await pressEffortControl($)
+
+  expect(toasts).toEqual([expect.stringContaining('Nothing says whether sonnet takes one')])
+  await pressModelControl($, 3)
+  expect((await effortControl(ui))?.label).toBe(effortLabel('as started', 'low'))
+})
+
+test('whether an agent’s requests carry an effort is written only as it changes', async ($, on) => {
+  const writes: unknown[] = []
+  on('state.set', { plugin: 'squishys', key: 'effortTaken' }, ($, e, next) => {
+    writes.push(e.value)
+    return next(e)
+  })
+  sentRequests(on)
+  stubClaudeSettings(on)
+  await focusOnAgent($, on, SWITCH_ON)
+
+  await drain($.turn.step({ ...stepOf('agent-1'), effort: 'high' }))
+  await drain($.turn.step({ ...stepOf('agent-1'), index: 1, effort: 'high' }))
+  await drain($.turn.step({ ...stepOf('agent-1'), index: 2 }))
+  await drain($.turn.step({ ...stepOf('agent-1'), index: 3 }))
+
+  expect(writes).toEqual([{ 'agent-1': true }, { 'agent-1': false }])
+})

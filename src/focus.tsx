@@ -14,8 +14,8 @@ import {
   effortStep,
   modelControlLabel,
   modelStep,
+  noteEffortStep,
   noteModelStep,
-  takesEffort,
 } from './model-switch'
 import { OPEN_PANE_ASKED, PANE_ID, PICK_PREFIX, animatedPicture, notePaneOpened, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
@@ -334,7 +334,12 @@ export function registerFocus(on: On): void {
     const effort =
       switchable === undefined
         ? undefined
-        : effortStep((await read($, switchedEfforts))[agent.id], takesEffort(switched, (await read($, effortTaken))[agent.id]))
+        : effortStep(agent.id, {
+            switchedModels: await read($, switchedModels),
+            switchedEfforts: await read($, switchedEfforts),
+            effortTaken: await read($, effortTaken),
+          })
+    if (effort !== undefined) noteEffortStep(agent.id, effort)
     const control = await read($, stopControl)
     // The compose page of a Share the browser didn't open
     const shareLink = unopenedShare(agentShareKey(agent.id))

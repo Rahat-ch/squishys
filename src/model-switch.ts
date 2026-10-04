@@ -52,7 +52,13 @@ function choiceName(choice: string): string {
 export const EFFORT_SWITCH_PREFIX = 'effort-switch-'
 
 /** The efforts the effort control steps through, after as started: the levels `turn.step` names, least first. */
-export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly ModelEffort[]
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly Effort[]
+
+// `Effort` is written out in types/index.d.ts, which `claude plugin
+// validate` wants import-free, so it mirrors the engine's ModelEffort
+// rather than naming it: this fails to typecheck once the two drift.
+const EFFORT_MIRRORS_ENGINE: [Effort, ModelEffort] extends [ModelEffort, Effort] ? true : false = true
+void EFFORT_MIRRORS_ENGINE
 
 /** What the effort control steps through. */
 const EFFORT_CYCLE = [AS_STARTED, ...EFFORTS]
@@ -62,16 +68,24 @@ function isEffort(value: unknown): value is Effort {
 }
 
 /**
- * The effort control's step for an agent switched to `switched` (none: as
- * started): what it's on and what its next press picks, and whether the
+ * The effort control's step for an agent: what it's on (as started, or the
+ * effort it was switched to) and what its next press picks, and whether the
  * model the agent is on takes an effort (`isTaken`), without which the
  * control is n/a.
  */
 export type EffortStep = { isTaken: boolean; on: string; next: string }
 
-export function effortStep(switched: Effort | undefined, isTaken: boolean): EffortStep {
-  const on = switched ?? AS_STARTED
-  return { isTaken, on, next: nextOf(EFFORT_CYCLE, on) ?? AS_STARTED }
+/** The `$.state` values the effort control's step is worked out from. */
+export type EffortState = {
+  switchedModels: Readonly<Record<string, ModelSwitch>>
+  switchedEfforts: Readonly<Record<string, Effort>>
+  effortTaken: Readonly<Record<string, boolean>>
+}
+
+/** An agent's effort step: the label and the press both resolve it so. */
+export function effortStep(agentId: string, { switchedModels, switchedEfforts, effortTaken }: EffortState): EffortStep {
+  const on = switchedEfforts[agentId] ?? AS_STARTED
+  return { isTaken: takesEffort(switchedModels[agentId], effortTaken[agentId]), on, next: nextOf(EFFORT_CYCLE, on) ?? AS_STARTED }
 }
 
 /** The effort control's label: the effort it's on, then what the next press picks; n/a for a model without effort. */
@@ -87,8 +101,20 @@ export function effortControlLabel({ isTaken, on, next }: EffortStep): string {
  * model the live switch moved it to, so a switched agent counts as one
  * that takes none, and is sent none.
  */
-export function takesEffort(modelSwitch: ModelSwitch | undefined, effortTaken: boolean | undefined): boolean {
+function takesEffort(modelSwitch: ModelSwitch | undefined, effortTaken: boolean | undefined): boolean {
   return modelSwitch === undefined && effortTaken !== false
+}
+
+/**
+ * The step each agent's effort control last drew, so a press does what its
+ * label said: kept here (a drawing never writes $.state), and used only
+ * while the agent is still on what the label was drawn from.
+ */
+const drawnEffortSteps = new Map<string, EffortStep>()
+
+/** Notes the step an agent's effort control was drawn with. */
+export function noteEffortStep(agentId: string, step: EffortStep): void {
+  drawnEffortSteps.set(agentId, step)
 }
 
 /**
@@ -143,7 +169,7 @@ export function registerModelSwitch(on: On): void {
     if (refusal !== undefined) {
       await endSwitch($, agentId)
       await endEffort($, agentId)
-      const what = [switched === undefined ? [] : ['model'], effort === undefined ? [] : ['effort']].flat().join(' and ')
+      const what = switched === undefined ? 'effort' : effort === undefined ? 'model' : 'model and effort'
       if (refusal !== ENDED) $.ui.toast(`Squishys: back to the ${what} it started on. ${refusal}`)
       return yield* next(e)
     }
@@ -202,7 +228,13 @@ export function registerModelSwitch(on: On): void {
   on('ui.press', { plugin: 'squishys', element: /^effort-switch-/ }, async ($, e, next) => {
     const agentId = e.element.slice(EFFORT_SWITCH_PREFIX.length)
     const modelSwitch = (await read($, switchedModels))[agentId]
-    const step = effortStep((await read($, switchedEfforts))[agentId], takesEffort(modelSwitch, (await read($, effortTaken))[agentId]))
+    const current = effortStep(agentId, {
+      switchedModels: await read($, switchedModels),
+      switchedEfforts: await read($, switchedEfforts),
+      effortTaken: await read($, effortTaken),
+    })
+    const drawn = drawnEffortSteps.get(agentId)
+    const step = drawn?.on === current.on && drawn.isTaken === current.isTaken ? drawn : current
     if (!step.isTaken) {
       $.ui.toast(
         modelSwitch === undefined
@@ -229,6 +261,7 @@ export function registerModelSwitch(on: On): void {
     if (wasOn) {
       await update($, switchedModels, () => ({}))
       await update($, switchedEfforts, () => ({}))
+      await update($, effortTaken, () => ({}))
     }
     return pressed
   })
@@ -247,6 +280,7 @@ export function registerModelSwitch(on: On): void {
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     await update($, switchedModels, () => ({}))
     await update($, switchedEfforts, () => ({}))
+    await update($, effortTaken, () => ({}))
     return next(e)
   })
 }
@@ -289,8 +323,12 @@ async function endSwitch($: EngineInterface, agentId: string): Promise<void> {
   await update($, switchedModels, ({ [agentId]: _, ...rest }) => rest)
 }
 
-/** Ends an agent's effort switch: its requests carry the effort the engine picks again. */
+/**
+ * Ends an agent's effort switch: its requests carry the effort the engine
+ * picks again. What its requests said about effort goes too, so a resumed
+ * agent's next request says it afresh.
+ */
 async function endEffort($: EngineInterface, agentId: string): Promise<void> {
-  if ((await read($, switchedEfforts))[agentId] === undefined) return
-  await update($, switchedEfforts, ({ [agentId]: _, ...rest }) => rest)
+  if ((await read($, switchedEfforts))[agentId] !== undefined) await update($, switchedEfforts, ({ [agentId]: _, ...rest }) => rest)
+  if ((await read($, effortTaken))[agentId] !== undefined) await update($, effortTaken, ({ [agentId]: _, ...rest }) => rest)
 }
