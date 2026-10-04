@@ -1,14 +1,16 @@
-// Hotkeys: which key each pane control answers to, as plain functions on
-// strings. Pure: it never touches Claude Code. A Button's hotkey is one
-// digit or one lowercase letter (AGENTS.md, "A `Button` `hotkey`").
+// Hotkeys: which hotkey each pane control answers to, and how a control
+// that steps through a few choices moves on, as plain functions. Pure: it
+// never touches Claude Code. A Button's hotkey is one digit or one
+// lowercase letter (AGENTS.md, "A `Button` `hotkey`").
 
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 const LETTERS = [...'abcdefghijklmnopqrstuvwxyz']
 
 /**
  * The hotkeys of `count` picks in a row (squishys, places): the digits in
- * order, then the letters a mode's other controls leave free (`taken`), then
- * none once both run out.
+ * order, then the letters the mode's other controls leave free (`taken`).
+ * Past those, a pick has no hotkey (`undefined`): it is reached by Tab and
+ * Enter, or a click under fullscreen rendering.
  */
 export function pickKeys(count: number, taken: readonly string[]): (string | undefined)[] {
   const free = [...DIGITS, ...LETTERS.filter(letter => !taken.includes(letter))]
@@ -16,16 +18,19 @@ export function pickKeys(count: number, taken: readonly string[]): (string | und
 }
 
 /**
- * What a cycling control steps to from `current`: the choice after it,
- * the first after the last, and the first when `current` is no longer one
- * of them. Nothing when there are no choices.
+ * What a control that steps through `cycle` moves to from `current`: the
+ * choice after it, and the first after the last. From a choice the cycle no
+ * longer offers, the first choice after it in `order` (every choice there
+ * could be, in cycle order), else the first. Nothing when there are none.
  */
-export function nextOf<T>(cycle: readonly T[], current: T): T | undefined {
+export function nextOf<T>(cycle: readonly T[], current: T, order: readonly T[] = cycle): T | undefined {
   const at = cycle.indexOf(current)
-  return cycle[at < 0 ? 0 : (at + 1) % cycle.length]
+  if (at >= 0) return cycle[(at + 1) % cycle.length]
+  const rank = order.indexOf(current)
+  return cycle.find(choice => order.indexOf(choice) > rank) ?? cycle[0]
 }
 
-/** A cycling control's label: what it is, what it's on, and what the next press picks. */
+/** A stepping control's label: what it is, what it's on, and what the next press picks. */
 export function cycleLabel(name: string, current: string, next: string): string {
   return `${name}  ${current} ▸ ${next}`
 }

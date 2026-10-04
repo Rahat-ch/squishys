@@ -13,7 +13,7 @@ test('picks take the digits in order, then the letters the mode leaves free, the
   expect(pickKeys(0, [])).toEqual([])
 })
 
-test('a cycling control steps to the next choice, wraps around, and starts over from one it no longer offers', () => {
+test('a stepping control steps to the next choice, wraps around, and starts over from one it no longer offers', () => {
   const cycle = ['as-started', 'haiku', 'sonnet']
   expect(nextOf(cycle, 'as-started')).toBe('haiku')
   expect(nextOf(cycle, 'sonnet')).toBe('as-started')
@@ -22,6 +22,12 @@ test('a cycling control steps to the next choice, wraps around, and starts over 
   expect(nextOf([], 'any')).toBeUndefined()
 })
 
-test('a cycling control’s label says what it’s on, then what the next press picks', () => {
+test('from a choice the cycle no longer offers, a press steps to the first offered after it in the full order', () => {
+  const order = ['as-started', 'haiku', 'sonnet', 'opus', 'fable']
+  expect(nextOf(['as-started', 'haiku', 'fable'], 'sonnet', order)).toBe('fable')
+  expect(nextOf(['as-started', 'haiku'], 'opus', order)).toBe('as-started')
+})
+
+test('a stepping control’s label says what it’s on, then what the next press picks', () => {
   expect(cycleLabel('model', 'opus', 'sonnet')).toBe('model  opus ▸ sonnet')
 })

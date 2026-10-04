@@ -5,6 +5,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { AudioClip, On } from 'claude-code'
 
+import { cycleLabel } from '../src/keys'
 import { KIT } from '../src/kit'
 import { SPARKLE_MS, isSparkling, momentToast, sparkleUntil, withSparklesTidied } from '../src/moments'
 import { FRAME_MS, pictureKey } from '../src/pane'
@@ -14,6 +15,7 @@ import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { assembledKey, bareAccessory, forcedOdds, legendaryKey, roll, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { seeded } from '../src/seeded'
+import { CHIME_LABEL } from '../src/settings'
 import { slotLabel } from '../src/slots'
 import { PANE, PARTNERED, finishOf, forceRolls, paneSized, readFrom, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf } from './pictures'
@@ -209,11 +211,11 @@ test('on macOS, settings offer the chime, off by default, and turning it on save
 
   const chime = async () => (await ui.find({ type: 'Button', key: 'chime' }))?.props
   expect((await chime())?.hotkey).toBe('c')
-  expect((await chime())?.label).toBe('Chime on a shiny or legendary  Off ▸ On')
+  expect((await chime())?.label).toBe(cycleLabel(CHIME_LABEL, 'Off', 'On'))
 
   await $.ui.press({ plugin: 'squishys', key: 'chime' })
   expect(stored.get('settings')).toEqual({ slotCap: 9, chime: true })
-  expect((await chime())?.label).toBe('Chime on a shiny or legendary  On ▸ Off')
+  expect((await chime())?.label).toBe(cycleLabel(CHIME_LABEL, 'On', 'Off'))
 
   await $.ui.press({ plugin: 'squishys', key: 'chime' })
   expect(stored.get('settings')).toEqual({ slotCap: 9 })

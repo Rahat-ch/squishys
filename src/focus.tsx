@@ -6,8 +6,7 @@ import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
 import type { ActivityRow, Agent, Delivery, Model, RedirectOutcome, Squishy, SquishyState } from '../types'
-import { cycleLabel, nextOf } from './keys'
-import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels, modelChoiceName, modelCycle } from './model-switch'
+import { MODEL_SWITCH_PREFIX, allowedModels, modelControlLabel, modelStep, noteModelStep } from './model-switch'
 import { OPEN_PANE_ASKED, PANE_ID, PICK_PREFIX, animatedPicture, notePaneOpened, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, settingsFrom } from './settings'
@@ -80,19 +79,22 @@ const REFUSAL_LIMIT = 200
 /** The timer that redraws an armed Stop's note away once no second press can come. */
 let disarm: Timer | undefined
 
-/** The redirect Input's key, which the redirect key moves the focus onto. */
-const REDIRECT_KEY = 'redirect'
+/** The Redirect box's element key, which the redirect control moves the focus onto. */
+const REDIRECT_BOX_KEY = 'redirect'
 
-/** The key that moves the focus into the redirect Input, as `i` starts typing in vi. */
+/** The redirect control's element key. */
+const REDIRECT_CONTROL_KEY = 'focus-redirect'
+
+/** The redirect control's hotkey, as `i` starts typing in vi. */
 const REDIRECT_HOTKEY = 'i'
 
-/** The key that steps a switched agent to its next model. */
+/** The model control's hotkey, which steps a switched agent to its next model. */
 const MODEL_HOTKEY = 'm'
 
-/** What the redirect Input says while the pane has the keyboard but the Input hasn't. */
+/** What the Redirect box says while the pane has the keyboard but the box hasn't. */
 export const REDIRECT_HINT = 'Press i to redirect'
 
-/** What the redirect Input says otherwise. */
+/** What the Redirect box says otherwise. */
 const REDIRECT_PLACEHOLDER = 'a message for this agent'
 
 /**
@@ -215,7 +217,7 @@ export function registerFocus(on: On): void {
   // and the band is drawn again to step aside. Picked in a pane that lacks
   // the keyboard (a click there presses without handing it over: seen in a
   // tmux session for #49), it asks for the keyboard the same way, so the
-  // focus view's keys work at once. It answers the press itself: the
+  // focus view's hotkeys work at once. It answers the press itself: the
   // Buttons' own onPress is a no-op, and the redraw these writes bring
   // drops the handler that next(e) would reach.
   on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e) => {
@@ -239,14 +241,15 @@ export function registerFocus(on: On): void {
     return { element: e.element }
   })
 
-  // The redirect key (i) moves the focus into the redirect Input, awaited
-  // inside the press's own dispatch
+  // The redirect control (i) moves the focus into the Redirect box, awaited
+  // inside the press's own dispatch. The control's element key is spelled
+  // out, since the engine reads a matcher off this file alone.
   on('ui.press', { plugin: 'squishys', element: 'focus-redirect' }, async ($, e, next) => {
     await focusRedirect($)
     return next(e)
   })
 
-  // Where the pane's focus ring lands, so the redirect Input says to press
+  // Where the pane's focus ring lands, so the Redirect box says to press
   // i only while it lacks the focus
   on('ui.focus', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     const moved = await next(e)
@@ -291,7 +294,7 @@ export function registerFocus(on: On): void {
     // Only this agent's feed: another agent's activity doesn't redraw it
     const feed = await read($, atom({ ...activity, id: agent.id }, []))
     // Experimental: the models the live model switch may name, while it's on
-    // (src/model-switch.ts keeps the switches and answers the model key)
+    // (src/model-switch.ts keeps the switches and answers the model control)
     let switchable: Model[] | undefined
     try {
       if (settingsFrom(await $.store.get(SETTINGS_KEY)).liveModelSwitch === true) {
@@ -307,9 +310,10 @@ export function registerFocus(on: On): void {
     } catch {}
     const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
     const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
-    // The model key steps through the models allowed (src/model-switch.ts answers its press)
-    const onModel = switched !== undefined && switchable?.includes(switched.model) === true ? switched.model : AS_STARTED
-    const nextModel = switchable === undefined ? undefined : nextOf(modelCycle(switchable), onModel)
+    // The model control steps through the models allowed; src/model-switch.ts
+    // answers its press with the step it was drawn with
+    const step = switchable === undefined ? undefined : modelStep(switchable, switched?.model)
+    if (step !== undefined) noteModelStep(agent.id, step)
     const control = await read($, stopControl)
     // The compose page of a Share the browser didn't open
     const shareLink = unopenedShare(agentShareKey(agent.id))
@@ -339,14 +343,14 @@ export function registerFocus(on: On): void {
             <Text bold>{agent.squishy.name}</Text>
             <Text>{STATE_NAMES[agent.state]}</Text>
             {shownModel !== undefined ? <Text dimColor>{shownModel}</Text> : null}
-            {switchable === undefined || nextModel === undefined || isEnded(agent.state) ? null : switchable.length === 0 ? (
+            {switchable === undefined || step === undefined || isEnded(agent.state) ? null : switchable.length === 0 ? (
               <Text dimColor>Experimental: no model can be switched to, by your availableModels setting.</Text>
             ) : (
               <Button
                 key={`${MODEL_SWITCH_PREFIX}${agent.id}`}
                 hotkey={MODEL_HOTKEY}
                 plain
-                label={cycleLabel('model', modelChoiceName(onModel), modelChoiceName(nextModel))}
+                label={modelControlLabel(step)}
                 onPress={() => {}}
               />
             )}
@@ -376,14 +380,14 @@ export function registerFocus(on: On): void {
             <Text color="yellow">{note}</Text>
           </Box>
         )}
-        {/* i moves the focus into the Input, and typing into it never presses a hotkey: AGENTS.md, "While an Input has the focus" */}
+        {/* The redirect control (i) moves the focus into the Redirect box, and typing there never presses a hotkey: AGENTS.md, "While an Input has the focus" */}
         <Box key="redirect-row" flexDirection="column">
           <Box key="redirect-field" flexDirection="row" columnGap={1}>
-            {/* Answered by the ui.press hook on element: 'focus-redirect' */}
-            <Button key="focus-redirect" hotkey={REDIRECT_HOTKEY} plain label="Redirect" onPress={() => {}} />
+            {/* Answered by the ui.press hook on the redirect control's element key */}
+            <Button key={REDIRECT_CONTROL_KEY} hotkey={REDIRECT_HOTKEY} plain label="Redirect" onPress={() => {}} />
             <Input
-              key={REDIRECT_KEY}
-              placeholder={e.props.isFocused && ringOn !== REDIRECT_KEY ? REDIRECT_HINT : REDIRECT_PLACEHOLDER}
+              key={REDIRECT_BOX_KEY}
+              placeholder={e.props.isFocused && ringOn !== REDIRECT_BOX_KEY ? REDIRECT_HINT : REDIRECT_PLACEHOLDER}
               submitLabel="send"
               onSubmit={text => void redirect($, agent, text)}
             />
@@ -539,20 +543,20 @@ function stopNote(agent: Agent, armed: boolean): string | undefined {
 }
 
 /**
- * Moves the pane's focus into the redirect Input, so the user's keys type
+ * Moves the pane's focus into the Redirect box, so the user's keys type
  * there. Claude Code refuses it while the pane lacks the keyboard, as after
- * a click on the redirect key, which presses it without handing the pane
- * the keyboard, so it asks for the keyboard first. A refusal is toasted.
+ * a click on the redirect control, which presses it without handing the
+ * pane the keyboard, so it asks for the keyboard first. A refusal is toasted.
  */
 async function focusRedirect($: EngineInterface): Promise<void> {
   await askForKeyboard($)
   let refusal: string | undefined
   try {
-    refusal = (await $.ui.focus({ requestId: PANE_ID, key: REDIRECT_KEY })).deny
+    refusal = (await $.ui.focus({ requestId: PANE_ID, key: REDIRECT_BOX_KEY })).deny
   } catch (error) {
     refusal = reasonOf(error)
   }
-  if (refusal === undefined) noteRing($, REDIRECT_KEY)
+  if (refusal === undefined) noteRing($, REDIRECT_BOX_KEY)
   else $.ui.toast(`Squishys: the Redirect box can’t take the keys: ${refusalLine(refusal)}`)
 }
 
@@ -571,11 +575,11 @@ async function askForKeyboard($: EngineInterface): Promise<void> {
   } catch {}
 }
 
-/** Notes where the pane's focus ring landed, redrawing the redirect Input's hint when it changes. */
+/** Notes where the pane's focus ring landed, redrawing the Redirect box's hint when it changes. */
 function noteRing($: EngineInterface, element: string | undefined): void {
-  const wasOnRedirect = ringOn === REDIRECT_KEY
+  const wasOnRedirect = ringOn === REDIRECT_BOX_KEY
   ringOn = element
-  if (wasOnRedirect !== (element === REDIRECT_KEY)) $.ui.invalidate('ui.render')
+  if (wasOnRedirect !== (element === REDIRECT_BOX_KEY)) $.ui.invalidate('ui.render')
 }
 
 /** Back to the roster, disarming Stop and clearing the latest redirect's delivery on the way. */

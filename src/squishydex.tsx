@@ -70,11 +70,19 @@ export const DEX_GAP = 1
 /** The columns between the counts, and between buttons in a row. */
 export const DEX_ITEM_GAP = 2
 
-/** The keys the Squishydex's own controls take (Next, Prev, Roster, Back), which no place's pick does. */
-const PAGE_KEYS = ['n', 'p', 'r', 'b']
-
-/** The key that steps a species' card to the next palette it was met in. */
+/** The hotkeys of the Squishydex's own controls. */
+const NEXT_HOTKEY = 'n'
+const PREVIOUS_HOTKEY = 'p'
+const ROSTER_HOTKEY = 'r'
+const BACK_HOTKEY = 'b'
+const MAKE_PARTNER_HOTKEY = 'm'
+/** What the palette control is labeled, before the palette it's on. */
+export const PALETTE_LABEL = 'Partner palette'
+/** The palette control's hotkey, which steps a species' card to the next palette it was met in. */
 const PALETTE_HOTKEY = 'c'
+
+/** The hotkeys the pages' own controls take, which no place's pick does (Back shows only on a card). */
+const PAGE_KEYS = [NEXT_HOTKEY, PREVIOUS_HOTKEY, ROSTER_HOTKEY]
 
 /**
  * The color every unmet species is drawn in: its shape alone, solid. A
@@ -200,8 +208,8 @@ export function registerSquishydex(on: On): void {
         ))}
       </Box>
     )
-    const roster = button('squishydex-roster', 'r', 'Roster', () => void leave($))
-    const back = button('squishydex-back', 'b', 'Back', () => void update($, squishydexPicked, () => null))
+    const roster = button('squishydex-roster', ROSTER_HOTKEY, 'Roster', () => void leave($))
+    const back = button('squishydex-back', BACK_HOTKEY, 'Back', () => void update($, squishydexPicked, () => null))
 
     // A card, while a met species or legendary is picked
     const pickedKey = await read($, squishydexPicked)
@@ -228,7 +236,7 @@ export function registerSquishydex(on: On): void {
     ]
     // The footer is budgeted with every item there, the page count at its widest
     const widestPages = `${places.length}/${places.length}`
-    const footerBudget = [buttonColumns('Prev', 'p'), buttonColumns('Next', 'n'), widestPages.length, roster.columns]
+    const footerBudget = [buttonColumns('Prev', PREVIOUS_HOTKEY), buttonColumns('Next', NEXT_HOTKEY), widestPages.length, roster.columns]
     const layout = pageLayout(
       bodyColumns,
       bodyRows,
@@ -294,8 +302,8 @@ export function registerSquishydex(on: On): void {
       )
     }
     const footer = [
-      ...(page > 0 ? [button('squishydex-previous', 'p', 'Prev', () => void turnTo($, page - 1))] : []),
-      ...(page < pages - 1 ? [button('squishydex-next', 'n', 'Next', () => void turnTo($, page + 1))] : []),
+      ...(page > 0 ? [button('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', () => void turnTo($, page - 1))] : []),
+      ...(page < pages - 1 ? [button('squishydex-next', NEXT_HOTKEY, 'Next', () => void turnTo($, page + 1))] : []),
       ...(pages > 1 ? [text('squishydex-page', `${page + 1}/${pages}`, true)] : []),
       roster,
     ]
@@ -323,7 +331,7 @@ export function registerSquishydex(on: On): void {
       const sameSpecies = partner?.kind === 'assembled' && speciesKey(partner) === place.key
       const isPartner = sameSpecies && partner.palette === squishy.palette
       const actions = [
-        ...(isPartner ? [] : [button('squishydex-partner', 'm', 'Make partner', () => void makePartner($, squishy))]),
+        ...(isPartner ? [] : [button('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', () => void makePartner($, squishy))]),
         // Answered by the ui.press hook in share.tsx
         button(speciesShareKey(squishy.key), SHARE_HOTKEY, 'Share', () => {}),
         back,
@@ -345,7 +353,7 @@ export function registerSquishydex(on: On): void {
               key="squishydex-palette"
               hotkey={PALETTE_HOTKEY}
               plain
-              label={cycleLabel('Partner palette', squishy.palette, nextOf(palettes, squishy.palette) ?? squishy.palette)}
+              label={cycleLabel(PALETTE_LABEL, squishy.palette, nextOf(palettes, squishy.palette) ?? squishy.palette)}
               onPress={() =>
                 void update($, squishydexPalette, chosen => nextOf(palettes, chosen !== null && palettes.includes(chosen) ? chosen : palettes[0]) ?? null)
               }

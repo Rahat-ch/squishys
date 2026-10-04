@@ -1,7 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { PANE, spawnOf, stubSpawns, stubStore } from './fixtures'
+import { cycleLabel } from '../src/keys'
+import { MODEL_DEFAULT_LABEL, SLOT_CAP_LABEL } from '../src/settings'
+import { PANE, controlLabel, spawnOf, stubSpawns, stubStore } from './fixtures'
 
 // Button hotkeys can only be a digit or a lowercase letter, so the spec's
 // `,` can't open settings: `o` (options) does, and `r` returns to the roster.
@@ -22,21 +24,22 @@ test('o opens settings in place of the roster, and r returns to the roster', asy
   expect(await ui.find({ type: 'Text', text: 'Settings' })).toBeUndefined()
 })
 
-// Each setting is a key that steps it to its next choice, its label saying
-// what it's on and what the next press picks
-const label = async (ui: { find: (query: { type: 'Button'; key: string }) => Promise<{ props: Record<string, unknown> } | undefined> }, key: string) =>
-  (await ui.find({ type: 'Button', key }))?.props.label
+// Each setting is a control whose hotkey steps it to its next choice, its
+// label saying what it's on and what the next press picks
+const label = controlLabel
+const model = (now: string, next: string) => cycleLabel(MODEL_DEFAULT_LABEL, now, next)
+const slots = (now: number, next: number) => cycleLabel(SLOT_CAP_LABEL, String(now), String(next))
 
 test('settings start as "let Claude choose" and the most slots', async ($, on) => {
   stubStore(on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  expect(await label(ui, 'model')).toBe('Model for new agents  Let Claude choose ▸ haiku')
-  expect(await label(ui, 'slotCap')).toBe('Roster slots, at most  9 ▸ 1')
+  expect(await label(ui, 'model')).toBe(model('Let Claude choose', 'haiku'))
+  expect(await label(ui, 'slotCap')).toBe(slots(9, 1))
 })
 
-test('every setting answers to a key of its own, and r returns to the roster', async ($, on) => {
+test('every setting answers to a hotkey of its own, and r returns to the roster', async ($, on) => {
   stubStore(on)
   on('fs.exists', () => ({ value: true }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -56,13 +59,13 @@ test('each press steps a setting to its next choice, wrapping around, and is sav
   for (let press = 0; press < 4; press += 1) await $.ui.press({ plugin: 'squishys', key: 'slotCap' })
 
   expect(stored.get('settings')).toEqual({ model: 'haiku', slotCap: 4 })
-  expect(await label(ui, 'model')).toBe('Model for new agents  haiku ▸ sonnet')
-  expect(await label(ui, 'slotCap')).toBe('Roster slots, at most  4 ▸ 5')
+  expect(await label(ui, 'model')).toBe(model('haiku', 'sonnet'))
+  expect(await label(ui, 'slotCap')).toBe(slots(4, 5))
 
   // haiku, then sonnet, opus and fable, then back to letting Claude choose
   for (let press = 0; press < 4; press += 1) await $.ui.press({ plugin: 'squishys', key: 'model' })
   expect(stored.get('settings')).toEqual({ slotCap: 4 })
-  expect(await label(ui, 'model')).toBe('Model for new agents  Let Claude choose ▸ haiku')
+  expect(await label(ui, 'model')).toBe(model('Let Claude choose', 'haiku'))
 })
 
 test('settings saved in an earlier session come back', async ($, on) => {
@@ -70,8 +73,8 @@ test('settings saved in an earlier session come back', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  expect(await label(ui, 'model')).toBe('Model for new agents  fable ▸ Let Claude choose')
-  expect(await label(ui, 'slotCap')).toBe('Roster slots, at most  3 ▸ 4')
+  expect(await label(ui, 'model')).toBe(model('fable', 'Let Claude choose'))
+  expect(await label(ui, 'slotCap')).toBe(slots(3, 4))
 })
 
 test('a stored setting that is no longer valid falls back to its default', async ($, on) => {
@@ -79,8 +82,8 @@ test('a stored setting that is no longer valid falls back to its default', async
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
-  expect(await label(ui, 'model')).toBe('Model for new agents  Let Claude choose ▸ haiku')
-  expect(await label(ui, 'slotCap')).toBe('Roster slots, at most  9 ▸ 1')
+  expect(await label(ui, 'model')).toBe(model('Let Claude choose', 'haiku'))
+  expect(await label(ui, 'slotCap')).toBe(slots(9, 1))
 })
 
 // Answers each agent.spawn as Claude Code would, keeping the model each one
@@ -133,6 +136,30 @@ test('a store that cannot be read leaves spawns untouched and still assigns squi
   expect(models).toEqual([undefined])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Raster' })).toBeDefined()
+})
+
+test('two presses before the first is saved step a setting twice', async ($, on) => {
+  // A store that answers a read with what it held then, a few turns of the
+  // event loop later, so a second press can read before the first one writes
+  const stored = new Map<string, unknown>()
+  on('store.get', async ($, e) => {
+    const value = stored.get(e.key)
+    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
+    return { value }
+  })
+  on('store.set', ($, e) => {
+    stored.set(e.key, JSON.parse(JSON.stringify(e.value)))
+    return { value: undefined }
+  })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.ui.press({ plugin: 'squishys', key: 'settings' })
+
+  await Promise.all([$.ui.press({ plugin: 'squishys', key: 'slotCap' }), $.ui.press({ plugin: 'squishys', key: 'slotCap' })])
+  await Promise.all([$.ui.press({ plugin: 'squishys', key: 'model' }), $.ui.press({ plugin: 'squishys', key: 'model' })])
+
+  expect(await label(ui, 'slotCap')).toBe(slots(2, 3))
+  expect(await label(ui, 'model')).toBe(model('sonnet', 'opus'))
+  expect(stored.get('settings')).toEqual({ model: 'sonnet', slotCap: 2 })
 })
 
 test('a model picked in settings applies to the next spawn', async ($, on) => {

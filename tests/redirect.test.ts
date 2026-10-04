@@ -3,8 +3,9 @@ import type { Engine } from 'claude-code/testing'
 import type { AgentStatus, On, SessionSendResult } from 'claude-code'
 
 import { focusHint } from '../src/focus'
+import { OPEN_PANE_ASKED, PANE_ID } from '../src/pane'
 import { PARTNER_BUTTON } from '../src/partner'
-import { PANE, PARTNERED, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
+import { PANE, PARTNERED, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubPanes, stubSpawns, stubTurns } from './fixtures'
 
 // The kit can't append to a running agent's conversation, so its redirects
 // are refused here: AGENTS.md, "A redirect goes". Most tests redirect an
@@ -274,9 +275,9 @@ test('a redirect to an agent Squished by a fallback stop resumes it, and its nex
 
 // Stands in for Claude Code's focus ring in the pane, which the user moves
 // (Tab, a click): every move lands. The kit has no implementation of a
-// plugin's own $.ui.focus: no test hook reaches it, and it always rejects
-// with `no implementation for ui.focus`, so the tests see the redirect
-// key's move refused, and the move itself was checked in a session (#49).
+// plugin's own $.ui.focus: no test hook or inline plugin sees it, and it
+// always rejects. So a test sees that the redirect control made the call
+// by its refusal's toast, and the move itself was checked in a session (#49).
 function stubFocusRing(on: On): void {
   on('ui.focus', () => ({}))
 }
@@ -284,18 +285,26 @@ function stubFocusRing(on: On): void {
 // The user moving the pane's focus ring onto an element
 const personFocuses = (element: string) => ({ component: 'Pane', requestId: 'squishys', element, origin: { kind: 'person' } }) as const
 
-test('i asks Claude Code to move the focus into the Redirect box, and says so when it can’t; the box still sends with Enter', async ($, on) => {
+// The toast of a move into the Redirect box Claude Code refused, whatever the reason
+const REDIRECT_REFUSED = /^Squishys: the Redirect box can’t take the keys: ./
+
+test('the redirect control (i) asks for the keyboard and moves the focus into the Redirect box, saying so when it can’t; the box still sends with Enter', async ($, on) => {
   stubFocusRing(on)
+  const panes = stubPanes(on)
   const sent = stubSends(on)
   const toasts: string[] = []
   on('ui.toast', ($, e) => (toasts.push(e.text), { value: undefined }))
   const { ui } = await focusOnAgent($, on, PARTNERED)
-  const redirectKey = await ui.find({ type: 'Button', key: 'focus-redirect' })
-  expect(redirectKey?.props.hotkey).toBe('i')
-  expect(redirectKey?.props.label).toBe('Redirect')
+  const control = await ui.find({ type: 'Button', key: 'focus-redirect' })
+  expect(control?.props.hotkey).toBe('i')
+  expect(control?.props.label).toBe('Redirect')
 
+  // A click on it presses it without handing the pane the keyboard
+  panes.panes.set(PANE_ID, { isPlaced: true, isFocused: false })
+  const opens = panes.opens.length
   await $.ui.press({ plugin: 'squishys', key: 'focus-redirect' })
-  expect(toasts).toEqual(['Squishys: the Redirect box can’t take the keys: no implementation for ui.focus'])
+  expect(panes.opens.slice(opens)).toEqual([OPEN_PANE_ASKED])
+  expect(toasts).toEqual([expect.stringMatching(REDIRECT_REFUSED)])
 
   await $.turn.complete(finishOf('agent-1'))
   await typeRedirect($, 'Keep going')

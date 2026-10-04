@@ -34,7 +34,7 @@ export type Settings = {
 /** Where the settings live in the mod's store. */
 export const SETTINGS_KEY = 'settings'
 
-/** The model key's choice of no default. */
+/** The model default control's choice of no default. */
 const LET_CLAUDE_CHOOSE = 'let-claude-choose'
 
 // The engine reads each $.state reference off the file that uses it, so
@@ -70,20 +70,46 @@ function isSlotCap(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_SLOTS
 }
 
+/**
+ * What a model control steps through: `first` (no model of its own), then
+ * each of `allowed` in MODELS order. Every model control (the default for
+ * new agents, the live switch) orders models so.
+ */
+export function modelCycle<First extends string>(first: First, allowed: readonly Model[] = MODELS): (First | Model)[] {
+  return [first, ...MODELS.filter(model => allowed.includes(model))]
+}
+
+/** The on-off settings, each `true` or absent. */
+type Toggle = 'liveModelSwitch' | 'chime'
+
+/** Settings with an on-off setting turned the other way. */
+export function toggled(settings: Settings, name: Toggle): Settings {
+  const { [name]: was, ...rest } = settings
+  return was === true ? rest : { ...rest, [name]: true }
+}
+
 export function registerSettings(on: On): void {
   // The settings mode of the pane. Each mode's hook draws only while the
   // pane is in that mode and passes the drawing on otherwise. The pane's id
   // is spelled out, since the engine reads a matcher off this file alone.
-  // Each setting is a Button whose hotkey steps it to its next choice
-  // (AGENTS.md, "Keys"); each press edits the setting as stored, so two
-  // presses before a redraw step it twice.
+  // Each setting is a control whose hotkey steps it to its next choice
+  // (AGENTS.md, "Keys"). Saves queue (saveSettings), so two presses before
+  // a redraw step a setting twice.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'settings') return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     const settings = await readSettings($)
     const chimes = await chimePlays($)
     const model = settings.model ?? LET_CLAUDE_CHOOSE
-    const nextModel = nextOf(MODEL_CYCLE, model) ?? LET_CLAUDE_CHOOSE
+    const toggle = (name: Toggle, hotkey: string, label: string) => (
+      <Button
+        key={name}
+        hotkey={hotkey}
+        plain
+        label={cycleLabel(label, onOff(settings[name]), onOff(settings[name] !== true))}
+        onPress={() => void saveSettings($, current => toggled(current, name))}
+      />
+    )
     return (
       <Box flexDirection="column" rowGap={1}>
         <Text bold>Settings</Text>
@@ -91,49 +117,41 @@ export function registerSettings(on: On): void {
           key="model"
           hotkey="m"
           plain
-          label={cycleLabel('Model for new agents', modelName(model), modelName(nextModel))}
+          label={cycleLabel(MODEL_DEFAULT_LABEL, modelName(model), modelName(nextOf(MODEL_DEFAULTS, model) ?? LET_CLAUDE_CHOOSE))}
           onPress={() => void saveSettings($, withNextModel)}
         />
         <Button
           key="slotCap"
           hotkey="s"
           plain
-          label={cycleLabel('Roster slots, at most', String(settings.slotCap), String(nextSlotCap(settings.slotCap)))}
+          label={cycleLabel(SLOT_CAP_LABEL, String(settings.slotCap), String(nextSlotCap(settings.slotCap)))}
           onPress={() => void saveSettings($, current => ({ ...current, slotCap: nextSlotCap(current.slotCap) }))}
         />
-        <Button
-          key="liveModelSwitch"
-          hotkey="l"
-          plain
-          label={cycleLabel("Experimental: switch a running agent's model from its focus view", onOff(settings.liveModelSwitch), onOff(settings.liveModelSwitch !== true))}
-          onPress={() => void saveSettings($, ({ liveModelSwitch, ...rest }) => (liveModelSwitch === true ? rest : { ...rest, liveModelSwitch: true }))}
-        />
-        {chimes ? (
-          <Button
-            key="chime"
-            hotkey="c"
-            plain
-            label={cycleLabel('Chime on a shiny or legendary', onOff(settings.chime), onOff(settings.chime !== true))}
-            onPress={() => void saveSettings($, ({ chime, ...rest }) => (chime === true ? rest : { ...rest, chime: true }))}
-          />
-        ) : null}
+        {toggle('liveModelSwitch', 'l', LIVE_MODEL_SWITCH_LABEL)}
+        {chimes ? toggle('chime', 'c', CHIME_LABEL) : null}
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>
     )
   })
 }
 
-/** The model default's choices, in the order its key steps through them. */
-const MODEL_CYCLE = [LET_CLAUDE_CHOOSE, ...MODELS]
+/** What each setting's control is labeled, before what it's on. */
+export const MODEL_DEFAULT_LABEL = 'Model for new agents'
+export const SLOT_CAP_LABEL = 'Roster slots, at most'
+export const LIVE_MODEL_SWITCH_LABEL = "Experimental: switch a running agent's model from its focus view"
+export const CHIME_LABEL = 'Chime on a shiny or legendary'
+
+/** The model default's choices, in the order its control steps through them. */
+const MODEL_DEFAULTS = modelCycle(LET_CLAUDE_CHOOSE)
 
 /** How a model default's choice reads. */
-function modelName(choice: string): string {
+export function modelName(choice: string): string {
   return choice === LET_CLAUDE_CHOOSE ? 'Let Claude choose' : choice
 }
 
 /** Settings with the model default stepped to its next choice. */
 function withNextModel({ model, ...rest }: Settings): Settings {
-  const stepped = nextOf(MODEL_CYCLE, model ?? LET_CLAUDE_CHOOSE)
+  const stepped = nextOf(MODEL_DEFAULTS, model ?? LET_CLAUDE_CHOOSE)
   return isModel(stepped) ? { ...rest, model: stepped } : rest
 }
 
@@ -143,7 +161,7 @@ function nextSlotCap(cap: number): number {
 }
 
 /** How an on-off setting reads. */
-function onOff(on: boolean | undefined): string {
+export function onOff(on: boolean | undefined): string {
   return on === true ? 'On' : 'Off'
 }
 
@@ -166,9 +184,25 @@ async function readSettings($: EngineInterface): Promise<Settings> {
   return settingsFrom(await $.store.get(SETTINGS_KEY))
 }
 
-/** Saves an edit to the settings, validated like a stored value is on reading. */
-async function saveSettings($: EngineInterface, edit: (settings: Settings) => Settings): Promise<void> {
-  await $.store.set(SETTINGS_KEY, settingsFrom(edit(await readSettings($))))
-  // The store isn't $.state, so nothing redraws the pane on its own.
-  $.ui.invalidate('ui.render')
+/**
+ * The saves under way, one after another, so each reads what the one
+ * before it wrote: two quick presses step a setting twice. Kept here, never
+ * in $.state.
+ */
+let saving: Promise<void> = Promise.resolve()
+
+/**
+ * Saves an edit to the settings, validated like a stored value is on
+ * reading, after every save already under way. A save that fails leaves
+ * the settings as they were and the queue going.
+ */
+function saveSettings($: EngineInterface, edit: (settings: Settings) => Settings): Promise<void> {
+  saving = saving.then(async () => {
+    try {
+      await $.store.set(SETTINGS_KEY, settingsFrom(edit(await readSettings($))))
+    } catch {}
+    // The store isn't $.state, so nothing redraws the pane on its own.
+    $.ui.invalidate('ui.render')
+  })
+  return saving
 }

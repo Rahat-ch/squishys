@@ -1,7 +1,10 @@
 import { expect, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, Mounted } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import type { Model } from '../types'
+import { cycleLabel } from '../src/keys'
+import { LIVE_MODEL_SWITCH_LABEL } from '../src/settings'
 import { PANE, PARTNERED, drain, finishOf, spawnOf, stepOf, stubSessionStart, stubSpawns, stubStore } from './fixtures'
 
 type Sent = { agentId: string | undefined; model: string; effort?: unknown }
@@ -47,30 +50,41 @@ async function focusOnAgent($: Engine, on: On, settings?: Record<string, unknown
 }
 
 const SWITCH_ON = { slotCap: 9, liveModelSwitch: true }
-const MODEL_KEY = 'model-switch-agent-1'
+const MODEL_CONTROL = 'model-switch-agent-1'
 
-// Presses the focus view's model key `times` times
-async function pressModelKey($: Engine, times = 1): Promise<void> {
-  for (let press = 0; press < times; press += 1) await $.ui.press({ plugin: 'squishys', key: MODEL_KEY })
+// Presses the focus view's model control `times` times
+async function pressModelControl($: Engine, times = 1): Promise<void> {
+  for (let press = 0; press < times; press += 1) await $.ui.press({ plugin: 'squishys', key: MODEL_CONTROL })
 }
 
-// What the model key is on and picks next, from its label
-async function modelKey(ui: { find: (query: { type: 'Button'; key: string }) => Promise<{ props: Record<string, unknown> } | undefined> }) {
-  return (await ui.find({ type: 'Button', key: MODEL_KEY }))?.props
+// The model control, as drawn
+async function modelControl(ui: Mounted<'terminal', 'Pane'>) {
+  return (await ui.find({ type: 'Button', key: MODEL_CONTROL }))?.props
 }
+
+// The model control's label: on `now` (as started, or a model), then picking `next`
+const stepLabel = (now: Model | undefined, next: Model | undefined, isAllowed = true) =>
+  cycleLabel('model', now === undefined ? 'as started' : isAllowed ? now : `${now} (not allowed)`, next ?? 'as started')
+// Draws agent-1's focus view again, as the user going back and picking it does
+async function drawAgain($: Engine): Promise<void> {
+  await $.ui.press({ plugin: 'squishys', key: 'back' })
+  await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
+}
+
 const ORCHESTRATOR_STEP = { ...stepOf('agent-1'), agentId: undefined, turnId: 'turn-orchestrator' }
 
-test('the live model switch is off by default, labeled experimental, and the focus view has no model key', async ($, on) => {
+test('the live model switch is off by default, labeled experimental, and the focus view has no model control', async ($, on) => {
   const { ui } = await focusOnAgent($, on)
-  expect(await modelKey(ui)).toBeUndefined()
+  expect(await modelControl(ui)).toBeUndefined()
 
   await $.ui.press({ plugin: 'squishys', key: 'back' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
   const setting = await ui.find({ type: 'Button', key: 'liveModelSwitch' })
-  expect(String(setting?.props.label)).toMatch(/^Experimental: .*  Off ▸ On$/)
+  expect(setting?.props.label).toBe(cycleLabel(LIVE_MODEL_SWITCH_LABEL, 'Off', 'On'))
+  expect(LIVE_MODEL_SWITCH_LABEL).toMatch(/^Experimental/)
 })
 
-test('turning the live model switch on is saved, and gives the focus view a model key, m', async ($, on) => {
+test('turning the live model switch on is saved, and gives the focus view a model control, m', async ($, on) => {
   stubClaudeSettings(on)
   const { ui, stored } = await focusOnAgent($, on)
   await $.ui.press({ plugin: 'squishys', key: 'back' })
@@ -81,26 +95,26 @@ test('turning the live model switch on is saved, and gives the focus view a mode
 
   await $.ui.press({ plugin: 'squishys', key: 'back' })
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
-  expect(await modelKey(ui)).toMatchObject({ hotkey: 'm', label: 'model  as started ▸ haiku' })
+  expect(await modelControl(ui)).toMatchObject({ hotkey: 'm', label: stepLabel(undefined, 'haiku') })
 })
 
-test('the model key steps through as started, haiku, sonnet, opus and fable, then back to as started', async ($, on) => {
+test('the model control steps through as started, haiku, sonnet, opus and fable, then back to as started', async ($, on) => {
   stubClaudeSettings(on)
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
 
-  const labels = [String((await modelKey(ui))?.label)]
+  const labels = [String((await modelControl(ui))?.label)]
   for (let press = 0; press < 5; press += 1) {
-    await pressModelKey($)
-    labels.push(String((await modelKey(ui))?.label))
+    await pressModelControl($)
+    labels.push(String((await modelControl(ui))?.label))
   }
 
   expect(labels).toEqual([
-    'model  as started ▸ haiku',
-    'model  haiku ▸ sonnet',
-    'model  sonnet ▸ opus',
-    'model  opus ▸ fable',
-    'model  fable ▸ as started',
-    'model  as started ▸ haiku',
+    stepLabel(undefined, 'haiku'),
+    stepLabel('haiku', 'sonnet'),
+    stepLabel('sonnet', 'opus'),
+    stepLabel('opus', 'fable'),
+    stepLabel('fable', undefined),
+    stepLabel(undefined, 'haiku'),
   ])
   expect(await ui.find({ type: 'Text', text: 'claude-opus-5-5' })).toBeDefined()
 })
@@ -110,7 +124,7 @@ test('a picked model is used by that agent’s next requests alone, without the 
   stubClaudeSettings(on)
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
 
-  await pressModelKey($, 2)
+  await pressModelControl($, 2)
   expect(await ui.find({ type: 'Text', text: 'switching to sonnet…' })).toBeDefined()
 
   await drain($.turn.step({ ...stepOf('agent-1'), effort: 'high' }))
@@ -126,7 +140,7 @@ test('a picked model is used by that agent’s next requests alone, without the 
   ])
   expect(await ui.find({ type: 'Text', text: 'sonnet (switched)' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'claude-opus-5-5' })).toBeUndefined()
-  expect((await modelKey(ui))?.label).toBe('model  sonnet ▸ opus')
+  expect((await modelControl(ui))?.label).toBe(stepLabel('sonnet', 'opus'))
 })
 
 test('stepping back to "as started" undoes the switch', async ($, on) => {
@@ -134,18 +148,18 @@ test('stepping back to "as started" undoes the switch', async ($, on) => {
   stubClaudeSettings(on)
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
 
-  await pressModelKey($, 5)
+  await pressModelControl($, 5)
   await drain($.turn.step(stepOf('agent-1')))
 
   expect(sent).toEqual([{ agentId: 'agent-1', model: 'claude-opus-5-5' }])
   expect(await ui.find({ type: 'Text', text: 'claude-opus-5-5' })).toBeDefined()
 })
 
-test('turning the live model switch off undoes every switch and takes the model key away', async ($, on) => {
+test('turning the live model switch off undoes every switch and takes the model control away', async ($, on) => {
   const sent = sentRequests(on)
   stubClaudeSettings(on)
   const { ui, stored } = await focusOnAgent($, on, SWITCH_ON)
-  await pressModelKey($, 3)
+  await pressModelControl($, 3)
 
   await $.ui.press({ plugin: 'squishys', key: 'back' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
@@ -156,56 +170,82 @@ test('turning the live model switch off undoes every switch and takes the model 
   expect(sent).toEqual([{ agentId: 'agent-1', model: 'claude-opus-5-5' }])
   await $.ui.press({ plugin: 'squishys', key: 'back' })
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
-  expect(await modelKey(ui)).toBeUndefined()
+  expect(await modelControl(ui)).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'claude-opus-5-5' })).toBeDefined()
 })
 
-test('with availableModels set, the model key steps only through the aliases it names', async ($, on) => {
+test('with availableModels set, the model control steps only through the aliases it names', async ($, on) => {
   stubClaudeSettings(on, { availableModels: ['opus', 'Haiku', 'claude-sonnet-4-5'] })
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
 
-  const labels = [String((await modelKey(ui))?.label)]
+  const labels = [String((await modelControl(ui))?.label)]
   for (let press = 0; press < 3; press += 1) {
-    await pressModelKey($)
-    labels.push(String((await modelKey(ui))?.label))
+    await pressModelControl($)
+    labels.push(String((await modelControl(ui))?.label))
   }
-  expect(labels).toEqual(['model  as started ▸ haiku', 'model  haiku ▸ opus', 'model  opus ▸ as started', 'model  as started ▸ haiku'])
+  expect(labels).toEqual([stepLabel(undefined, 'haiku'), stepLabel('haiku', 'opus'), stepLabel('opus', undefined), stepLabel(undefined, 'haiku')])
 })
 
-test('with availableModels naming no alias, there is no model key, and the focus view says why', async ($, on) => {
+test('with availableModels naming no alias, there is no model control, and the focus view says why', async ($, on) => {
   stubClaudeSettings(on, { availableModels: ['claude-sonnet-4-5'] })
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
 
-  expect(await modelKey(ui)).toBeUndefined()
+  expect(await modelControl(ui)).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /availableModels/ })).toBeDefined()
 })
 
-test('a press skips the models availableModels stopped naming since the focus view was drawn', async ($, on) => {
+test('a press for a model availableModels stopped naming since the control was drawn is refused, saying why, and the next press steps on', async ($, on) => {
   const sent = sentRequests(on)
   const settings = stubClaudeSettings(on)
   const toasts = stubToasts(on)
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
-  expect((await modelKey(ui))?.label).toBe('model  as started ▸ haiku')
+  expect((await modelControl(ui))?.label).toBe(stepLabel(undefined, 'haiku'))
 
   settings.availableModels = ['opus']
-  await pressModelKey($)
+  await pressModelControl($)
+  expect(toasts).toEqual([expect.stringContaining('not switched to haiku')])
+  expect(toasts[0]).toContain('availableModels')
   await drain($.turn.step(stepOf('agent-1')))
+  expect(sent).toEqual([{ agentId: 'agent-1', model: 'claude-opus-5-5' }])
 
-  expect(sent).toEqual([{ agentId: 'agent-1', model: 'opus' }])
-  expect(toasts).toEqual([])
+  // Drawn again, the control offers what the allowlist names now
+  await drawAgain($)
+  expect((await modelControl(ui))?.label).toBe(stepLabel(undefined, 'opus'))
+  await pressModelControl($)
+  await drain($.turn.step({ ...stepOf('agent-1'), index: 1 }))
+  expect(sent).toEqual([
+    { agentId: 'agent-1', model: 'claude-opus-5-5' },
+    { agentId: 'agent-1', model: 'opus' },
+  ])
 })
 
-test('a press for an agent that has ended switches nothing, and the focus view has no model key', async ($, on) => {
+test('a switched model availableModels no longer names shows so, and the next press steps from it in model order', async ($, on) => {
+  const settings = stubClaudeSettings(on)
+  const { ui } = await focusOnAgent($, on, SWITCH_ON)
+  await pressModelControl($, 2)
+  expect((await modelControl(ui))?.label).toBe(stepLabel('sonnet', 'opus'))
+
+  settings.availableModels = ['haiku', 'fable']
+  await drawAgain($)
+  expect((await modelControl(ui))?.label).toBe(stepLabel('sonnet', 'fable', false))
+  expect(String((await modelControl(ui))?.label)).toContain('sonnet (not allowed)')
+
+  await pressModelControl($)
+  expect(await ui.find({ type: 'Text', text: 'switching to fable…' })).toBeDefined()
+  expect((await modelControl(ui))?.label).toBe(stepLabel('fable', undefined))
+})
+
+test('a press for an agent that has ended switches nothing, and the focus view has no model control', async ($, on) => {
   stubClaudeSettings(on)
   on('turn.complete', ($, e) => ({ text: e.answer }))
   const toasts = stubToasts(on)
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
 
   await $.turn.complete(finishOf('agent-1'))
-  await pressModelKey($)
+  await pressModelControl($)
 
   expect(toasts).toEqual([expect.stringContaining('not switched to haiku')])
-  expect(await modelKey(ui)).toBeUndefined()
+  expect(await modelControl(ui)).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'claude-opus-5-5' })).toBeDefined()
 })
 
@@ -214,7 +254,7 @@ test('a switch availableModels stops naming ends before the next request, saying
   const settings = stubClaudeSettings(on)
   const toasts = stubToasts(on)
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
-  await pressModelKey($, 2)
+  await pressModelControl($, 2)
 
   settings.availableModels = ['opus']
   await drain($.turn.step(stepOf('agent-1')))
@@ -231,7 +271,7 @@ test('a store that can no longer be read stops the rewrite', async ($, on) => {
   stubClaudeSettings(on)
   stubToasts(on)
   await focusOnAgent($, on, SWITCH_ON)
-  await pressModelKey($, 2)
+  await pressModelControl($, 2)
 
   storeDown = true
   await drain($.turn.step(stepOf('agent-1')))
@@ -239,16 +279,16 @@ test('a store that can no longer be read stops the rewrite', async ($, on) => {
   expect(sent).toEqual([{ agentId: 'agent-1', model: 'claude-opus-5-5' }])
 })
 
-test('an agent’s switch ends with its run, and an ended agent has no model key', async ($, on) => {
+test('an agent’s switch ends with its run, and an ended agent has no model control', async ($, on) => {
   const sent = sentRequests(on)
   stubClaudeSettings(on)
   on('turn.complete', ($, e) => ({ text: e.answer }))
   const { ui } = await focusOnAgent($, on, SWITCH_ON)
-  await pressModelKey($, 2)
+  await pressModelControl($, 2)
 
   await $.turn.complete(finishOf('agent-1'))
   expect(await ui.find({ type: 'Text', text: 'Asleep' })).toBeDefined()
-  expect(await modelKey(ui)).toBeUndefined()
+  expect(await modelControl(ui)).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'claude-opus-5-5' })).toBeDefined()
 
   // Resumed by a message, it starts on the model the engine picks
@@ -261,7 +301,7 @@ test('/clear ends every switch', async ($, on) => {
   stubClaudeSettings(on)
   stubSessionStart(on)
   await focusOnAgent($, on, SWITCH_ON)
-  await pressModelKey($, 2)
+  await pressModelControl($, 2)
 
   await $.classic.SessionStart({ source: 'clear' })
   await drain($.turn.step(stepOf('agent-1')))

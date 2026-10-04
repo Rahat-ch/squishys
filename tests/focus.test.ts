@@ -54,7 +54,7 @@ test('while the pane lacks the keyboard, as after a pick from the band, the focu
   expect(await focused.find({ type: 'Text', text: focusHint(true) })).toBeUndefined()
 })
 
-test('a pick in a pane that lacks the keyboard, as a click there leaves it, asks for the keyboard, so the focus view’s keys work at once', async ($, on) => {
+test('a pick in a pane that lacks the keyboard, as a click there leaves it, asks for the keyboard, so the focus view’s hotkeys work at once', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
   const panes = stubPanes(on)

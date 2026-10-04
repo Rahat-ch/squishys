@@ -1,6 +1,7 @@
 // Inputs Claude Code would hand the mod, shared by the test files.
 
 import type { AgentStatus, On, PaneOpenArgs } from 'claude-code'
+import type { Mounted } from 'claude-code/testing'
 
 import { KIT } from '../src/kit'
 import { PANE_ID } from '../src/pane'
@@ -60,6 +61,11 @@ export function stubPanes(on: On, { wide = true, unplaced = false, refusal }: { 
     return { value: undefined }
   })
   return stub
+}
+
+// The label of the pane control keyed `key` (its element key), as drawn
+export async function controlLabel(ui: Mounted<'terminal', 'Pane'>, key: string): Promise<unknown> {
+  return (await ui.find({ type: 'Button', key }))?.props.label
 }
 
 // A pane body with just room for `across` by `down` slots, plus `spare`

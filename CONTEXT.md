@@ -127,3 +127,11 @@ _Avoid_: detail view, main panel, expanded view
 **Redirect**:
 A message the user types in an agent's focus view, which the agent reads at its next step, or which resumes it if it had ended.
 _Avoid_: message, steer, nudge
+
+**Redirect box**:
+The one-line field in the focus view where the user types a redirect. Pressing `i` puts the cursor in it; Enter sends.
+_Avoid_: input, text box, message field
+
+**Hotkey**:
+The single key a person presses to work a pane control, shown before its label (`i: Redirect`).
+_Avoid_: shortcut, key binding
