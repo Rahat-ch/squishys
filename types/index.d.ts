@@ -8,7 +8,7 @@
  * adds its identity (species, variant, shiny, rarity) later.
  */
 export type Squishy = {
-  /** The squishy's Name, shown on its button under the sprite. */
+  /** The squishy's Name, shown on its button under its picture. */
   name: string
 }
 

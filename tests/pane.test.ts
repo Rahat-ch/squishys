@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { PANE, SQUISHYS_COMMAND, spawnOf } from './fixtures'
+import { PANE_ID } from '../src/pane'
+import { PANE, SQUISHYS_COMMAND, spawnOf, stubSpawns } from './fixtures'
 
 // Stands in for Claude Code's panes: which ids are open right now
 function stubPanes(on: On): Set<string> {
@@ -20,31 +21,31 @@ function stubPanes(on: On): Set<string> {
   return open
 }
 
-test('/squishys is registered when the session starts', async ($, on) => {
-  const registered: string[] = []
+test('/squishys is registered when the session starts, to run even mid-turn', async ($, on) => {
+  const registered: { name: string; immediate?: true }[] = []
   on('command.register', ($, e) => {
-    registered.push(e.name)
+    registered.push({ name: e.name, immediate: e.immediate })
     return { value: { command: e.name } }
   })
   on('session.start', () => ({ cwd: '/work' }))
 
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
-  expect(registered).toContain('squishys')
+  expect(registered).toContainEqual({ name: 'squishys', immediate: true })
 })
 
 test('/squishys opens the pane and running it again closes it', async ($, on) => {
   const open = stubPanes(on)
 
   await $.command.run(SQUISHYS_COMMAND)
-  expect([...open]).toEqual(['squishys'])
+  expect([...open]).toEqual([PANE_ID])
 
   await $.command.run(SQUISHYS_COMMAND)
   expect([...open]).toEqual([])
 })
 
 test('off the terminal, the pane is Claude Code’s own drawing', async ($, on) => {
-  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'agent-1' }))
+  stubSpawns(on)
   // Stands for what Claude Code would draw in the pane
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['drawn by Claude Code'] }))
 

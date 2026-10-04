@@ -1,29 +1,17 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PANE, readFrom, spawnOf } from './fixtures'
-
-// The glyph of every cell in a Raster's packed `cells`
-function glyphsOf(cells: unknown): string[] {
-  const bytes = atob(String(cells))
-  const glyphs: string[] = []
-  for (let at = 0; at < bytes.length; at += 12) {
-    let codePoint = 0
-    for (let byte = 3; byte >= 0; byte -= 1) codePoint = codePoint * 256 + bytes.charCodeAt(at + byte)
-    glyphs.push(String.fromCodePoint(codePoint))
-  }
-  return glyphs
-}
+import { PANE, glyphsOf, readFrom, spawnOf, stubSpawns } from './fixtures'
 
 test('spawning an agent adds a roster entry with a 16x16 half-block squishy and a named button', async ($, on) => {
-  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'agent-1' }))
+  stubSpawns(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const sprite = await ui.find({ type: 'Raster' })
+  const picture = await ui.find({ type: 'Raster' })
   // 16 pixels across, and 16 down packed two to a cell
-  expect(sprite?.props).toMatchObject({ columns: 16, rows: 8 })
-  const glyphs = glyphsOf(sprite?.props.cells)
+  expect(picture?.props).toMatchObject({ columns: 16, rows: 8 })
+  const glyphs = glyphsOf(picture?.props.cells)
   expect(glyphs).toHaveLength(16 * 8)
   expect(glyphs.every(glyph => ['▀', '▄', ' '].includes(glyph))).toBe(true)
   expect(glyphs).toContain('▀')
@@ -31,8 +19,7 @@ test('spawning an agent adds a roster entry with a 16x16 half-block squishy and 
 })
 
 test('each agent gets its own roster entry', async ($, on) => {
-  let spawned = 0
-  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `agent-${++spawned}` }))
+  stubSpawns(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
   await $.agent.spawn({ ...spawnOf('toolu_2'), fork: true, subagentType: 'fork' })
@@ -60,7 +47,7 @@ test('an agent first seen through a tool call gets one squishy too', async ($, o
 })
 
 test('a spawned agent keeps its one squishy as it calls tools', async ($, on) => {
-  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'agent-1' }))
+  stubSpawns(on)
   on('agent.list', () => ({
     value: [{ id: 'agent-1', description: 'Find config parser', type: 'general-purpose', status: 'running' }],
   }))
@@ -82,4 +69,18 @@ test('a tool call from a loop the agent list does not name gets no squishy', asy
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+})
+
+test('an id the agent list does not name is looked up only once', async ($, on) => {
+  let lookups = 0
+  on('agent.list', () => {
+    lookups += 1
+    return { value: [] }
+  })
+  on('tool.call', () => ({ result: 'ok' }))
+
+  await $.tool.call(readFrom('workflow-1', 'README.md'))
+  await $.tool.call(readFrom('workflow-1', 'CONTEXT.md'))
+
+  expect(lookups).toBe(1)
 })

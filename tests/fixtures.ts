@@ -1,10 +1,14 @@
 // Inputs Claude Code would hand the mod, shared by the test files.
 
+import type { On } from 'claude-code'
+
+import { PANE_ID } from '../src/pane'
+
 // What Claude Code passes to the pane's ui.render hook, apart from the surface
 export const PANE = {
   plugin: 'squishys',
   component: 'Pane',
-  requestId: 'squishys',
+  requestId: PANE_ID,
   viewport: { columns: 160, rows: 40, isFullscreen: true },
   props: {
     title: 'Squishys',
@@ -15,6 +19,24 @@ export const PANE = {
     view: {},
   },
 } as const
+
+// Answers each agent.spawn as Claude Code would, with ids agent-1, agent-2…
+export function stubSpawns(on: On): void {
+  let spawned = 0
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `agent-${++spawned}` }))
+}
+
+// The glyph of every cell in a Raster's packed `cells`
+export function glyphsOf(cells: unknown): string[] {
+  const bytes = atob(String(cells))
+  const glyphs: string[] = []
+  for (let at = 0; at < bytes.length; at += 12) {
+    let codePoint = 0
+    for (let byte = 3; byte >= 0; byte -= 1) codePoint = codePoint * 256 + bytes.charCodeAt(at + byte)
+    glyphs.push(String.fromCodePoint(codePoint))
+  }
+  return glyphs
+}
 
 // The full agent.spawn input, as the Agent tool hands it to the hooks
 export function spawnOf(toolUseId: string) {
@@ -37,7 +59,7 @@ export function readFrom(agentId: string, filePath: string) {
   return { tool: 'Read', file_path: filePath, agentId } as const
 }
 
-// The person typing /squishys at the prompt of a fullscreen terminal
+// The user typing /squishys at the prompt of a fullscreen terminal
 export const SQUISHYS_COMMAND = {
   command: 'squishys',
   args: '',
