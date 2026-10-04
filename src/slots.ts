@@ -21,11 +21,40 @@ export const SLOT_MIN_COLUMNS = 14
  * focus view and the Squishydex card show it whole.
  */
 export const SLOT_COLUMNS = Math.max(PICTURE_COLUMNS, SLOT_MIN_COLUMNS)
+/** A slot's lines: its Name, its description and a row for the mark on the squishy of the agent open in the main view. */
+const SLOT_LINES = 3
+/** A slot's height: the picture, then its lines. */
+export const SLOT_ROWS = PICTURE_ROWS + SLOT_LINES
+/** A mini squishy's picture, in cells: half a picture across, two pixels down a cell. */
+const MINI_COLUMNS = Math.floor(PICTURE_COLUMNS / 2)
+const MINI_ROWS = Math.ceil(MINI_COLUMNS / 2)
 /**
- * A slot's height: the picture, then its name, its description and a row
- * for the mark on the squishy of the agent open in the main view.
+ * A mini slot, for an inline pane too short for a full one: the mini
+ * picture, then MINI_SLOT_GAP columns, then the slot's lines in a column
+ * as wide as a slot, so its Name is cut the same (`slotLabel`).
  */
-export const SLOT_ROWS = PICTURE_ROWS + 3
+export const MINI_SLOT_GAP = 1
+export const MINI_SLOT_COLUMNS = MINI_COLUMNS + MINI_SLOT_GAP + SLOT_COLUMNS
+export const MINI_SLOT_ROWS = Math.max(MINI_ROWS, SLOT_LINES)
+/**
+ * How a roster slot is drawn: `full`, the picture over the slot's lines;
+ * `mini`, the mini picture beside them; `name`, the Name alone, a row high.
+ */
+export type SlotSize = 'full' | 'mini' | 'name'
+const SLOT_SIZES: Readonly<Record<SlotSize, { columns: number; rows: number }>> = {
+  full: { columns: SLOT_COLUMNS, rows: SLOT_ROWS },
+  mini: { columns: MINI_SLOT_COLUMNS, rows: MINI_SLOT_ROWS },
+  name: { columns: SLOT_COLUMNS, rows: 1 },
+}
+/**
+ * The slot sizes a pane tries, largest first. Inline, where Claude Code
+ * gives the pane only the rows the layout spares (3 at times, seen for
+ * #55), slots shrink before they go; docked, rows are plenty.
+ */
+const SLOT_SIZES_TRIED: Readonly<Record<RosterSize['placement'], readonly SlotSize[]>> = {
+  dock: ['full'],
+  inline: ['full', 'mini', 'name'],
+}
 /** The columns between slots side by side. */
 export const SLOT_COLUMN_GAP = 2
 /** The rows between rows of slots. */
@@ -141,9 +170,6 @@ export function footerRows(bodyColumns: number): number {
   return linedUp(FOOTER_WIDTHS, bodyColumns, FOOTER_BUTTON_GAP).length
 }
 
-/** A mini squishy's picture in the band, in cells: half a picture across, two pixels down a cell. */
-const MINI_COLUMNS = Math.floor(PICTURE_COLUMNS / 2)
-const MINI_ROWS = Math.ceil(MINI_COLUMNS / 2)
 /** The most of a squishy's Name the band shows. */
 export const BAND_NAME_COLUMNS = 10
 /**
@@ -212,6 +238,8 @@ export type RosterLayout<A extends RosterAgent> = {
   overflow: A[]
   /** How many slots go across a row. */
   columns: number
+  /** How the slots are drawn. */
+  slotSize: SlotSize
 }
 
 /**
@@ -225,7 +253,8 @@ export type RosterLayout<A extends RosterAgent> = {
  * never to a second picture of a squishy already showing. When the pane
  * shrinks, ended squishys give up their slots first, in the same order,
  * and running ones only once no ended one is left. `agents` is in the
- * order they were first seen.
+ * order they were first seen. Slots are drawn at the largest size that
+ * shows the partner and an agent (SLOT_SIZES_TRIED), else at the smallest.
  */
 export function layoutRoster<A extends RosterAgent>({
   agents,
@@ -236,7 +265,11 @@ export function layoutRoster<A extends RosterAgent>({
 }: RosterSize & { agents: readonly A[]; slotCap: number; slotted?: readonly string[]; partner?: A['squishy'] }): RosterLayout<A> {
   // The partner's slot comes on top of the cap
   const cap = partner !== undefined ? slotCap + 1 : slotCap
-  const total = slotCount(size, cap)
+  // Enough slots for the partner and an agent, as far as there are both
+  const wanted = Math.min(cap, Math.max(1, (partner !== undefined ? 1 : 0) + Math.min(1, agents.length)))
+  const tried = SLOT_SIZES_TRIED[size.placement]
+  const slotSize = tried.find(each => slotCount(size, cap, each) >= wanted) ?? tried[tried.length - 1] ?? 'full'
+  const total = slotCount(size, cap, slotSize)
   const partnerSlot = partner !== undefined && total > 0
   // The slots the agents share
   const count = partnerSlot ? total - 1 : total
@@ -262,7 +295,7 @@ export function layoutRoster<A extends RosterAgent>({
   // Newcomers to free slots take them in the order they were first seen
   slots.push(...agents.filter(agent => newcomers.includes(agent)))
 
-  return { partnerSlot, slots, overflow: agents.filter(agent => !slots.includes(agent)), columns: slotsAcross(size, cap) }
+  return { partnerSlot, slots, overflow: agents.filter(agent => !slots.includes(agent)), columns: slotsAcross(size, cap, slotSize), slotSize }
 }
 
 /**
@@ -323,23 +356,24 @@ export function layoutBand<A extends RosterAgent>({ agents, bodyColumns, maxRows
   return { shown: ordered.slice(0, across), overflow: ordered.slice(across), pictured, placeColumns }
 }
 
-/** How many slots fit across the pane, at most `slotCap`. */
-function slotsAcross({ placement, bodyColumns }: RosterSize, slotCap: number): number {
+/** How many slots of this size fit across the pane, at most `slotCap`. */
+function slotsAcross({ placement, bodyColumns }: RosterSize, slotCap: number, slotSize: SlotSize): number {
   // Inline, the footer and the gap before it come off the columns
-  return Math.min(slotCap, slotsThatFit(bodyColumns - (placement === 'inline' ? FOOTER_COLUMNS + FOOTER_COLUMN_GAP : 0)))
+  const columns = bodyColumns - (placement === 'inline' ? FOOTER_COLUMNS + FOOTER_COLUMN_GAP : 0)
+  return Math.min(slotCap, slotsThatFit(columns, SLOT_SIZES[slotSize].columns))
 }
 
-/** How many slots fit side by side in this many columns, with no cap. */
-export function slotsThatFit(columns: number): number {
-  return Math.max(0, Math.floor((columns + SLOT_COLUMN_GAP) / (SLOT_COLUMNS + SLOT_COLUMN_GAP)))
+/** How many slots (full ones unless said) fit side by side in this many columns, with no cap. */
+export function slotsThatFit(columns: number, slotColumns: number = SLOT_COLUMNS): number {
+  return Math.max(0, Math.floor((columns + SLOT_COLUMN_GAP) / (slotColumns + SLOT_COLUMN_GAP)))
 }
 
-/** How many slots fit the pane, at most `slotCap`. */
-function slotCount(size: RosterSize, slotCap: number): number {
+/** How many slots of this size fit the pane, at most `slotCap`. */
+function slotCount(size: RosterSize, slotCap: number, slotSize: SlotSize): number {
   // Docked, the footer's rows and the gap above them come off the rows
   const room = size.bodyRows + SLOT_ROW_GAP - (size.placement === 'dock' ? footerRows(size.bodyColumns) + FOOTER_ROW_GAP : 0)
-  const down = Math.max(0, Math.floor(room / (SLOT_ROWS + SLOT_ROW_GAP)))
-  return Math.min(slotCap, slotsAcross(size, slotCap) * down)
+  const down = Math.max(0, Math.floor(room / (SLOT_SIZES[slotSize].rows + SLOT_ROW_GAP)))
+  return Math.min(slotCap, slotsAcross(size, slotCap, slotSize) * down)
 }
 
 /**

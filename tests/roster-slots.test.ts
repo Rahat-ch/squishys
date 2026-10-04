@@ -5,9 +5,11 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, Mounted } from 'claude-code/testing'
 
-import { FRAME_MS } from '../src/pane'
+import { FRAME_MS, pictureKey } from '../src/pane'
+import { PARTNER_PICTURE } from '../src/partner'
+import { MINI_SLOT_ROWS } from '../src/slots'
 import { REMEMBERED_KEY } from '../src/rebuild'
-import { SQUISHYS_COMMAND, finishOf, paneSized, roomFor, spawnOf, stubBlits, stubSpawns, stubStore, stubTurns } from './fixtures'
+import { PARTNERED, SQUISHYS_COMMAND, finishOf, paneSized, roomFor, spawnOf, stubBlits, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, watch } from './pictures'
 
 async function spawn($: Engine, count: number, from = 1): Promise<void> {
@@ -48,6 +50,29 @@ test('the slot count follows the pane’s size, docked and inline, and the rest 
     else expect(description).toBeDefined()
     await ui.unmount()
   }
+})
+
+// Seen for #55: in the classic rendering Claude Code gave the inline pane 3
+// body rows, and the roster drew only "+2"
+test('an inline pane too short for a full slot shows every squishy as a mini beside its Name, or as its Name alone in fewer rows', async ($, on) => {
+  stubStore(on, PARTNERED)
+  stubSpawns(on)
+  await spawn($, 2)
+  const bodyColumns = roomFor('inline', 6, 1).bodyColumns
+  const ui = await $.ui.mount({ ...paneSized({ placement: 'inline', bodyColumns, bodyRows: MINI_SLOT_ROWS }), surface: 'terminal' })
+
+  const pictures = (await ui.findAll({ type: 'Raster' })).map(picture => picture.key)
+  expect(pictures).toEqual([PARTNER_PICTURE, pictureKey('agent-1', 'mini'), pictureKey('agent-2', 'mini')])
+  const picks = await Promise.all(['partner', 'squishy-agent-1', 'squishy-agent-2'].map(async key => (await ui.find({ type: 'Button', key }))?.props.hotkey))
+  expect(picks).toEqual(['1', '2', '3'])
+  expect(await ui.find({ type: 'Text', text: 'Task 2' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '▲ in main view' })).toBeDefined()
+  expect(await overflowCount(ui)).toBeUndefined()
+
+  await ui.redraw(paneSized({ placement: 'inline', bodyColumns, bodyRows: MINI_SLOT_ROWS - 1 }).props)
+  expect(await ui.findAll({ type: 'Raster' })).toEqual([])
+  expect(await ui.find({ type: 'Button', key: 'squishy-agent-2' })).toBeDefined()
+  expect(await overflowCount(ui)).toBeUndefined()
 })
 
 test('the roster takes in a resize of the pane', async ($, on) => {

@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PaneOpenArgs, Timer } from 'claude-code'
 
 import type { Agent, Squishy } from '../types'
-import { compose } from './composer'
+import { compose, stillMiniPixels } from './composer'
 import type { Size } from './composer'
 import { pickKeys } from './keys'
 import { KIT } from './kit'
@@ -21,6 +21,8 @@ import {
   FOOTER_COLUMN_GAP,
   FOOTER_COLUMNS,
   FOOTER_ROW_GAP,
+  MINI_SLOT_COLUMNS,
+  MINI_SLOT_GAP,
   OVERFLOW_HOTKEY,
   SETTINGS_BUTTON,
   SQUISHYDEX_BUTTON,
@@ -207,7 +209,8 @@ type Slot = {
   pictureKey: string
   /** The key of the Button that picks it. */
   pickKey: string
-  picture: RasterCells
+  /** Its picture at the layout's slot size; none for Names alone. */
+  picture: RasterCells | undefined
   name: string
   description: string
   /** Whether the main view shows the agent (or, for the partner, the orchestrator). */
@@ -318,7 +321,12 @@ export function registerPane(on: On): void {
     // back. Only the slots' pictures are drawn, so only they animate. The
     // partner, pinned first, stands for the orchestrator: its picture is
     // still, its pick (src/focus.tsx leaves it be) returns to the roster,
-    // and it's marked while the main view shows the orchestrator.
+    // and it's marked while the main view shows the orchestrator. A short
+    // inline pane draws mini pictures, or none (layout.slotSize).
+    const { slotSize } = layout
+    const partnerPicture = (squishy: Squishy) =>
+      slotSize === 'full' ? stillPicture(squishy) : slotSize === 'mini' ? halfBlocks(stillMiniPixels(KIT, squishy)) : undefined
+    const agentPicture = (agent: Agent) => (slotSize === 'name' ? undefined : animatedPicture(agent, slotSize))
     const slots: Slot[] = showsList
       ? []
       : [
@@ -328,7 +336,7 @@ export function registerPane(on: On): void {
                   id: 'partner',
                   pictureKey: PARTNER_PICTURE,
                   pickKey: PARTNER_BUTTON,
-                  picture: stillPicture(partner),
+                  picture: partnerPicture(partner),
                   name: partner.name,
                   description: 'Orchestrator',
                   inView: view.agentId === undefined,
@@ -337,9 +345,9 @@ export function registerPane(on: On): void {
             : []),
           ...layout.slots.map(agent => ({
             id: agent.id,
-            pictureKey: pictureKey(agent.id),
+            pictureKey: pictureKey(agent.id, slotSize === 'mini' ? 'mini' : 'full'),
             pickKey: `${PICK_PREFIX}${agent.id}`,
-            picture: animatedPicture(agent),
+            picture: agentPicture(agent),
             name: agent.squishy.name,
             description: agent.description,
             inView: agent.id === view.agentId,
@@ -380,26 +388,38 @@ export function registerPane(on: On): void {
             {row.map((slot, column) => {
               const index = rowIndex * columns + column
               const hotkey = pickHotkeys[index]
-              return (
+              const picture = slot.picture === undefined ? null : <Raster key={slot.pictureKey} {...slot.picture} />
+              // An agent's press picks its squishy: src/focus.tsx answers it. The partner's leaves the roster be.
+              const pick = (
+                <Button key={slot.pickKey} {...(hotkey === undefined ? {} : { hotkey })} plain label={slotLabel(slot.name, hotkey)} onPress={() => {}} />
+              )
+              const lines = [
+                pick,
+                <Text key={`description-${slot.id}`} dimColor wrap="truncate-end">
+                  {slot.description}
+                </Text>,
+                // Squishys only reads the main view, never changes it (ADR 0001).
+                slot.inView ? (
+                  <Box key={`in-view-${slot.id}`}>
+                    <Text color="cyan">▲ in main view</Text>
+                  </Box>
+                ) : null,
+              ]
+              return slotSize === 'full' ? (
                 <Box key={`slot-${slot.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS} hover={SLOT_HOVER}>
-                  <Raster key={slot.pictureKey} {...slot.picture} />
-                  {/* An agent's press picks its squishy: src/focus.tsx answers it. The partner's leaves the roster be. */}
-                  <Button
-                    key={slot.pickKey}
-                    {...(hotkey === undefined ? {} : { hotkey })}
-                    plain
-                    label={slotLabel(slot.name, hotkey)}
-                    onPress={() => {}}
-                  />
-                  <Text key={`description-${slot.id}`} dimColor wrap="truncate-end">
-                    {slot.description}
-                  </Text>
-                  {/* Squishys only reads the main view, never changes it (ADR 0001). */}
-                  {slot.inView ? (
-                    <Box key={`in-view-${slot.id}`}>
-                      <Text color="cyan">▲ in main view</Text>
-                    </Box>
-                  ) : null}
+                  {picture}
+                  {lines}
+                </Box>
+              ) : slotSize === 'mini' ? (
+                <Box key={`slot-${slot.id}`} flexDirection="row" columnGap={MINI_SLOT_GAP} width={MINI_SLOT_COLUMNS} hover={SLOT_HOVER}>
+                  {picture}
+                  <Box key={`lines-${slot.id}`} flexDirection="column" width={SLOT_COLUMNS}>
+                    {lines}
+                  </Box>
+                </Box>
+              ) : (
+                <Box key={`slot-${slot.id}`} width={SLOT_COLUMNS} hover={SLOT_HOVER}>
+                  {pick}
                 </Box>
               )
             })}
