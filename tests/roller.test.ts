@@ -4,7 +4,7 @@ import { KIT } from '../src/kit'
 import type { Kit } from '../src/kit'
 import { roll } from '../src/roller'
 import type { Squishy } from '../src/roller'
-import { seeded } from './seeded'
+import { seeded } from '../src/seeded'
 
 const BLANK = Array.from({ length: 16 }, () => '................')
 

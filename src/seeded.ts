@@ -1,5 +1,6 @@
-// A small seeded source of randomness for the roller's tests (mulberry32):
-// the same seed always gives the same numbers, each in [0, 1).
+// A small seeded source of randomness (mulberry32): the same seed always
+// gives the same numbers, each in [0, 1). The roller's tests and the art
+// preview's samples roll with it. Pure, like the roller.
 
 export function seeded(seed: number): () => number {
   let state = seed >>> 0

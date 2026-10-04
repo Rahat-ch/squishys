@@ -27,7 +27,7 @@ Mods need Claude Code 2.1.287 or later. See the [mods documentation](https://cod
 
 ## Art
 
-Squishy sprites are drawn as code and curated through a preview page: `npm run preview` writes it to `out/art-preview.html`, and you can open that file in a browser. You don't need to draw pixels to contribute. If you have notes on a sprite, open an issue with its name and what you'd change.
+Squishys' pictures are drawn as code and curated through a preview page: `npm run preview` writes it to `out/art-preview.html`, and you can open that file in a browser. You don't need to draw pixels to contribute. If you have notes on a squishy's picture, open an issue with the squishy's Name or the part and what you'd change.
 
 ## License
 

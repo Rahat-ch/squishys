@@ -37,12 +37,14 @@ test('the preview lists every part, then sample squishys, every legendary and th
     'body/slab',
     'face/eye',
     'palette/grey',
+    'palette/grey/shiny',
     'accessory/none',
     'sample/block/eye/grey/none',
     'sample/slab/eye/grey/none',
     'legendary/crown',
-    'starter/1',
-    'starter/2',
+    'legendary/crown/shiny',
+    'starter/block/eye',
+    'starter/slab/eye',
   ])
 })
 
@@ -69,37 +71,46 @@ test('the samples stop short when the kit can’t make that many different squis
 test('a body is drawn on its own, with no face over it', () => {
   const body = previewItems(TEST_KIT, { samples: 0, seed: 1 }).find(item => item.id === 'body/block')
 
-  const [picture] = body?.pictures ?? []
-  expect(picture?.pixels[5]?.[5]).toBe(GREY)
-  expect(picture?.pixels[0]?.[0]).toBe(GREY)
+  expect(body?.pixels[5]?.[5]).toBe(GREY)
+  expect(body?.pixels[0]?.[0]).toBe(GREY)
 })
 
-test('a palette and a legendary are each drawn plain and shiny', () => {
-  const items = previewItems(TEST_KIT, { samples: 0, seed: 1 })
-  const palette = items.find(item => item.id === 'palette/grey')
-  const legendary = items.find(item => item.id === 'legendary/crown')
+test('a palette and a legendary are each drawn plain and shiny, as two items', () => {
+  const pixelOf = (id: string, row: number, column: number) =>
+    previewItems(TEST_KIT, { samples: 0, seed: 1 }).find(item => item.id === id)?.pixels[row]?.[column]
 
-  expect(palette?.pictures.map(picture => picture.pixels[10]?.[10])).toEqual([GREY, SHINY_GREY])
-  expect(legendary?.pictures.map(picture => picture.pixels[0]?.[0])).toEqual([GOLD, SHINY_GREY])
+  expect(pixelOf('palette/grey', 10, 10)).toBe(GREY)
+  expect(pixelOf('palette/grey/shiny', 10, 10)).toBe(SHINY_GREY)
+  expect(pixelOf('legendary/crown', 0, 0)).toBe(GOLD)
+  expect(pixelOf('legendary/crown/shiny', 0, 0)).toBe(SHINY_GREY)
 })
 
 test('a starter is drawn as its species and carries the Name the roller gives it', () => {
-  const starter = previewItems(TEST_KIT, { samples: 0, seed: 1 }).find(item => item.id === 'starter/2')
+  const starter = previewItems(TEST_KIT, { samples: 0, seed: 1 }).find(item => item.id === 'starter/slab/eye')
 
-  expect(starter?.title).toBe('Tachi')
-  const [picture] = starter?.pictures ?? []
-  expect(picture?.pixels[15]?.[0]).toBe(GREY)
-  expect(picture?.pixels[5]?.[5]).toBe(EYE)
-  expect(picture?.pixels[0]?.[0]).toBe(null)
+  expect(starter?.heading).toBe('Tachi')
+  expect(starter?.pixels[15]?.[0]).toBe(GREY)
+  expect(starter?.pixels[5]?.[5]).toBe(EYE)
+  expect(starter?.pixels[0]?.[0]).toBe(null)
 })
 
 test('every picture in the shipped kit’s preview is a 16x16 grid', () => {
-  for (const item of previewItems(KIT, { samples: 24, seed: 1 })) {
-    for (const { pixels } of item.pictures) {
-      expect(pixels).toHaveLength(16)
-      for (const row of pixels) expect(row).toHaveLength(16)
-    }
+  for (const { pixels } of previewItems(KIT, { samples: 24, seed: 1 })) {
+    expect(pixels).toHaveLength(16)
+    for (const row of pixels) expect(row).toHaveLength(16)
   }
+})
+
+test('an item’s art fingerprint changes when its picture is redrawn, and only then', () => {
+  const artOf = (kit: Kit, id: string) => previewItems(kit, { samples: 0, seed: 1 }).find(item => item.id === id)?.art
+  const [block, slab] = TEST_KIT.bodies
+  if (block === undefined || slab === undefined) throw new Error('TEST_KIT has two bodies')
+  const redrawn: Kit = { ...TEST_KIT, bodies: [{ ...block, grid: grid('b', { 0: '.bbbbbbbbbbbbbbb' }) }, slab] }
+
+  expect(artOf(TEST_KIT, 'body/block')).toBe(artOf(TEST_KIT, 'body/block'))
+  expect(artOf(redrawn, 'body/block')).not.toBe(artOf(TEST_KIT, 'body/block'))
+  expect(artOf(redrawn, 'body/slab')).toBe(artOf(TEST_KIT, 'body/slab'))
+  expect(artOf(TEST_KIT, 'palette/grey/shiny')).not.toBe(artOf(TEST_KIT, 'palette/grey'))
 })
 
 test('each item’s verdict is stored under its own database document id', () => {
@@ -107,7 +118,8 @@ test('each item’s verdict is stored under its own database document id', () =>
   const docIds = ids.map(verdictDocId)
 
   expect(verdictDocId('body/dumpling')).toBe('body:dumpling')
-  expect(verdictDocId('sample/a b')).toBe('sample:a~0020b')
+  expect(verdictDocId('palette/cream/shiny')).toBe('palette:cream:shiny')
+  expect(verdictDocId('sample/a b~')).toBe('sample:a~0020b~007e')
   expect(new Set(docIds).size).toBe(ids.length)
   for (const docId of docIds) expect(docId).toMatch(/^[A-Za-z0-9_\-.~:@+]{1,200}$/)
 })

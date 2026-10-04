@@ -52,7 +52,7 @@ export function previewPage(items: readonly PreviewItem[], { generatedAt, seed, 
 <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false"><defs>${symbols.join('')}</defs></svg>
 <div class="page">
 <header class="masthead">
-  <div class="title">
+  <div class="intro">
     <h1>Squishys art preview</h1>
     <p class="meta">Generated ${escaped(generatedAt.toISOString().replace('T', ' ').slice(0, 16))} UTC from the kit in <code>src/kit.ts</code>, through the mod&rsquo;s own composer. Samples use seed ${seed}.</p>
   </div>
@@ -86,20 +86,16 @@ ${sections}
 }
 
 function card(item: PreviewItem, pictureOf: (pixels: Pixels) => number): string {
-  const doc = verdictDocId(item.id)
-  const figures = item.pictures
-    .map(({ caption, pixels }) => {
-      const symbol = pictureOf(pixels)
-      const use = `<use href="#p${symbol}"/>`
-      return `<figure><div class="x4"><svg width="64" height="64" viewBox="0 0 16 16" role="img" aria-label="${escaped(`${item.title}, ${caption}, 4x`)}">${use}</svg></div><div class="x1"><svg width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="${escaped(`${item.title}, ${caption}, 1x`)}">${use}</svg><span>1&times;</span></div><figcaption>${escaped(caption)}</figcaption></figure>`
-    })
-    .join('')
-  return `<article class="card" data-item="${escaped(item.id)}" data-doc="${escaped(doc)}" data-verdict="">
-<div class="pics">${figures}</div>
-<div class="about"><h3>${escaped(item.title)}</h3><p class="id">${escaped(item.id)}</p><p class="detail">${escaped(item.detail)}</p></div>
-<div class="verdict" role="group" aria-label="${escaped(`Verdict on ${item.id}`)}"><button type="button" class="keep" data-verdict="keep" aria-pressed="false">Keep</button><button type="button" class="redo" data-verdict="redo" aria-pressed="false">Redo</button></div>
-<label class="sr" for="n-${escaped(doc)}">${escaped(`Notes on ${item.id}`)}</label>
-<textarea id="n-${escaped(doc)}" rows="2" placeholder="Notes for the redraw"></textarea>
+  const doc = escaped(verdictDocId(item.id))
+  const use = `<use href="#p${pictureOf(item.pixels)}"/>`
+  const label = (scale: string) => escaped(`${item.heading}, ${item.caption}, ${scale}`)
+  return `<article class="card" id="item-${doc}" data-item="${escaped(item.id)}" data-doc="${doc}" data-art="${escaped(item.art)}" data-verdict="">
+<figure><div class="x4"><svg width="64" height="64" viewBox="0 0 16 16" role="img" aria-label="${label('4x')}">${use}</svg></div><div class="x1"><svg width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="${label('1x')}">${use}</svg><span>1&times;</span></div><figcaption>${escaped(item.caption)}</figcaption></figure>
+<div class="about"><h3>${escaped(item.heading)}</h3><p class="id">${escaped(item.id)}</p><p class="detail">${escaped(item.detail)}</p></div>
+<p class="changed" id="changed-${doc}" hidden></p>
+<div class="verdict" role="group" aria-label="${escaped(`Verdict on ${item.id}`)}"><button type="button" id="keep-${doc}" class="keep" data-verdict="keep" aria-pressed="false">Keep</button><button type="button" id="redo-${doc}" class="redo" data-verdict="redo" aria-pressed="false">Redo</button></div>
+<label class="sr" for="notes-${doc}">${escaped(`Notes on ${item.id}`)}</label>
+<textarea id="notes-${doc}" rows="2" placeholder="Notes for the redraw"></textarea>
 </article>`
 }
 
@@ -139,6 +135,11 @@ function safeScript(script: string): string {
     .replace(/[^\x09\x0a\x0d\x20-\x7e]/g, char => `\\u${(char.charCodeAt(0)).toString(16).padStart(4, '0')}`)
 }
 
+/** The dark theme's tokens, for the system setting and the explicit choice alike. */
+const DARK = `--bg: #131620; --surface: #1c2030; --ink: #e5e8f1; --muted: #99a0b4; --line: #2d3346;
+  --accent: #8fa3ff; --keep: #52c784; --keep-soft: #173626; --redo: #ff9159; --redo-soft: #3f2418;
+  --check-a: #262b3b; --check-b: #2f3548; color-scheme: dark;`
+
 const STYLE = `
 /* A contact sheet on a light table: sections of cards, each card a
    4x picture on a checkerboard with its 1x beside it, verdicts underneath. */
@@ -159,18 +160,8 @@ const STYLE = `
   --body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #131620; --surface: #1c2030; --ink: #e5e8f1; --muted: #99a0b4; --line: #2d3346;
-    --accent: #8fa3ff; --keep: #52c784; --keep-soft: #173626; --redo: #ff9159; --redo-soft: #3f2418;
-    --check-a: #262b3b; --check-b: #2f3548; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #131620; --surface: #1c2030; --ink: #e5e8f1; --muted: #99a0b4; --line: #2d3346;
-  --accent: #8fa3ff; --keep: #52c784; --keep-soft: #173626; --redo: #ff9159; --redo-soft: #3f2418;
-  --check-a: #262b3b; --check-b: #2f3548; color-scheme: dark;
-}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { ${DARK} } }
+:root[data-theme="dark"] { ${DARK} }
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
 .page { max-width: 78rem; margin: 0 auto; padding: 1.5rem 16px 3rem; display: grid; gap: 1.5rem; }
@@ -188,7 +179,7 @@ svg { shape-rendering: crispEdges; image-rendering: pixelated; display: block; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .masthead { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: end; justify-content: space-between; }
-.title { display: grid; gap: 0.4rem; max-width: 40rem; min-width: 0; }
+.intro { display: grid; gap: 0.4rem; max-width: 40rem; min-width: 0; }
 .meta { color: var(--muted); }
 .board { display: grid; gap: 0.4rem; justify-items: end; }
 .tally { display: flex; flex-wrap: wrap; gap: 0.4rem; font-variant-numeric: tabular-nums; }
@@ -197,11 +188,12 @@ svg { shape-rendering: crispEdges; image-rendering: pixelated; display: block; }
 .pill.keep b { color: var(--keep); }
 .pill.redo b { color: var(--redo); }
 .status { font-size: 0.85rem; color: var(--muted); }
-.status[data-mode="shared"]::before, .status[data-mode="local"]::before, .status[data-mode="readonly"]::before, .status[data-mode="error"]::before {
+.status[data-mode]:not([data-mode="connecting"])::before {
   content: ""; display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.4rem; vertical-align: 0.05rem; background: var(--muted);
 }
 .status[data-mode="shared"]::before { background: var(--keep); }
-.status[data-mode="error"]::before, .status[data-mode="readonly"]::before { background: var(--redo); }
+.status[data-mode="fallback"] { color: var(--redo); font-weight: 700; }
+.status[data-mode="fallback"]::before { background: var(--redo); }
 
 .toolbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; display: flex; flex-wrap: wrap; gap: 0.6rem 1.5rem; align-items: center; justify-content: space-between; padding-block: 0.6rem; background: var(--bg); border-bottom: 1px solid var(--line); }
 .jump { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; }
@@ -219,15 +211,14 @@ main { display: grid; gap: 2.5rem; }
 .section { display: grid; gap: 1rem; scroll-margin-top: 4.5rem; }
 .section-head { display: grid; gap: 0.2rem; }
 .section-head p { color: var(--muted); max-width: 65ch; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15.5rem), 1fr)); gap: 0.9rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); gap: 0.9rem; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0.9rem; display: grid; gap: 0.7rem; align-content: start; min-width: 0; }
 .card[data-verdict="keep"] { border-color: var(--keep); box-shadow: inset 0 3px 0 var(--keep); }
 .card[data-verdict="redo"] { border-color: var(--redo); box-shadow: inset 0 3px 0 var(--redo); }
 #sheet[data-filter="undecided"] .card:not([data-verdict=""]),
 #sheet[data-filter="redo"] .card:not([data-verdict="redo"]),
 #sheet[data-filter="keep"] .card:not([data-verdict="keep"]) { display: none; }
-.pics { display: flex; flex-wrap: wrap; gap: 0.9rem; }
-figure { margin: 0; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; gap: 0.3rem 0.5rem; align-items: end; }
+figure { justify-self: start; margin: 0; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; gap: 0.3rem 0.5rem; align-items: end; }
 .x4 { padding: 4px; border-radius: 3px; background: repeating-conic-gradient(var(--check-a) 0% 25%, var(--check-b) 0% 50%) 0 0 / 16px 16px; }
 .x1 { display: grid; justify-items: center; gap: 0.2rem; padding: 4px; border-radius: 3px; background: repeating-conic-gradient(var(--check-a) 0% 25%, var(--check-b) 0% 50%) 0 0 / 4px 4px; }
 .x1 span, figcaption { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
@@ -235,6 +226,7 @@ figcaption { grid-column: 1 / -1; }
 .about { display: grid; gap: 0.1rem; min-width: 0; }
 .id { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
 .detail { font-size: 0.85rem; color: var(--muted); }
+.changed { font-size: 0.85rem; color: var(--redo); border: 1px dashed var(--redo); border-radius: 4px; padding: 0.3rem 0.5rem; }
 .verdict { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
 button { font: inherit; cursor: pointer; }
 .verdict button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 4px; padding: 0.3rem 0.5rem; font-weight: 700; font-size: 0.9rem; }
