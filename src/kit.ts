@@ -11,7 +11,7 @@ export type Rarity = 'common' | 'uncommon' | 'rare'
 /**
  * A 16x16 pixel grid: 16 rows, top to bottom, of 16 characters each. Each
  * character is a color key looked up in a palette, and `.` is see-through
- * (in a face or accessory, `.` leaves the layer beneath showing).
+ * (in a face or accessory, `.` leaves the part beneath showing).
  *
  * The keys every palette colors:
  * `o` outline, `b` body, `h` highlight, `s` shade,

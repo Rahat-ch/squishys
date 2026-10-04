@@ -30,14 +30,14 @@ const SIDE = 16
  * standing still for now; the state animations come later.
  */
 export function compose(kit: Kit, squishy: Squishy, { size = 'full' }: Pose): Pixels {
-  const still = layered(kit, squishy)
+  const still = assembled(kit, squishy)
   if (size === 'double') return doubled(still)
   if (size === 'mini') return halved(still)
   return still
 }
 
-/** The 16x16 picture: the layers in order, each in the squishy's colors. */
-function layered(kit: Kit, squishy: Squishy): Pixels {
+/** The 16x16 picture: body, then face, then accessory, in the squishy's colors. */
+function assembled(kit: Kit, squishy: Squishy): Pixels {
   if (squishy.kind === 'legendary') {
     const legendary = kit.legendaries.find(each => each.id === squishy.legendary)
     if (legendary === undefined) throw new Error(`The kit has no legendary "${squishy.legendary}"`)
