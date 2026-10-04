@@ -1,0 +1,12 @@
+{
+  "name": "squishys",
+  "owner": { "name": "Rahat" },
+  "description": "The squishys Claude Code mod, installed straight from its repo.",
+  "plugins": [
+    {
+      "name": "squishys",
+      "source": "./",
+      "description": "Gives every agent the orchestrator starts its own tiny pixel-art squishy."
+    }
+  ]
+}
