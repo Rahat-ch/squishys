@@ -2,7 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type { AgentStatus, On } from 'claude-code'
 
-import { STOP_CONFIRM_MS, STOP_WAIT_MS } from '../src/focus'
+import { AGENT_CHECK_MS } from '../src/agents'
+import { STOP_CONFIRM_MS, STOP_WAIT_MS } from '../src/stop'
 import { PANE, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubSpawns } from './fixtures'
 import { watch } from './pictures'
 
@@ -32,11 +33,11 @@ function stubTaskStop(
   on('tool.call', { tool: 'TaskStop' }, async ($, e) => {
     calls.push({ ...e })
     await wait?.()
-    const taskId = String(e.task_id)
+    const named = String(e.task_id)
     if (how === 'isRefused') return { deny: 'Permission to use TaskStop has been denied.' }
-    if (how === 'fails') return { isError: true, result: `No task found with ID: ${taskId}`, text: `No task found with ID: ${taskId}` }
-    if (how === 'stops') statuses.set(taskId, 'killed')
-    return { result: { message: `Successfully stopped task: ${taskId}`, task_id: taskId, task_type: 'local_agent' } }
+    if (how === 'fails') return { isError: true, result: `No task found with ID: ${named}`, text: `No task found with ID: ${named}` }
+    if (how === 'stops') statuses.set(named, 'killed')
+    return { result: { message: `Successfully stopped task: ${named}`, task_id: named, task_type: 'local_agent' } }
   })
   return calls
 }
@@ -158,8 +159,9 @@ for (const when of ['before', 'after'] as const) {
   })
 }
 
-test('an agent the orchestrator stops with TaskStop is Squished too', async ($, on) => {
+test('the squishy of an agent the orchestrator stops with TaskStop is Squished too', async ($, on) => {
   const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
+  stubAgentList(on, statuses)
   stubTaskStop(on, statuses)
   mock.store(on)
   stubSpawns(on)
@@ -277,7 +279,7 @@ test('only the stopped agent is held back, and once its run has ended a message 
 
 // Its loop ended normally, so the agent list says the agent completed
 for (const order of [['turn.complete', 'SubagentStop'], ['SubagentStop', 'turn.complete']] as const) {
-  test(`a squishy stopped at its next step stays Squished through ${order.join(' then ')}`, async ($, on) => {
+  test(`an agent held back until its next step: its squishy stays Squished through ${order.join(' then ')}`, async ($, on) => {
     const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
     stubAgentList(on, statuses)
     stubTaskStop(on, statuses, 'fails')
@@ -298,3 +300,87 @@ for (const order of [['turn.complete', 'SubagentStop'], ['SubagentStop', 'turn.c
     expect(await slotState()).toBe('squished')
   })
 }
+
+test('an agent held back whose run ends without turn.complete is let go, so a resume reaches the model', async ($, on) => {
+  const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
+  stubAgentList(on, statuses)
+  stubTaskStop(on, statuses, 'fails')
+  const requests = stubLoop(on)
+  const { clock, slotState } = await focusOnAgent($, on)
+  await pressStop($)
+  await pressStop($)
+  await stepAgent($, 'agent-1')
+
+  // The run ended, and only the agent list says so
+  statuses.set('agent-1', 'completed')
+  await clock.advance(AGENT_CHECK_MS)
+  await $.ui.press({ plugin: 'squishys', key: 'back' })
+  expect(await slotState()).toBe('squished')
+
+  // A message resumes it
+  statuses.set('agent-1', 'running')
+  await stepAgent($, 'agent-1')
+  expect(requests()).toBe(1)
+  expect(await $.tool.call(readFrom('agent-1', 'src/config.ts'))).toEqual({ result: 'ok' })
+})
+
+test('when TaskStop answers that it stopped the agent after the agent was held back, the agent is let go', async ($, on) => {
+  const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
+  stubAgentList(on, statuses)
+  const clock = mock.clock(on)
+  stubTaskStop(on, statuses, 'stops', () => clock.sleep(STOP_WAIT_MS * 2))
+  stubLoop(on)
+  const { ui } = await focusOnAgent($, on, clock)
+  await pressStop($)
+  const stopping = pressStop($)
+  await clock.advance(STOP_WAIT_MS)
+  await stopping
+  expect(await $.tool.call(readFrom('agent-1', 'src/config.ts'))).toEqual({ deny: 'Stopped by the user' })
+
+  await clock.advance(STOP_WAIT_MS)
+
+  expect(await ui.find({ type: 'Text', text: 'Squished' })).toBeDefined()
+  expect(await ui.find({ key: 'stop-note' })).toBeUndefined()
+  expect(await $.tool.call(readFrom('agent-1', 'src/config.ts'))).toEqual({ result: 'ok' })
+})
+
+test('an armed Stop whose timer a reload dropped still needs two presses within 3 seconds', async ($, on) => {
+  const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
+  stubAgentList(on, statuses)
+  const calls = stubTaskStop(on, statuses)
+  // Stop's timer ends at once, as a reload drops it
+  on('clock.after', { ms: STOP_CONFIRM_MS }, () => ({ deny: 'no clock' }))
+  const { ui, clock, name } = await focusOnAgent($, on)
+
+  await pressStop($)
+  await clock.advance(STOP_CONFIRM_MS)
+  await pressStop($)
+
+  expect(calls).toEqual([])
+  expect(await ui.find({ type: 'Text', text: `press s again to stop ${name}` })).toBeDefined()
+})
+
+test('Stop names a teammate to TaskStop by its address, and its squishy is Squished', async ($, on) => {
+  const teammate = { id: 'teammate-1', teammateId: 'reviewer@docs', name: 'reviewer', description: 'Review the docs', type: 'teammate' }
+  let status: AgentStatus = 'running'
+  on('agent.list', () => ({ value: [{ ...teammate, status }] }))
+  const named: unknown[] = []
+  on('tool.call', { tool: 'TaskStop' }, ($, e) => {
+    named.push(e.task_id)
+    if (e.task_id === teammate.teammateId) status = 'killed'
+    return { result: { message: 'Successfully stopped task', task_id: String(e.task_id), task_type: 'in_process_teammate' } }
+  })
+  on('tool.call', () => ({ result: 'ok' }))
+  mock.clock(on)
+  mock.store(on)
+  await $.tool.call(readFrom('teammate-1', 'README.md'))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.ui.press({ plugin: 'squishys', key: 'squishy-teammate-1' })
+
+  await pressStop($)
+  await pressStop($)
+
+  expect(named).toEqual(['reviewer@docs'])
+  expect(await ui.find({ type: 'Text', text: 'Squished' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Stopped by you' })).toBeDefined()
+})

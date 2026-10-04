@@ -3,14 +3,26 @@
 // live activity.
 
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On, Timer } from 'claude-code'
+import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
-import type { ActivityRow, Agent, Model, SquishyState, StopControl } from '../types'
-import { isStoppingAtNextStep, stopAtNextStep } from './agents'
+import type { ActivityRow, Agent, Model, SquishyState } from '../types'
 import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
 import { PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
 import { endedState, isEnded } from './states'
+import {
+  STOP_CONFIRM_MS,
+  STOP_WAIT_MS,
+  askingTaskStop,
+  disarmed,
+  failureOf,
+  holdBack,
+  isArmed,
+  refusalOf,
+  stopUnderWay,
+  taskIdOf,
+  wasStoppedByUser,
+} from './stop'
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -41,19 +53,10 @@ const TELLING_ARGUMENTS = ['command', 'file_path', 'notebook_path', 'path', 'pat
 /** The fields of a tool call's input that aren't the tool's arguments. */
 const ENVELOPE_FIELDS = ['tool', 'tool_use_id', 'agentId']
 
-/** How long, in milliseconds, a first press of Stop waits for the second. */
-export const STOP_CONFIRM_MS = 3000
-
-/**
- * How long, in milliseconds, Stop waits for TaskStop to answer before it
- * stops the agent at its next step instead.
- */
-export const STOP_WAIT_MS = 2000
-
 /** The longest TaskStop's refusal runs in the focus view, in characters. */
 const REFUSAL_LIMIT = 200
 
-/** The timer that disarms Stop when no second press comes. */
+/** The timer that redraws an armed Stop's note away once no second press can come. */
 let disarm: Timer | undefined
 
 /** How each state reads in the focus view. */
@@ -148,10 +151,8 @@ export function registerFocus(on: On): void {
     const completed = await next(e)
     const { agentId } = e
     if (agentId === undefined) return completed
-    const stoppedByUser = isStoppingAtNextStep(agentId)
-    const row = stoppedByUser ? { kind: 'stopped' as const } : rowAfterRun(e.reason, e.answer)
+    const row = wasStoppedByUser(agentId) ? { kind: 'stopped' as const } : rowAfterRun(e.reason, e.answer)
     if (row !== undefined) await addActivity($, agentId, row)
-    if (stoppedByUser) await update($, stopControl, control => (control?.agentId === agentId ? null : control))
     return completed
   })
 
@@ -167,17 +168,16 @@ export function registerFocus(on: On): void {
   })
 
   // Stop takes two presses: the first arms it, and a second within
-  // STOP_CONFIRM_MS stops the agent. Only a running agent that isn't
-  // already being stopped can be.
+  // STOP_CONFIRM_MS of the first stops the agent. Only a running agent that
+  // isn't already being stopped can be.
   on('ui.press', { plugin: 'squishys', element: 'stop' }, async ($, e, next) => {
     const pressed = await next(e)
     const id = await read($, focusedAgentId)
     const agent = (await read($, agents)).find(each => each.id === id)
-    const control = await read($, stopControl)
-    if (agent === undefined || !canStop(agent, control)) return pressed
+    if (agent === undefined || !canStop(agent)) return pressed
     // Awaited, so the agent tracker's hook sees the TaskStop call: the press
     // takes at most STOP_WAIT_MS more
-    if (control?.agentId === agent.id && control.step === 'armed') await stop($, agent)
+    if (isArmed(await read($, stopControl), agent.id, await $.clock.now())) await stop($, agent)
     else await arm($, agent.id)
     return pressed
   })
@@ -212,8 +212,8 @@ export function registerFocus(on: On): void {
     } catch {}
     const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
     const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
-    const shownStop = await read($, stopControl)
-    const note = stopNote(shownStop, agent)
+    const control = await read($, stopControl)
+    const note = stopNote(agent, control?.agentId === agent.id && isArmed(control, agent.id, await $.clock.now()))
     return (
       <Box key="focus" flexDirection="column" rowGap={1}>
         <Box flexDirection="row" columnGap={2}>
@@ -240,7 +240,7 @@ export function registerFocus(on: On): void {
         {/* Redirect (#13) joins the controls here. */}
         <Box key="controls" flexDirection="row" columnGap={2}>
           {back}
-          {canStop(agent, shownStop) ? <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> : null}
+          {canStop(agent) ? <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> : null}
         </Box>
         {note === undefined ? null : (
           <Box key="stop-note">
@@ -302,23 +302,23 @@ async function addActivity($: EngineInterface, agentId: string, row: ActivityRow
 }
 
 /** Whether Stop is offered for this agent: it runs, and no stop of it is under way. */
-function canStop(agent: Agent, control: StopControl | null): boolean {
-  return !isEnded(agent.state) && (control?.agentId !== agent.id || control.step === 'armed')
+function canStop(agent: Agent): boolean {
+  return !isEnded(agent.state) && stopUnderWay(agent.id) === undefined
 }
 
-/** What the Stop control says about this agent, if anything. */
-function stopNote(control: StopControl | null, agent: Agent): string | undefined {
-  if (control?.agentId !== agent.id) return undefined
+/** What the Stop control says about this agent, if anything: armed, or a stop under way. */
+function stopNote(agent: Agent, armed: boolean): string | undefined {
   const { name } = agent.squishy
-  if (control.step === 'armed') return `press s again to stop ${name}`
+  if (armed) return `press s again to stop ${name}`
   // Once the agent has ended, its state and feed say how it went
-  if (isEnded(agent.state)) return undefined
-  if (control.step === 'stopping') return `Stopping ${name}…`
-  const why = control.refusal === undefined ? '' : ` TaskStop didn't stop it: ${control.refusal}`
+  const underWay = isEnded(agent.state) ? undefined : stopUnderWay(agent.id)
+  if (underWay === undefined) return undefined
+  if (underWay.by === 'taskStop') return `Stopping ${name}…`
+  const why = underWay.refusal === undefined ? '' : ` TaskStop didn't stop it: ${refusalLine(underWay.refusal)}`
   return `Stopping ${name} at its next step: its tool calls are refused.${why}`
 }
 
-/** Back to the roster, leaving Stop as it was before the focus view opened. */
+/** Back to the roster, disarming Stop on the way. */
 async function leaveFocus($: EngineInterface): Promise<void> {
   await leaveStop($)
   await update($, mode, () => 'roster')
@@ -330,46 +330,45 @@ async function leaveFocus($: EngineInterface): Promise<void> {
  */
 async function leaveStop($: EngineInterface): Promise<void> {
   disarm?.cancel()
-  await update($, stopControl, control => (control?.step === 'armed' ? null : control))
+  await update($, stopControl, control => disarmed(control))
 }
 
-/** Arms Stop for an agent, until a second press or STOP_CONFIRM_MS. */
+/** Arms Stop for an agent, from now; its note is drawn away once no second press can come. */
 async function arm($: EngineInterface, agentId: string): Promise<void> {
   disarm?.cancel()
-  await update($, stopControl, () => ({ agentId, step: 'armed' }))
-  disarm = $.clock.after(STOP_CONFIRM_MS, () => {
-    void update($, stopControl, control => (control?.agentId === agentId && control.step === 'armed' ? null : control))
-  })
+  const armedAt = await $.clock.now()
+  await update($, stopControl, () => ({ agentId, armedAt }))
+  disarm = $.clock.after(STOP_CONFIRM_MS, () => $.ui.invalidate('ui.render'))
 }
 
 /**
- * Stops an agent through TaskStop, whose call the agent tracker sees, and
- * squishes the agent's squishy for. When TaskStop is refused, fails, or
- * leaves the agent running by the agent list, or gives no answer within
- * STOP_WAIT_MS, the tracker stops the agent at its next step instead.
+ * Stops an agent through TaskStop, whose call the agent tracker sees (its
+ * squishy is Squished once the agent list shows it ended). When TaskStop is
+ * refused, fails, leaves the agent running by the agent list, or gives no
+ * answer within STOP_WAIT_MS, the tracker holds the agent back instead.
  */
 async function stop($: EngineInterface, agent: Agent): Promise<void> {
   disarm?.cancel()
-  await update($, stopControl, () => ({ agentId: agent.id, step: 'stopping' }))
+  askingTaskStop(agent.id, true)
+  await update($, stopControl, control => disarmed(control))
+  const taskId = taskIdOf(agent.id, await agentList($))
   let timer: Timer | undefined
-  const late = new Promise<{ late: true }>(resolve => {
-    timer = $.clock.after(STOP_WAIT_MS, () => resolve({ late: true }))
+  const tooSlow = new Promise<undefined>(resolve => {
+    timer = $.clock.after(STOP_WAIT_MS, () => resolve(undefined))
   })
-  const asked = $.tool.call({ tool: 'TaskStop', task_id: agent.id }).then(
-    result => ({ refusal: result.deny ?? (result.isError === true ? (result.text ?? String(result.result)) : undefined) }),
-    (error: unknown) => ({ refusal: error instanceof Error ? error.message : String(error) }),
+  const taskStop = $.tool.call({ tool: 'TaskStop', task_id: taskId }).then(
+    result => ({ refusal: refusalOf(result) }),
+    (error: unknown) => ({ refusal: failureOf(error) }),
   )
-  const answer = await Promise.race([asked, late])
+  const outcome = await Promise.race([taskStop, tooSlow])
   timer?.cancel()
-  const refusal = 'refusal' in answer && answer.refusal !== undefined ? refusalLine(answer.refusal) : undefined
-  if ('refusal' in answer && refusal === undefined && (await hasEnded($, agent.id))) {
+  askingTaskStop(agent.id, false)
+  if (outcome !== undefined && outcome.refusal === undefined && hasEnded(agent.id, await agentList($))) {
     await addActivity($, agent.id, { kind: 'stopped' })
-    await update($, stopControl, control => (control?.agentId === agent.id ? null : control))
-    return
+  } else {
+    holdBack(agent.id, outcome?.refusal)
   }
-  stopAtNextStep(agent.id)
-  const atNextStep: StopControl = { agentId: agent.id, step: 'atNextStep', ...(refusal === undefined ? {} : { refusal }) }
-  await update($, stopControl, () => atNextStep)
+  $.ui.invalidate('ui.render')
 }
 
 /** TaskStop's refusal as one printable line, cut short past REFUSAL_LIMIT. */
@@ -378,12 +377,17 @@ function refusalLine(refusal: string): string {
   return line.length > REFUSAL_LIMIT ? `${cut(line, REFUSAL_LIMIT - 1)}…` : line
 }
 
-/** Whether the agent list says this agent has ended; no answer says it hasn't. */
-async function hasEnded($: EngineInterface, agentId: string): Promise<boolean> {
+/** The agent list, or none when it can't be read. */
+async function agentList($: EngineInterface): Promise<readonly AgentInfo[]> {
   try {
-    const status = (await $.agent.list()).find(each => each.id === agentId)?.status
-    return status !== undefined && endedState(status) !== undefined
+    return await $.agent.list()
   } catch {
-    return false
+    return []
   }
+}
+
+/** Whether the agent list shows this agent ended. */
+function hasEnded(agentId: string, listed: readonly AgentInfo[]): boolean {
+  const status = listed.find(each => each.id === agentId)?.status
+  return status !== undefined && endedState(status) !== undefined
 }
