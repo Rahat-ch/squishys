@@ -6,7 +6,7 @@ import { KIT } from '../src/kit'
 import type { Grid, Kit } from '../src/kit'
 import { roll } from '../src/roller'
 import type { Squishy } from '../src/roller'
-import { seeded } from './seeded'
+import { seeded } from '../src/seeded'
 
 const BLANK: Grid = Array.from({ length: 16 }, () => '................')
 const GREY = 0x808080

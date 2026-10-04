@@ -2,3 +2,5 @@
 .claude-plugin/types/
 node_modules/
 .DS_Store
+# The art preview page, written by npm run preview
+/out/

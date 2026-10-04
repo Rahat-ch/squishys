@@ -4,7 +4,7 @@ import { KIT } from '../src/kit'
 import type { Kit } from '../src/kit'
 import { roll } from '../src/roller'
 import type { Squishy } from '../src/roller'
-import { seeded } from './seeded'
+import { seeded } from '../src/seeded'
 
 const BLANK = Array.from({ length: 16 }, () => '................')
 
@@ -119,6 +119,15 @@ test('a rarity’s share is split evenly among its parts', () => {
   for (const [body, expected] of [['round', 0.35], ['tall', 0.35], ['flat', 0.25], ['star', 0.05]] as const) {
     expect(Math.abs(share(bodies, each => each === body) - expected)).toBeLessThan(0.01)
   }
+})
+
+test('odds that rule a squishy out keep it out, even when every other squishy is live', () => {
+  const kit: Kit = { ...ONE_OF_EACH, legendaries: [{ id: 'king', name: 'King Bao', grid: BLANK, colors: {}, shiny: {} }] }
+  const odds = { legendary: 0, shiny: 0 }
+  const only = roll(kit, { live: [], rng: seeded(3), odds })
+
+  // The one assembled squishy is live, and the legendary is ruled out, so a duplicate it is
+  expect(roll(kit, { live: [only], rng: seeded(4), odds })).toMatchObject({ kind: 'assembled', key: only.key })
 })
 
 test('a roll is never a squishy a live agent already has', () => {
