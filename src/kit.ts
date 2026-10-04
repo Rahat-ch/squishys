@@ -17,7 +17,7 @@ export type Rarity = 'common' | 'uncommon' | 'rare'
 export type Grid = readonly string[]
 
 /**
- * A squishy's four colors, as on a Game Boy Color sprite, each 0xRRGGBB.
+ * A squishy's four colors, as in a Game Boy Color palette, each 0xRRGGBB.
  * Eyes and mouth are drawn in the outline color and blush in the dark one.
  */
 export type Colors = Readonly<{ outline: number; dark: number; base: number; highlight: number }>
@@ -39,7 +39,7 @@ export type ShinyColors = Colors & Readonly<{ sparkle: number }>
  * `h` highlight: the highlight color.
  * `*` glint: the sparkle color on a shiny, the highlight color otherwise.
  */
-export const KEY_COLORS: Readonly<Record<string, keyof ShinyColors>> = {
+export const KEY_COLORS = {
   o: 'outline',
   e: 'outline',
   m: 'outline',
@@ -48,6 +48,20 @@ export const KEY_COLORS: Readonly<Record<string, keyof ShinyColors>> = {
   b: 'base',
   h: 'highlight',
   '*': 'sparkle',
+} as const satisfies Readonly<Record<string, keyof ShinyColors>>
+
+/** A key a grid may use (besides `.`, see-through). */
+export type GridKey = keyof typeof KEY_COLORS
+
+/** The eyes' key: the composer finds the eyes by it. */
+export const EYE_KEY: GridKey = 'e'
+
+/** The body's fill key: what an eye drawn on nothing gives way to when shut. */
+export const FILL_KEY: GridKey = 'b'
+
+/** The color a key draws in, from a squishy's colors; undefined for a key the kit doesn't use. */
+export function keyColor(colors: ShinyColors, key: string): number | undefined {
+  return Object.hasOwn(KEY_COLORS, key) ? colors[KEY_COLORS[key as GridKey]] : undefined
 }
 
 /** What every part has: an id, a rarity and its fragment of a Name. */

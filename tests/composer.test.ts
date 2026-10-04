@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BUBBLE_COLOR, MARK_COLOR, PICTURE_SIZE, RING_COLOR, SIDES, SPARKLE_COLOR, ZZZ_COLOR, compose } from '../src/composer'
+import { BUBBLE_COLOR, MARK_COLOR, PICTURE_SIZE, RING_COLOR, SHUT_EYE_WIDTH, SIDES, ZZZ_COLOR, compose } from '../src/composer'
 import type { Size } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Colors, Grid, Kit, ShinyColors } from '../src/kit'
@@ -361,13 +361,18 @@ test('a sparkling shiny shows glints over its picture that move from frame to fr
   }
 })
 
-test('a plain legendary’s glints, which its colors give no sparkle for, are SPARKLE_COLOR', () => {
-  const kit: Kit = { ...TEST_KIT, legendaries: [{ id: 'blob', name: 'Blob', grid: grid('b'), colors: COLORS, shiny: SHINY_COLORS }] }
-  const legendary = roll(kit, { live: [], rng: seeded(1), odds: { legendary: 1, shiny: 0 } })
+test('a plain legendary keeps to its four colors when it sparkles: its glints are its highlight, or its base over its highlight', () => {
+  const glintsOn = (fill: string) => {
+    const kit: Kit = { ...TEST_KIT, legendaries: [{ id: 'blob', name: 'Blob', grid: grid(fill), colors: COLORS, shiny: SHINY_COLORS }] }
+    const legendary = roll(kit, { live: [], rng: seeded(1), odds: { legendary: 1, shiny: 0 } })
+    return [0, 1].flatMap(frame => [
+      ...changed(compose(kit, legendary, { state: 'working', frame }), compose(kit, legendary, { state: 'working', frame, sparkle: true })).colors,
+    ])
+  }
 
-  const { colors } = changed(compose(kit, legendary, { state: 'asleep', frame: 0 }), compose(kit, legendary, { state: 'asleep', frame: 0, sparkle: true }))
-
-  expect([...colors]).toEqual([SPARKLE_COLOR])
+  expect(new Set(glintsOn('b'))).toEqual(new Set([LIGHT]))
+  // Glints that landed on highlight would vanish, so they take the base instead
+  expect(new Set(glintsOn('h'))).toEqual(new Set([GREY]))
 })
 
 test('glints are drawn at the picture’s own size: two pluses at full size, twice as long at 2×, lone pixels that twinkle on the mini', () => {
