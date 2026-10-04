@@ -7,7 +7,7 @@ import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
 import type { ActivityRow, Agent, Model, SquishyState } from '../types'
 import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
-import { PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
+import { OPEN_PANE, PANE_ID, PICK_PREFIX, animatedPicture, openRefused, pictureKey } from './pane'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
 import { endedState, isEnded } from './states'
 import {
@@ -132,6 +132,11 @@ function withRow(feed: readonly ActivityRow[], row: ActivityRow): ActivityRow[] 
   return [...kept, row].slice(-FEED_ROWS)
 }
 
+/** Whether a pick came from outside the pane, as from the band, which leaves the pane to open. */
+function pickedOutsidePane(press: { component: string }): boolean {
+  return press.component !== 'Pane'
+}
+
 export function registerFocus(on: On): void {
   // The feed's hooks fit agents' events alone. They must run after the
   // agent tracker's hooks on the same events, which record an agent first
@@ -158,12 +163,23 @@ export function registerFocus(on: On): void {
 
   // The pick: a press on any Button keyed `squishy-<agent id>` (PICK_PREFIX:
   // a roster slot's, by click or digit) opens that agent's focus view. One
-  // handler for every place a squishy can be picked from.
+  // handler for every place a squishy can be picked from. Picked outside the
+  // pane (from the band, while the pane is unplaced), it opens the pane too:
+  // asked for by the press, it's placed at any width, and the band is drawn
+  // again to step aside.
   on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e, next) => {
     const agentId = e.element.slice(PICK_PREFIX.length)
     await leaveStop($)
     await update($, focusedAgentId, () => agentId)
     await update($, mode, () => 'focus')
+    if (pickedOutsidePane(e)) {
+      try {
+        await $.ui.open(OPEN_PANE)
+      } catch (error) {
+        $.ui.toast(openRefused(error))
+      }
+      $.ui.invalidate('ui.render')
+    }
     return next(e)
   })
 

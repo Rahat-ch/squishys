@@ -7,7 +7,7 @@ import type { AgentInfo, AgentStatus, EngineInterface, On, Timer } from 'claude-
 
 import type { Agent, SquishyState } from '../types'
 import { KIT } from './kit'
-import { squishysOnScreen } from './pane'
+import { OPEN_PANE, PANE_ID, squishysOnScreen } from './pane'
 import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
 import { cryptoRandom, roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
@@ -273,6 +273,19 @@ async function checkAgentList($: EngineInterface): Promise<void> {
   }
 }
 
+/**
+ * Opens the pane at the session's first agent, unless it's open already.
+ * Unasked, Claude Code places it only on a wide terminal (144 columns, 110
+ * once the user has opened it before) and leaves it unplaced otherwise,
+ * while the band (src/band.tsx) shows instead.
+ */
+async function openPaneUnasked($: EngineInterface): Promise<void> {
+  try {
+    if ((await $.ui.panes()).some(pane => pane.id === PANE_ID)) return
+    await $.ui.open(OPEN_PANE)
+  } catch {} // a refused open leaves the agent its squishy all the same
+}
+
 function hasSquishy(known: readonly Agent[], agentId: string): boolean {
   return known.some(agent => agent.id === agentId)
 }
@@ -287,13 +300,16 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
  */
 async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<void> {
   let assigned: Agent | undefined
+  let first = false
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
     const squishy = roll(KIT, { live: liveSquishys(known, squishysOnScreen()), rng: cryptoRandom })
     assigned = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
+    first = known.length === 0
     return [...known, assigned]
   })
   keepChecking($)
+  if (first) await openPaneUnasked($)
   // Kept in the store too, so it comes back after /clear or /resume
   if (assigned === undefined) return
   await rememberSquishys({ get: () => $.store.get(REMEMBERED_KEY), set: remembered => $.store.set(REMEMBERED_KEY, remembered) }, [assigned])

@@ -10,7 +10,19 @@ import { halfBlocks } from '../src/raster'
 import { roll } from '../src/roller'
 import { seeded } from '../src/seeded'
 import { MAX_SLOTS } from '../src/settings'
-import { PICTURE_COLUMNS, PICTURE_ROWS, SLOT_COLUMNS, SLOT_ROWS, layoutRoster, liveSquishys } from '../src/slots'
+import {
+  BAND_GAP,
+  BAND_NAME_COLUMNS,
+  BAND_PICTURE_COLUMNS,
+  BAND_PICTURE_ROWS,
+  PICTURE_COLUMNS,
+  PICTURE_ROWS,
+  SLOT_COLUMNS,
+  SLOT_ROWS,
+  layoutBand,
+  layoutRoster,
+  liveSquishys,
+} from '../src/slots'
 import type { RosterAgent, RosterSize } from '../src/slots'
 import type { SquishyState } from '../src/states'
 import { roomFor } from './fixtures'
@@ -212,4 +224,62 @@ test('a slot is as wide as a composed squishy picture and as tall as its half-bl
   expect(SLOT_COLUMNS).toBe(picture.columns)
   // Its name, its description and the main view's mark
   expect(SLOT_ROWS).toBe(picture.rows + 3)
+})
+
+// The band: the room for `across` places side by side, then the overflow
+// count (when `overflow` agents don't show) and the hint, BAND_GAP apart
+function bandRoom(across: number, { pictured, overflow = 0 }: { pictured: boolean; overflow?: number }) {
+  const place = pictured ? BAND_PICTURE_COLUMNS : BAND_NAME_COLUMNS
+  const count = overflow > 0 ? `+${overflow}`.length : 0
+  const side = pictured ? Math.max(HINT_COLUMNS, count) : HINT_COLUMNS + (count > 0 ? count + BAND_GAP : 0)
+  return { bodyColumns: across * (place + BAND_GAP) + side, maxRows: pictured ? BAND_PICTURE_ROWS : BAND_PICTURE_ROWS - 1, hintColumns: HINT_COLUMNS }
+}
+const HINT_COLUMNS = 30
+
+test('the band shows running squishys first, then Squished before Asleep, each in the order first seen', () => {
+  const known = [agent('agent-1', 'asleep'), agent('agent-2', 'squished'), agent('agent-3'), agent('agent-4', 'asleep'), agent('agent-5', 'thinking')]
+
+  const band = layoutBand({ agents: known, ...bandRoom(5, { pictured: true }) })
+
+  expect(ids(band.shown)).toEqual(['agent-3', 'agent-5', 'agent-2', 'agent-1', 'agent-4'])
+  expect(band.overflow).toEqual([])
+})
+
+test('agents the band has no room for are its overflow, ended ones first to go', () => {
+  const known = [agent('agent-1', 'asleep'), agent('agent-2', 'squished'), agent('agent-3')]
+
+  const band = layoutBand({ agents: known, ...bandRoom(2, { pictured: true, overflow: 1 }) })
+
+  expect(ids(band.shown)).toEqual(['agent-3', 'agent-2'])
+  expect(ids(band.overflow)).toEqual(['agent-1'])
+})
+
+test('the band shows mini pictures given the rows for them, and Names alone in fewer', () => {
+  const room = bandRoom(1, { pictured: true })
+
+  expect(layoutBand({ agents: [agent('agent-1')], ...room }).pictured).toBe(true)
+  expect(layoutBand({ agents: [agent('agent-1')], ...room, maxRows: BAND_PICTURE_ROWS - 1 }).pictured).toBe(false)
+})
+
+test('in a row of Names, the overflow count and the hint take their room too, so the row never runs past the band', () => {
+  const known = agents(3)
+
+  expect(ids(layoutBand({ agents: known, ...bandRoom(1, { pictured: false, overflow: 2 }) }).shown)).toEqual(['agent-1'])
+  const short = bandRoom(1, { pictured: false, overflow: 2 })
+  const band = layoutBand({ agents: known, ...short, bodyColumns: short.bodyColumns - 1 })
+  expect(band.shown).toEqual([])
+  expect(band.overflow).toHaveLength(3)
+})
+
+test('two agents that share a squishy both show in the band', () => {
+  const known = [agent('agent-1'), { ...agent('agent-2', 'asleep'), squishy: { key: 'squishy-of-agent-1' } }]
+
+  expect(ids(layoutBand({ agents: known, ...bandRoom(2, { pictured: true }) }).shown)).toEqual(['agent-1', 'agent-2'])
+})
+
+test('a band place is as wide as a mini picture or a Name, and as tall as the mini’s half-block rows with its Name under it', () => {
+  const mini = halfBlocks(compose(KIT, roll(KIT, { live: [], rng: seeded(1) }), { state: 'working', frame: 0, size: 'mini' }))
+
+  expect(BAND_PICTURE_COLUMNS).toBe(Math.max(mini.columns, BAND_NAME_COLUMNS))
+  expect(BAND_PICTURE_ROWS).toBe(mini.rows + 1)
 })
