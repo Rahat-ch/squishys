@@ -3,7 +3,7 @@
 // leaves it, so a test fires classic.SessionStart without session.start.
 
 import { expect, mock, test } from 'claude-code/testing'
-import type { Plugin } from 'claude-code/testing'
+import type { Mounted, Plugin } from 'claude-code/testing'
 import type { AgentStatus, TraceEntry } from 'claude-code'
 
 import { AGENT_CHECK_MS } from '../src/agents'
@@ -14,7 +14,7 @@ import type { Remembered, RememberedPair } from '../src/rebuild'
 import { roll, squishyOf } from '../src/roller'
 import { seeded } from '../src/seeded'
 import type { SquishyState } from '../src/states'
-import { PANE, finishOf, paneSized, roomFor, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
+import { PANE, PARTNERED, finishOf, paneSized, roomFor, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, spawnAndWatch, squishyIn, watch } from './pictures'
 
 const LISTED = [
@@ -31,6 +31,11 @@ const EXPECTED: Record<string, SquishyState> = {
   'agent-d': 'squished',
 }
 
+/** The pictures of agents' squishys the pane shows, leaving out the partner's. */
+async function agentPictures(ui: Mounted<'terminal', 'Pane'>) {
+  return (await ui.findAll({ type: 'Raster' })).filter(picture => picture.key?.startsWith('picture-'))
+}
+
 /** The agent ids the store keeps squishys for, in the order it keeps them. */
 function rememberedIds(stored: Map<string, unknown>): string[] {
   return (stored.get(REMEMBERED_KEY) as Remembered).map(([agentId]) => agentId)
@@ -38,13 +43,14 @@ function rememberedIds(stored: Map<string, unknown>): string[] {
 
 for (const source of ['clear', 'resume', 'fork'] as const) {
   test(`after a session start from ${source}, the roster is rebuilt from the agent list, each squishy in its agent’s state`, async ($, on) => {
-    stubStore(on)
+    stubStore(on, PARTNERED)
     stubSessionStart(on)
     stubAgentList(on, LISTED)
 
     await $.classic.SessionStart({ source })
 
-    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    // Room for the partner and every listed agent
+    const ui = await $.ui.mount({ ...paneSized(roomFor('dock', LISTED.length + 1, 1)), surface: 'terminal' })
     for (const { id, description } of LISTED) {
       const picture = await ui.find({ key: `picture-${id}` })
       const name = await ui.find({ key: `squishy-${id}` })
@@ -77,7 +83,7 @@ test('agents spawned at once all have their squishys kept in the store', async (
 for (const source of ['clear', 'resume'] as const) {
   test(`after a session start from ${source}, an agent that had a squishy gets the same squishy back`, async ($, on) => {
     const squishy = roll(KIT, { live: [], rng: seeded(10) })
-    stubStore(on, { [REMEMBERED_KEY]: [['agent-a', squishy.key]] })
+    stubStore(on, { ...PARTNERED, [REMEMBERED_KEY]: [['agent-a', squishy.key]] })
     stubSessionStart(on)
     stubAgentList(on, [{ id: 'agent-a', description: 'Find config parser', status: 'running' }])
 
@@ -96,7 +102,7 @@ test('after /clear, agents never seen before get fresh squishys, none of them on
     const live = restored.flatMap(([, key]) => squishyOf(KIT, key) ?? [])
     restored.push([`agent-old-${n}`, roll(KIT, { live, rng }).key])
   }
-  stubStore(on, { [REMEMBERED_KEY]: restored })
+  stubStore(on, { ...PARTNERED, [REMEMBERED_KEY]: restored })
   stubSessionStart(on)
   const ids = [...restored.map(([agentId]) => agentId), 'agent-new-1', 'agent-new-2', 'agent-new-3']
   stubAgentList(on, ids.map(id => ({ id, description: 'Find config parser', status: 'running' })))
@@ -104,14 +110,14 @@ test('after /clear, agents never seen before get fresh squishys, none of them on
   await $.classic.SessionStart({ source: 'clear' })
 
   const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 3, 3)), surface: 'terminal' })
-  const pictures = (await ui.findAll({ type: 'Raster' })).map(picture => picture.props.cells)
+  const pictures = (await agentPictures(ui)).map(picture => picture.props.cells)
   expect(pictures).toHaveLength(6)
   expect(new Set(pictures).size).toBe(6)
 })
 
 test('an agent spawned while the roster is rebuilt keeps its squishy and its one slot, and no squishy shows twice', async ($, on) => {
   const restored = roll(KIT, { live: [], rng: seeded(13) })
-  const stored = new Map<string, unknown>([[REMEMBERED_KEY, [['agent-a', restored.key]]]])
+  const stored = new Map<string, unknown>([...Object.entries(PARTNERED), [REMEMBERED_KEY, [['agent-a', restored.key]]]])
   // The rebuild's read of the kept squishys answers only once the spawn has
   // landed, so the spawn joins the roster while the rebuild is under way
   let reading = () => {}
@@ -150,7 +156,7 @@ test('an agent spawned while the roster is rebuilt keeps its squishy and its one
   expect(spawned).toBeDefined()
   if (spawned) expect((await ui.find({ key: 'picture-agent-1' }))?.props.cells).toBe(cellsOf(spawned, 'working'))
   expect((await ui.find({ key: 'picture-agent-a' }))?.props.cells).toBe(cellsOf(restored, 'working'))
-  const pictures = (await ui.findAll({ type: 'Raster' })).map(picture => picture.props.cells)
+  const pictures = (await agentPictures(ui)).map(picture => picture.props.cells)
   expect(pictures).toHaveLength(3)
   expect(new Set(pictures).size).toBe(3)
   expect(rememberedIds(stored).toSorted()).toEqual(['agent-1', 'agent-a', 'agent-b'])
@@ -159,7 +165,7 @@ test('an agent spawned while the roster is rebuilt keeps its squishy and its one
 test('the store keeps squishys for at most REMEMBERED_AGENTS agents, dropping those seen longest ago', async ($, on) => {
   const key = roll(KIT, { live: [], rng: seeded(12) }).key
   const old = Array.from({ length: REMEMBERED_AGENTS }, (_, n): RememberedPair => [`agent-old-${n + 1}`, key])
-  const stored = stubStore(on, { [REMEMBERED_KEY]: old })
+  const stored = stubStore(on, { ...PARTNERED, [REMEMBERED_KEY]: old })
   stubSessionStart(on)
   // The oldest one comes back in this session, beside one never seen
   stubAgentList(on, [
@@ -177,7 +183,7 @@ test('the store keeps squishys for at most REMEMBERED_AGENTS agents, dropping th
 })
 
 test('an agent whose kept squishy the kit no longer has gets a fresh one', async ($, on) => {
-  stubStore(on, { [REMEMBERED_KEY]: [['agent-a', 'gone/gone/gone/gone'], 'not a pair'] })
+  stubStore(on, { ...PARTNERED, [REMEMBERED_KEY]: [['agent-a', 'gone/gone/gone/gone'], 'not a pair'] })
   stubSessionStart(on)
   stubAgentList(on, [{ id: 'agent-a', description: 'Find config parser', status: 'running' }])
 
@@ -188,7 +194,7 @@ test('an agent whose kept squishy the kit no longer has gets a fresh one', async
 })
 
 test('after compaction, which keeps the roster, each squishy stays as it was and agents the roster lacks join it', async ($, on) => {
-  stubStore(on)
+  stubStore(on, PARTNERED)
   stubSpawns(on)
   stubTurns(on)
   stubSessionStart(on)
@@ -207,7 +213,7 @@ test('after compaction, which keeps the roster, each squishy stays as it was and
 })
 
 test('a session start from startup leaves the agent list alone', async ($, on) => {
-  stubStore(on)
+  stubStore(on, PARTNERED)
   stubSessionStart(on)
   const lookups = stubAgentList(on, new Map([['agent-a', 'running']]))
 
@@ -262,7 +268,7 @@ for (const surface of ['desktop', 'vscode', 'mobile', null] as const) {
       failures.push(e.text)
       return { value: undefined }
     })
-    stubStore(on)
+    stubStore(on, PARTNERED)
     stubSpawns(on)
     stubSessionStart(on)
     on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -291,7 +297,7 @@ for (const surface of ['desktop', 'vscode', 'mobile', null] as const) {
     expect(failures).toEqual([])
     // Tracked quietly all along: a terminal would show both
     const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    expect(await terminal.findAll({ type: 'Raster' })).toHaveLength(2)
+    expect(await agentPictures(terminal)).toHaveLength(2)
   })
 }
 
@@ -302,21 +308,21 @@ test('after /clear with an empty agent list, the roster starts empty and no hook
     failures.push(e.text)
     return { value: undefined }
   })
-  stubStore(on, { [REMEMBERED_KEY]: [['agent-old', roll(KIT, { live: [], rng: seeded(14) }).key]] })
+  stubStore(on, { ...PARTNERED, [REMEMBERED_KEY]: [['agent-old', roll(KIT, { live: [], rng: seeded(14) }).key]] })
   stubSessionStart(on)
   stubAgentList(on, [])
 
   await $.classic.SessionStart({ source: 'clear' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  expect(await agentPictures(ui)).toEqual([])
   expect(await ui.find({ type: 'Text', text: /No agents yet/ })).toBeDefined()
   expect(failures).toEqual([])
 })
 
 test('after /clear, a rebuilt agent that fails with no stop event is caught by checking the agent list', async ($, on) => {
   const clock = mock.clock(on)
-  stubStore(on)
+  stubStore(on, PARTNERED)
   stubSessionStart(on)
   const statuses = new Map<string, AgentStatus>([['agent-a', 'running']])
   stubAgentList(on, statuses)

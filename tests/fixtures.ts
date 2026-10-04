@@ -2,7 +2,9 @@
 
 import type { AgentStatus, On } from 'claude-code'
 
+import { KIT } from '../src/kit'
 import { PANE_ID } from '../src/pane'
+import { PARTNER_KEY } from '../src/partner'
 import { FOOTER_COLUMN_GAP, FOOTER_COLUMNS, FOOTER_ROW_GAP, FOOTER_ROWS, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP } from '../src/slots'
 import type { RosterSize } from '../src/slots'
 
@@ -41,6 +43,11 @@ export function roomFor(placement: RosterSize['placement'], across: number, down
 export function paneSized({ placement, bodyColumns, bodyRows }: RosterSize) {
   return { ...PANE, props: { ...PANE.props, placement, bodyColumns, scroll: { offset: 0, bodyRows } } }
 }
+
+// What a store holds once the user has picked a partner (the kit's first
+// starter, in the first palette): a test that starts a session without one
+// gets the starter pick
+export const PARTNERED: Readonly<Record<string, unknown>> = { [PARTNER_KEY]: { ...KIT.starters[0], palette: KIT.palettes[0]?.id } }
 
 // Answers each agent.spawn as Claude Code would, with ids agent-1, agent-2…
 export function stubSpawns(on: On): void {

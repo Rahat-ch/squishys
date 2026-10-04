@@ -6,10 +6,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
 
-import type { Agent } from '../types'
+import type { Agent, Squishy } from '../types'
 import { compose } from './composer'
 import type { Size } from './composer'
 import { KIT } from './kit'
+import { PARTNER_BUTTON, PARTNER_KEY, PARTNER_PICTURE, partnerFrom, stillPicture } from './partner'
 import { halfBlocks } from './raster'
 import type { RasterCells } from './raster'
 import { SETTINGS_KEY, settingsFrom } from './settings'
@@ -120,6 +121,20 @@ function forgetShown(requestId: string): void {
   for (const [key, picture] of shown) if (picture.requestId === requestId) shown.delete(key)
 }
 
+/** One slot of the roster as drawn: the partner's or an agent's. */
+type Slot = {
+  /** The agent's id, or `partner`. */
+  id: string
+  pictureKey: string
+  /** The key of the Button that picks it. */
+  pickKey: string
+  picture: RasterCells
+  name: string
+  description: string
+  /** Whether the main view shows the agent (or, for the partner, the orchestrator). */
+  inView: boolean
+}
+
 export function registerPane(on: On): void {
   on('session.start', async ($, e, next) => {
     await readMotionSetting($)
@@ -195,18 +210,56 @@ export function registerPane(on: On): void {
     const { Box, Button, Raster, Text } = $.ui.resolve(e)
     const { placement, bodyColumns, scroll, view } = e.props
     const known = await read($, agents)
-    const layout = layoutRoster({ placement, bodyColumns, bodyRows: scroll.bodyRows, slotCap: await readSlotCap($), agents: known, slotted })
+    const partner = await readPartner($)
+    const layout = layoutRoster({
+      placement,
+      bodyColumns,
+      bodyRows: scroll.bodyRows,
+      slotCap: await readSlotCap($),
+      agents: known,
+      slotted,
+      ...(partner !== undefined ? { partner } : {}),
+    })
     slotted = layout.slots.map(agent => agent.id)
     // The list shows while asked for, until the overflow empties
     if (layout.overflow.length === 0) listOutlived ||= await read($, overflowOpen)
     const showsList = layout.overflow.length > 0 && !listOutlived && (await read($, overflowOpen))
     // Drawn at the animation's current frame, so a redraw doesn't jump
-    // back. Only the slots' pictures are drawn, so only they animate.
-    const slots = showsList ? [] : layout.slots.map(agent => ({ agent, picture: animatedPicture(agent) }))
+    // back. Only the slots' pictures are drawn, so only they animate. The
+    // partner, pinned first, stands for the orchestrator: its picture is
+    // still, its pick (src/focus.tsx leaves it be) returns to the roster,
+    // and it's marked while the main view shows the orchestrator.
+    const slots: Slot[] = showsList
+      ? []
+      : [
+          ...(partner !== undefined && layout.partnerSlot
+            ? [
+                {
+                  id: 'partner',
+                  pictureKey: PARTNER_PICTURE,
+                  pickKey: PARTNER_BUTTON,
+                  picture: stillPicture(partner),
+                  name: partner.name,
+                  description: 'Orchestrator',
+                  inView: view.agentId === undefined,
+                },
+              ]
+            : []),
+          ...layout.slots.map(agent => ({
+            id: agent.id,
+            pictureKey: pictureKey(agent.id),
+            pickKey: `${PICK_PREFIX}${agent.id}`,
+            picture: animatedPicture(agent),
+            name: agent.squishy.name,
+            description: agent.description,
+            inView: agent.id === view.agentId,
+          })),
+        ]
     if (!motionReduced) await animateShown($)
 
     const columns = Math.max(1, layout.columns)
     const rows = Array.from({ length: Math.ceil(slots.length / columns) }, (_, row) => slots.slice(row * columns, (row + 1) * columns))
+    const noAgents = <Text dimColor>No agents yet. Each agent the orchestrator starts gets a squishy here.</Text>
     const body = showsList ? (
       // The overflow list: one line per agent, in place of the slots. Its
       // presses pick the squishy, as a slot's do: src/focus.tsx answers them.
@@ -220,31 +273,31 @@ export function registerPane(on: On): void {
           </Box>
         ))}
       </Box>
-    ) : known.length === 0 ? (
-      <Text dimColor>No agents yet. Each agent the orchestrator starts gets a squishy here.</Text>
+    ) : known.length === 0 && slots.length === 0 ? (
+      noAgents
     ) : (
       <Box key="slots" flexDirection="column" rowGap={SLOT_ROW_GAP}>
         {rows.map((row, rowIndex) => (
           <Box key={`slot-row-${rowIndex}`} flexDirection="row" columnGap={SLOT_COLUMN_GAP}>
-            {row.map(({ agent, picture }, column) => {
+            {row.map((slot, column) => {
               const index = rowIndex * columns + column
               return (
-                <Box key={`slot-${agent.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS}>
-                  <Raster key={pictureKey(agent.id)} {...picture} />
-                  {/* Its press picks the squishy: src/focus.tsx answers it. */}
+                <Box key={`slot-${slot.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS}>
+                  <Raster key={slot.pictureKey} {...slot.picture} />
+                  {/* An agent's press picks its squishy: src/focus.tsx answers it. The partner's leaves the roster be. */}
                   <Button
-                    key={`${PICK_PREFIX}${agent.id}`}
+                    key={slot.pickKey}
                     {...(index < 9 ? { hotkey: String(index + 1) } : {})}
                     plain
-                    label={agent.squishy.name}
+                    label={slot.name}
                     onPress={() => {}}
                   />
-                  <Text key={`description-${agent.id}`} dimColor wrap="truncate-end">
-                    {agent.description}
+                  <Text key={`description-${slot.id}`} dimColor wrap="truncate-end">
+                    {slot.description}
                   </Text>
                   {/* Squishys only reads the main view, never changes it (ADR 0001). */}
-                  {agent.id === view.agentId ? (
-                    <Box key={`in-view-${agent.id}`}>
+                  {slot.inView ? (
+                    <Box key={`in-view-${slot.id}`}>
                       <Text color="cyan">▲ in main view</Text>
                     </Box>
                   ) : null}
@@ -253,6 +306,7 @@ export function registerPane(on: On): void {
             })}
           </Box>
         ))}
+        {known.length === 0 ? noAgents : null}
       </Box>
     )
     const footer = [
@@ -302,6 +356,15 @@ async function readSlotCap($: EngineInterface): Promise<number> {
     return settingsFrom(await $.store.get(SETTINGS_KEY)).slotCap
   } catch {
     return settingsFrom(undefined).slotCap
+  }
+}
+
+/** The partner from the store; a store that can't be read leaves none. */
+async function readPartner($: EngineInterface): Promise<Squishy | undefined> {
+  try {
+    return partnerFrom(await $.store.get(PARTNER_KEY))
+  } catch {
+    return undefined
   }
 }
 

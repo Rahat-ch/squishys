@@ -5,9 +5,10 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
-import type { ActivityRow, Agent, Model, SquishyState } from '../types'
+import type { ActivityRow, Agent, Model, Squishy, SquishyState } from '../types'
 import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
 import { OPEN_PANE, PANE_ID, PICK_PREFIX, animatedPicture, openRefused, pictureKey } from './pane'
+import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
 import { endedState, isEnded } from './states'
 import {
@@ -226,6 +227,12 @@ export function registerFocus(on: On): void {
         switchable = allowedModels((await $.settings.read()).availableModels)
       }
     } catch {}
+    // The partner stands for the orchestrator: picking it returns to the
+    // roster, like the slot's digit there
+    let partner: Squishy | undefined
+    try {
+      partner = partnerFrom(await $.store.get(PARTNER_KEY))
+    } catch {}
     const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
     const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
     const control = await read($, stopControl)
@@ -257,6 +264,9 @@ export function registerFocus(on: On): void {
         <Box key="controls" flexDirection="row" columnGap={2}>
           {back}
           {canStop(agent) ? <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> : null}
+          {partner !== undefined ? (
+            <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void update($, mode, () => 'roster')} />
+          ) : null}
         </Box>
         {note === undefined ? null : (
           <Box key="stop-note">

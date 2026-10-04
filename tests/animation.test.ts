@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 
 import { AGENT_CHECK_MS } from '../src/agents'
 import { FRAME_MS } from '../src/pane'
-import { PANE, finishOf, spawnOf, stepOf, stubAgentList, stubBlits, stubSpawns, stubTurns } from './fixtures'
+import { PANE, PARTNERED, finishOf, spawnOf, stepOf, stubAgentList, stubBlits, stubSpawns, stubTurns } from './fixtures'
 import { cellsOf, spawnAndWatch, watch } from './pictures'
 
 test('a Working squishy wiggles on a timer, repainted by blits and never redrawn for a frame', async ($, on) => {
@@ -71,7 +71,7 @@ function reduceMotion(value: boolean) {
 
 test('with Reduce motion on when the session starts, nothing animates', async ($, on) => {
   const clock = mock.clock(on)
-  mock.store(on)
+  mock.store(on, PARTNERED)
   stubSpawns(on)
   stubSettings(on, { reduced: true })
   const blits = stubBlits(on)
@@ -86,7 +86,7 @@ test('with Reduce motion on when the session starts, nothing animates', async ($
 
 test('turning Reduce motion on in /config stops the animation at rest, and turning it off starts it again, with no restart', async ($, on) => {
   const clock = mock.clock(on)
-  mock.store(on)
+  mock.store(on, PARTNERED)
   stubSpawns(on)
   const motion = { reduced: false }
   stubSettings(on, motion)
