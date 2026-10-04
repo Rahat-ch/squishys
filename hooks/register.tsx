@@ -11,6 +11,7 @@ import { registerPane } from '../src/pane'
 import { registerPartner } from '../src/partner'
 import { registerRebuild } from '../src/rebuild'
 import { registerSettings } from '../src/settings'
+import { registerShare } from '../src/share'
 import { registerSpinner } from '../src/spinner'
 import { registerSquishydex } from '../src/squishydex'
 
@@ -27,6 +28,7 @@ export const register: Register = on => {
   registerPartner(on)
   registerSquishydex(on)
   registerFocus(on)
+  registerShare(on)
   registerModelSwitch(on)
   registerBand(on)
   registerSpinner(on)

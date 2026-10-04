@@ -3,13 +3,12 @@
 
 import { expect, test } from 'claude-code/testing'
 
-import { CROWN_COLOR, INK_COLOR, SPARKLE_COLOR, drawCard, shareCard } from '../src/card'
+import { CROWN_COLOR, INK_COLOR, drawCard, shareCard } from '../src/card'
 import type { Card } from '../src/card'
-import { stillPixels } from '../src/composer'
+import { SPARKLE_COLOR, stillPixels } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Pixels } from '../src/raster'
-import { legendaryKey, speciesSquishy, squishyOf } from '../src/roller'
-import type { Squishy } from '../src/roller'
+import { assembledKey, legendaryKey, speciesSquishy, squishyOf } from '../src/roller'
 
 const PINK = 0xff88aa
 const NAVY = 0x223355
@@ -18,9 +17,9 @@ const [STARTER] = KIT.starters
 const [LEGENDARY] = KIT.legendaries
 const PLAIN = STARTER && speciesSquishy(KIT, STARTER)
 if (!PLAIN || !LEGENDARY) throw new Error('The kit needs a starter and a legendary')
-const SHINY: Squishy = { ...PLAIN, shiny: true }
+const SHINY = squishyOf(KIT, assembledKey(PLAIN, true))
 const CROWNED = squishyOf(KIT, legendaryKey(LEGENDARY.id))
-if (!CROWNED) throw new Error('No squishy for the legendary')
+if (!CROWNED || !SHINY) throw new Error('No squishy for the legendary or the shiny')
 
 /** A `side` × `side` picture: a checkerboard of two colors, its top row see-through. */
 function checkerboard(side: number): Pixels {

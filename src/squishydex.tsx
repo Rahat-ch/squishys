@@ -12,6 +12,7 @@ import { compose } from './composer'
 import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
 import { OPEN_PANE, PANE_ID, openRefused } from './pane'
+import { SHARE_HOTKEY, speciesShareKey, unopenedShare } from './share'
 import { PARTNER_KEY, partnerFrom, stillPicture } from './partner'
 import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
@@ -158,7 +159,7 @@ export function registerSquishydex(on: On): void {
   // spelled out, since the engine reads a matcher off this file alone.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'squishydex') return next(e)
-    const { Box, Button, Raster, Select, Text } = $.ui.resolve(e)
+    const { Box, Button, Link, Raster, Select, Text } = $.ui.resolve(e)
     const { bodyColumns, scroll } = e.props
     const bodyRows = scroll.bodyRows
     const dex = await readSquishydex($)
@@ -300,14 +301,18 @@ export function registerSquishydex(on: On): void {
       </Box>
     )
 
-    // A species' card: the variants met, the date first met, and making it
-    // the partner in a palette it was met in
+    // A species' card: the variants met, the date first met, making it the
+    // partner in a palette it was met in, and sharing it
     async function speciesCard(place: Place, met: MetSpecies, squishy: AssembledSquishy, palettes: readonly string[]) {
       const partner = await readPartner($)
+      // The compose page of a Share the browser didn't open
+      const shareLink = unopenedShare(speciesShareKey(squishy.key))
       const sameSpecies = partner?.kind === 'assembled' && speciesKey(partner) === place.key
       const isPartner = sameSpecies && partner.palette === squishy.palette
       const actions = [
         ...(isPartner ? [] : [button('squishydex-partner', 'm', 'Make partner', () => void makePartner($, squishy))]),
+        // Answered by the ui.press hook in share.tsx
+        button(speciesShareKey(squishy.key), SHARE_HOTKEY, 'Share', () => {}),
         back,
         roster,
       ]
@@ -331,6 +336,7 @@ export function registerSquishydex(on: On): void {
             />
           ) : null}
           {rowsOf('squishydex-card-footer', actions)}
+          {shareLink !== undefined ? <Link key="squishydex-share-link" href={shareLink} label="Post on X" /> : null}
         </Box>
       )
     }

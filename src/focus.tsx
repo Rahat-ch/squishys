@@ -10,6 +10,7 @@ import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
 import { OPEN_PANE, PANE_ID, PICK_PREFIX, animatedPicture, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
+import { SHARE_HOTKEY, agentShareKey, unopenedShare } from './share'
 import { endedState, isEnded } from './states'
 import {
   STOP_CONFIRM_MS,
@@ -223,7 +224,7 @@ export function registerFocus(on: On): void {
   // since the engine reads a matcher off this file alone.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'focus') return next(e)
-    const { Box, Button, Input, Markdown, Raster, Select, Text } = $.ui.resolve(e)
+    const { Box, Button, Input, Link, Markdown, Raster, Select, Text } = $.ui.resolve(e)
     const id = await read($, focusedAgentId)
     const agent = (await read($, agents)).find(each => each.id === id)
     const back = <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void leaveFocus($)} />
@@ -255,6 +256,8 @@ export function registerFocus(on: On): void {
     const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
     const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
     const control = await read($, stopControl)
+    // The compose page of a Share the browser didn't open
+    const shareLink = unopenedShare(agentShareKey(agent.id))
     const note = stopNote(agent, control?.agentId === agent.id && isArmed(control, agent.id, await $.clock.now()))
     // The latest redirect, while its agent has neither ended nor resumed since
     const latest = await read($, delivery)
@@ -289,6 +292,9 @@ export function registerFocus(on: On): void {
           {partner !== undefined ? (
             <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void leaveFocus($)} />
           ) : null}
+          {/* Answered by the ui.press hook in share.tsx */}
+          {agent.state === 'asleep' ? <Button key={agentShareKey(agent.id)} hotkey={SHARE_HOTKEY} plain label="Share" onPress={() => {}} /> : null}
+          {agent.state === 'asleep' && shareLink !== undefined ? <Link key="share-link" href={shareLink} label="Post on X" /> : null}
         </Box>
         {note === undefined ? null : (
           <Box key="stop-note">

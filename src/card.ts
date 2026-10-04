@@ -3,11 +3,12 @@
 // squishys, as a bitmap the PNG encoder (src/png.ts) writes out. Pure: it
 // takes the kit and a squishy as plain data and never touches Claude Code.
 
-import { stillPixels } from './composer'
+import { SPARKLE_COLOR, stillPixels } from './composer'
 import { CROWN, GLYPHS, GLYPH_ROWS, MISSING, SPARKLE } from './card-font'
 import type { Kit, Rarity } from './kit'
 import type { Bitmap } from './png'
 import type { Pixels } from './raster'
+import { SHINY_MARK } from './roller'
 import type { Squishy } from './roller'
 
 /** A card: its bitmap, and where the squishy's picture sits on it, each picture pixel `scale` card pixels each way. */
@@ -47,8 +48,6 @@ export const INK_COLOR = 0x2a2238
 const MUTED_INK = 0x6b6478
 const PANEL_COLOR = 0xfffdf8
 const BADGE_TEXT = 0xffffff
-/** The sparkle a shiny's card shows, before its Name and on its badge. */
-export const SPARKLE_COLOR = 0xffd23f
 /** The crown on a legendary's badge. */
 export const CROWN_COLOR = 0xf2a900
 
@@ -69,7 +68,7 @@ const BADGE_COLORS: Readonly<Record<Rarity | 'legendary' | 'shiny', number>> = {
   shiny: 0x1f2a44,
 }
 
-/** Glyphs drawn in a color of their own, whatever the text's. */
+/** Glyphs drawn in a color of their own, whatever the text's: a shiny's sparkle in the composer's glint color. */
 const GLYPH_COLORS: Readonly<Record<string, number>> = { [SPARKLE]: SPARKLE_COLOR, [CROWN]: CROWN_COLOR }
 
 /** Characters drawn as nothing at all: the emoji presentation selector that may follow ✨. */

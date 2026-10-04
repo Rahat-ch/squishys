@@ -13,6 +13,12 @@ A Claude Code mod that gives every agent your orchestrator starts its own tiny p
 - [Research: building squishys as a Claude Code mod](docs/research/claude-code-mods.md)
 - [Claude Code mods documentation](https://code.claude.com/docs/en/plugins/mods/overview)
 
+## Security
+
+- **Share** posts nothing by itself. It saves a picture of the squishy (a PNG under `squishys-share/` in your temp folder), copies it to the clipboard on macOS, and opens X's compose page in your browser with the text filled in. You review the text, attach the picture and post it yourself; squishys never sees your X account.
+- The text for a finished agent includes the start of the agent's task description, which can hold private project details. It's cut short, but read it in the compose box before you post.
+- To do this, Share runs a few local commands: `sh`, `uname` and `base64` to save the picture, then `osascript` and `open` on macOS, or `xdg-open` on Linux.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
