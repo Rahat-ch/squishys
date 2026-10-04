@@ -16,11 +16,12 @@ Thanks for helping out. Squishys is early, so the most useful contributions righ
 
 ## Developing the mod
 
-Once the mod lands, you'll be able to:
+From your clone:
 
-- Load it into a session from your clone with `claude --plugin-dir .`, which reloads it on save.
-- Run the tests with `claude plugin test`.
-- Validate the plugin with `claude plugin validate .` before opening a PR.
+- Load the mod into a session with `claude --plugin-dir .`, which reloads it on save. Spawn an agent, and run `/squishys` to open or close the pane.
+- Run the tests with `npm test` (or `claude plugin test`).
+- Type-check with `npm run typecheck` after `npm install`. It uses the types Claude Code writes into `.claude-plugin/types/` each time it loads the mod, so load the mod once first.
+- Before opening a PR, validate the marketplace with `claude plugin validate .` and the plugin itself with `claude plugin validate .claude-plugin/plugin.json`.
 
 Mods need Claude Code 2.1.287 or later. See the [mods documentation](https://code.claude.com/docs/en/plugins/mods/overview).
 
