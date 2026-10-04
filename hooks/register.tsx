@@ -11,6 +11,7 @@ import { registerPane } from '../src/pane'
 import { registerPartner } from '../src/partner'
 import { registerRebuild } from '../src/rebuild'
 import { registerSettings } from '../src/settings'
+import { registerSpinner } from '../src/spinner'
 
 export const register: Register = on => {
   // The order matters: a plugin's registrations nest in order, first
@@ -26,4 +27,5 @@ export const register: Register = on => {
   registerFocus(on)
   registerModelSwitch(on)
   registerBand(on)
+  registerSpinner(on)
 }

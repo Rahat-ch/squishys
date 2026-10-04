@@ -3,6 +3,7 @@
 // drawn once and shown at 1x and 4x, so every pixel stays a crisp square.
 // The page script (client.js) adds the keep / redo / notes verdicts.
 
+import { hexColor } from '../../src/raster'
 import type { Pixels } from '../../src/raster'
 import { verdictDocId } from './items'
 import type { PreviewItem, Section } from './items'
@@ -109,8 +110,7 @@ function rects(pixels: Pixels): string {
       let end = x + 1
       while (end < row.length && (row[end] ?? null) === color) end += 1
       if (color !== null) {
-        const fill = '#' + color.toString(16).padStart(6, '0')
-        out.push(`<rect x="${x}" y="${y}" width="${end - x}" height="1" fill="${fill}"/>`)
+        out.push(`<rect x="${x}" y="${y}" width="${end - x}" height="1" fill="${hexColor(color)}"/>`)
       }
       x = end
     }
