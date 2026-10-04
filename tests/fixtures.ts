@@ -83,6 +83,21 @@ export function finishOf(agentId: string, reason: 'answer' | 'error' | 'aborted'
   return { answer, durationMs: 4000, isAborted: reason === 'aborted', turnId: `turn-${agentId}`, agentId, reason } as const
 }
 
+// Reads a stream to its end, as Claude Code does a model response
+export async function drain(stream: AsyncIterable<unknown>): Promise<void> {
+  for await (const _ of stream);
+}
+
+// PermissionRequest, as Claude Code raises it before asking the user about a
+// Bash call. `agent_id` is there only when it fires from inside an agent.
+export function permissionRequestFrom(agentId?: string) {
+  return {
+    tool_name: 'Bash',
+    tool_input: { command: 'npm test' },
+    ...(agentId === undefined ? {} : { agent_id: agentId, agent_type: 'general-purpose' }),
+  }
+}
+
 // Stands in for Claude Code streaming each model response (a piece of text,
 // then the stop) and ending each turn
 export function stubTurns(on: On): void {

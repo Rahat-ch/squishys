@@ -1,7 +1,6 @@
 // The agent tracker: turns Claude Code's events into the session's agents,
-// each with the squishy that stands for it and the state its squishy shows
-// (Needs you comes later, with the permission prompts). The state rules
-// themselves live in states.ts.
+// each with the squishy that stands for it and the state its squishy shows.
+// The state rules themselves live in states.ts.
 
 import { atom, read, update } from 'claude-code'
 import type { AgentStatus, EngineInterface, On, Timer } from 'claude-code'
@@ -10,7 +9,7 @@ import type { Agent, SquishyState } from '../types'
 import { KIT } from './kit'
 import { roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
-import { endedState, isEnded, stateAfterRun } from './states'
+import { answered, endedState, isEnded, stateAfterRun } from './states'
 
 /**
  * How often, in milliseconds, the agent list is checked for agents that
@@ -65,7 +64,11 @@ export function registerAgentTracking(on: On): void {
       else notAgents.add(agentId)
     }
     if (agentId !== undefined) await setState($, agentId, 'working')
-    return next(e)
+    const result = await next(e)
+    // A prompt the call raised has been answered once its result is in. This
+    // dispatch's reads predate the prompt, so `asking` says whether one came.
+    if (agentId !== undefined && asking.has(agentId)) await setState($, agentId, answered, { current: true })
+    return result
   })
 
   // A squishy is Thinking from the first piece of its agent's response to
@@ -75,6 +78,7 @@ export function registerAgentTracking(on: On): void {
     const { agentId } = e
     const response = next(e)
     if (agentId === undefined) return yield* response
+    await signOfLife($, agentId)
     let streaming = false
     try {
       for await (const chunk of response) {
@@ -100,6 +104,29 @@ export function registerAgentTracking(on: On): void {
     return completed
   })
 
+  // An agent whose tool call asks the user for permission Needs you, unless
+  // a settings hook decided the request (`decision`, or `block` to refuse
+  // it), so no prompt shows.
+  // A prompt from the orchestrator carries no agent_id and marks nothing.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const asked = await next(e)
+    if (e.agent_id !== undefined && asked.decision === undefined && asked.block === undefined) {
+      await setState($, e.agent_id, 'needsYou')
+    }
+    return asked
+  })
+
+  // Nothing fires when the user answers a prompt; the agent's next sign of
+  // life says they did.
+  on('classic.PostToolUse', async ($, e, next) => {
+    await signOfLife($, e.agent_id)
+    return next(e)
+  })
+  on('classic.PermissionDenied', async ($, e, next) => {
+    await signOfLife($, e.agent_id)
+    return next(e)
+  })
+
   // An agent that stopped: the agent list says whether it finished, failed
   // or was stopped. One the list can't tell about finished.
   on('classic.SubagentStop', async ($, e, next) => {
@@ -114,20 +141,49 @@ export function registerAgentTracking(on: On): void {
 }
 
 /**
- * Puts an agent's squishy in a state; agents without a squishy are left
- * out, and with `from`, so is a squishy in any other state than that.
+ * Puts an agent's squishy in a state, or the state `to` makes of its
+ * current one; agents without a squishy are left out, and with `from`, so is
+ * a squishy in any other state than that.
+ *
+ * It reads first, so a state that doesn't change redraws nothing. Every read
+ * in one dispatch sees the moment the dispatch began, so `current` skips
+ * that read, for a change another event made since.
  */
 async function setState(
   $: EngineInterface,
   agentId: string,
-  state: SquishyState,
-  { from }: { from?: SquishyState } = {},
+  to: SquishyState | ((state: SquishyState) => SquishyState),
+  { from, current = false }: { from?: SquishyState; current?: boolean } = {},
 ): Promise<void> {
-  const changes = (agent: Agent) => agent.id === agentId && agent.state !== state && (from === undefined || agent.state === from)
-  // Read first, so a state that doesn't change redraws nothing
-  if (!(await read($, agents)).some(changes)) return
-  await update($, agents, known => known.map(agent => (changes(agent) ? { ...agent, state } : agent)))
-  if (!isEnded(state)) keepChecking($)
+  const stateFrom = typeof to === 'function' ? to : () => to
+  const changes = (agent: Agent) => agent.id === agentId && stateFrom(agent.state) !== agent.state && (from === undefined || agent.state === from)
+  // Any other state means the agent has moved on from its prompt
+  if (to !== 'needsYou') asking.delete(agentId)
+  if (!current) {
+    const known = await read($, agents)
+    if (to === 'needsYou' && hasSquishy(known, agentId)) asking.add(agentId)
+    if (!known.some(changes)) return
+  }
+  const written = await update($, agents, known => known.map(agent => (changes(agent) ? { ...agent, state: stateFrom(agent.state) } : agent)))
+  const state = written.find(agent => agent.id === agentId)?.state
+  if (state !== undefined && !isEnded(state)) keepChecking($)
+}
+
+/**
+ * The agents a permission prompt put in Needs you, until they move on. The
+ * tool.call hook reads it after `await next(e)`, where its `$.state` reads
+ * still show the moment before the prompt. A reload empties it; the agent's
+ * next sign of life in a dispatch of its own clears Needs you then.
+ */
+const asking = new Set<string>()
+
+/**
+ * A sign of life from an agent, in a dispatch of its own: a prompt it was
+ * on has been answered, so it moves on from Needs you by the rule in
+ * states.ts.
+ */
+async function signOfLife($: EngineInterface, agentId: string | undefined): Promise<void> {
+  if (agentId !== undefined) await setState($, agentId, answered)
 }
 
 /** The agent list check's timer, set while any agent is running. */

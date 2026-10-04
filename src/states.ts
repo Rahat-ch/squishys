@@ -1,5 +1,6 @@
 // The squishy states and their rules, in one place: which states have
-// ended, which animate, and which state the way an agent ended maps to.
+// ended, which animate, which state the way an agent ended maps to, and
+// what an answered permission prompt leaves.
 // Pure: it takes plain data and never touches Claude Code, so the agent
 // tracker, the pane and the tests all share it.
 
@@ -39,4 +40,14 @@ export function endedState(status: string): SquishyState | undefined {
  */
 export function stateAfterRun(reason: string): SquishyState {
   return reason === 'error' || reason === 'aborted' ? 'squished' : 'asleep'
+}
+
+/**
+ * The state a squishy is in once its agent shows a sign of life after a
+ * permission prompt, since nothing says when the user answers it: Needs you
+ * is Working again. Any other state stays as it was, so an agent that ended
+ * while the prompt was open stays Asleep or Squished.
+ */
+export function answered(state: SquishyState): SquishyState {
+  return state === 'needsYou' ? 'working' : state
 }
