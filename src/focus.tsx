@@ -7,7 +7,7 @@ import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
 import type { ActivityRow, Agent, Model, SquishyState } from '../types'
 import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
-import { PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
+import { OPEN_PANE, PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
 import { endedState, isEnded } from './states'
 import {
@@ -158,12 +158,18 @@ export function registerFocus(on: On): void {
 
   // The pick: a press on any Button keyed `squishy-<agent id>` (PICK_PREFIX:
   // a roster slot's, by click or digit) opens that agent's focus view. One
-  // handler for every place a squishy can be picked from.
+  // handler for every place a squishy can be picked from. Picked from the
+  // band, where the pane waits unplaced, it opens the pane too: asked for by
+  // the press, it's placed at any width, and the band is drawn again to step aside.
   on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e, next) => {
     const agentId = e.element.slice(PICK_PREFIX.length)
     await leaveStop($)
     await update($, focusedAgentId, () => agentId)
     await update($, mode, () => 'focus')
+    if (e.component !== 'Pane') {
+      await $.ui.open(OPEN_PANE)
+      $.ui.invalidate('ui.render')
+    }
     return next(e)
   })
 

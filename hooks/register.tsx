@@ -4,6 +4,7 @@
 import type { Register } from 'claude-code'
 
 import { registerAgentTracking } from '../src/agents'
+import { registerBand } from '../src/band'
 import { registerFocus } from '../src/focus'
 import { registerModelSwitch } from '../src/model-switch'
 import { registerPane } from '../src/pane'
@@ -22,4 +23,5 @@ export const register: Register = on => {
   registerSettings(on)
   registerFocus(on)
   registerModelSwitch(on)
+  registerBand(on)
 }

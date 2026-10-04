@@ -1,7 +1,7 @@
 // The pane: one Squishys panel beside the main view. It shows one mode at a
 // time (see PaneMode); this file draws the roster, as many slots as fit
 // with the overflow as "+N" (see slots.ts), and animates the squishys every
-// mode shows.
+// mode, and the band (see band.tsx), shows.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
@@ -33,6 +33,12 @@ export const PANE_ID = 'squishys'
  * src/focus.tsx answers a press on any pane Button keyed so (the pick).
  */
 export const PICK_PREFIX = 'squishy-'
+
+/**
+ * How the pane is opened, by the user's /squishys, a pick from the band or
+ * the first spawn. Inline, rows are scarce: it asks for one row of slots.
+ */
+export const OPEN_PANE = { id: PANE_ID, title: 'Squishys', rows: SLOT_ROWS } as const
 
 /** How long each animation frame shows, in milliseconds. */
 export const FRAME_MS = 200
@@ -81,10 +87,11 @@ let animator: Timer | undefined
 let painting = false
 /**
  * The pictures the animator may repaint, by Raster key: whose squishy each
- * shows, at what size, and the cells it shows now. Each drawing of the pane
- * fills it again, through `animatedPicture`.
+ * shows, at what size, in which site (the pane or the band, by requestId),
+ * and the cells it shows now. Each drawing of a site fills it again for
+ * that site, through `animatedPicture`.
  */
-const shown = new Map<string, { agentId: string; size: Size; cells: string }>()
+const shown = new Map<string, { agentId: string; size: Size; requestId: string; cells: string }>()
 
 /** The key of the Raster showing an agent's squishy at this size. */
 export function pictureKey(agentId: string, size: Size = 'full'): string {
@@ -93,14 +100,19 @@ export function pictureKey(agentId: string, size: Size = 'full'): string {
 
 /**
  * An agent's squishy in its state's pose at the animation's current frame,
- * for the Raster keyed `pictureKey(agent.id, size)`, which the animator then
- * keeps repainting while the squishy moves. Every mode draws its squishys
- * through this.
+ * for the Raster keyed `pictureKey(agent.id, size)` in the site `requestId`
+ * (the pane unless said), which the animator then keeps repainting while
+ * the squishy moves. Every mode, and the band, draws its squishys through this.
  */
-export function animatedPicture(agent: Agent, size: Size = 'full'): RasterCells {
+export function animatedPicture(agent: Agent, size: Size = 'full', requestId: string = PANE_ID): RasterCells {
   const picture = pictureOf(agent, size)
-  shown.set(pictureKey(agent.id, size), { agentId: agent.id, size, cells: picture.cells })
+  shown.set(pictureKey(agent.id, size), { agentId: agent.id, size, requestId, cells: picture.cells })
   return picture
+}
+
+/** Forgets the pictures a site showed, as it's drawn again. */
+function forgetShown(requestId: string): void {
+  for (const [key, picture] of shown) if (picture.requestId === requestId) shown.delete(key)
 }
 
 export function registerPane(on: On): void {
@@ -125,12 +137,16 @@ export function registerPane(on: On): void {
   })
 
   // A toggle. Claude Code's own list of open panes is the truth, since the
-  // user can also close the pane themselves (ctrl+x x).
+  // user can also close the pane themselves (ctrl+x x). A pane that waits
+  // unplaced (opened unasked on a narrow terminal) is opened: asked for, it's
+  // placed at any width, and the band (src/band.tsx) is drawn again to step aside.
   on('command.run', { command: 'squishys' }, async $ => {
     const panes = await $.ui.panes()
-    if (panes.some(pane => pane.id === PANE_ID)) await $.ui.close({ id: PANE_ID })
-    // Inline, rows are scarce: ask for one row of slots
-    else await $.ui.open({ id: PANE_ID, title: 'Squishys', rows: SLOT_ROWS })
+    if (panes.some(pane => pane.id === PANE_ID && pane.isPlaced)) await $.ui.close({ id: PANE_ID })
+    else {
+      await $.ui.open(OPEN_PANE)
+      $.ui.invalidate('ui.render')
+    }
     return {}
   })
 
@@ -142,13 +158,24 @@ export function registerPane(on: On): void {
     return next(e)
   })
 
+  // The band (src/band.tsx) draws its mini squishys inside this hook, which
+  // animates them as the pane's own.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    forgetShown(e.requestId)
+    const drawing = await next(e)
+    if (await read($, reducedMotion)) stopAnimating()
+    else await animateShown($)
+    return drawing
+  })
+
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     // v1 draws only in the terminal; elsewhere Claude Code draws its own.
     if (e.surface !== 'terminal') return next(e)
     // Under Reduce motion every squishy is drawn at rest
     const motionReduced = await read($, reducedMotion)
     if (motionReduced) stopAnimating()
-    shown.clear()
+    forgetShown(PANE_ID)
     // Each pane mode has its own hook, which draws only in its own mode; the
     // animator moves whichever squishys it drew.
     if ((await read($, mode)) !== 'roster') {
@@ -319,15 +346,15 @@ async function nextFrame($: EngineInterface): Promise<void> {
     const moving = movingPictures(await read($, agents))
     if (moving.length === 0 || (await read($, reducedMotion))) return stopAnimating()
     frame += 1
-    for (const { key, agent, size, cells } of moving) {
+    for (const { key, agent, size, requestId, cells } of moving) {
       const picture = pictureOf(agent, size)
       if (cells === picture.cells) continue
       let refused = true
       try {
-        refused = (await $.ui.blit({ requestId: PANE_ID, key, ...picture })).deny !== undefined
+        refused = (await $.ui.blit({ requestId, key, ...picture })).deny !== undefined
       } catch {}
       if (refused) shown.delete(key)
-      else shown.set(key, { agentId: agent.id, size, cells: picture.cells })
+      else shown.set(key, { agentId: agent.id, size, requestId, cells: picture.cells })
     }
   } finally {
     painting = false
