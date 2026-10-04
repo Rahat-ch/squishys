@@ -34,9 +34,6 @@ const GREAT: Squishy = { kind: 'legendary', legendary: 'xiaolongbao', shiny: fal
 const [LEGENDARY] = KIT.legendaries
 if (LEGENDARY === undefined) throw new Error('The kit needs a legendary')
 
-// The toast each of the kit's legendaries gets: a forced legendary roll may come up as any of them
-const LEGENDARY_TOASTS = KIT.legendaries.map(each => `👑 A legendary ${each.name} appeared!`)
-const SHINY_LEGENDARY_TOASTS = KIT.legendaries.map(each => `🌟 Whoa! A shiny legendary ✨ ${each.name} appeared!`)
 
 // Reads back every toast the mod shows
 function stubToasts(on: On): string[] {
@@ -123,27 +120,31 @@ test('a shiny roll shows a toast naming it', async ($, on) => {
 })
 
 test('a legendary roll shows a toast naming it', async ($, on) => {
-  stubStore(on, PARTNERED)
+  const stored = stubStore(on, PARTNERED)
   mock.clock(on)
   stubSpawns(on, 'legendary')
   const toasts = stubToasts(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
 
-  expect(toasts).toHaveLength(1)
-  expect(LEGENDARY_TOASTS).toContain(toasts[0])
+  // Whichever of the kit's legendaries came up
+  const rolled = squishyOfAgent(stored, 'agent-1')
+  expect(rolled.kind).toBe('legendary')
+  expect(toasts).toEqual([`👑 A legendary ${rolled.name} appeared!`])
 })
 
 test('a shiny legendary roll gets a line of its own', async ($, on) => {
-  stubStore(on, PARTNERED)
+  const stored = stubStore(on, PARTNERED)
   mock.clock(on)
   stubSpawns(on, 'shiny-legendary')
   const toasts = stubToasts(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
 
-  expect(toasts).toHaveLength(1)
-  expect(SHINY_LEGENDARY_TOASTS).toContain(toasts[0])
+  const rolled = squishyOfAgent(stored, 'agent-1')
+  expect(rolled).toMatchObject({ kind: 'legendary', shiny: true })
+  const legendary = KIT.legendaries.find(each => rolled.kind === 'legendary' && each.id === rolled.legendary)
+  expect(toasts).toEqual([`🌟 Whoa! A shiny legendary ✨ ${legendary?.name} appeared!`])
 })
 
 test('a plain roll shows no toast', async ($, on) => {
@@ -158,7 +159,7 @@ test('a plain roll shows no toast', async ($, on) => {
 })
 
 test('an agent first seen through its tool call is announced too, once the call has gone on', async ($, on) => {
-  stubStore(on, PARTNERED)
+  const stored = stubStore(on, PARTNERED)
   mock.clock(on)
   forceRolls(on, 'legendary')
   on('agent.list', () => ({ value: [{ id: 'teammate-1', description: 'Review the docs', type: 'teammate', status: 'running' }] }))
@@ -174,9 +175,7 @@ test('an agent first seen through its tool call is announced too, once the call 
 
   expect(await $.tool.call(readFrom('teammate-1', 'README.md'))).toMatchObject({ result: 'ok' })
 
-  expect(order).toHaveLength(2)
-  expect(order[0]).toBe('call')
-  expect(LEGENDARY_TOASTS).toContain(order[1])
+  expect(order).toEqual(['call', `👑 A legendary ${squishyOfAgent(stored, 'teammate-1').name} appeared!`])
 })
 
 // The mod: the chime, on macOS only
@@ -452,9 +451,8 @@ test('after /clear, a fresh roll that comes up legendary is announced and sparkl
 
   await $.classic.SessionStart({ source: 'clear' })
 
-  expect(toasts).toHaveLength(1)
-  expect(LEGENDARY_TOASTS).toContain(toasts[0])
   const fresh = squishyOfAgent(stored, 'agent-b')
+  expect(toasts).toEqual([`👑 A legendary ${fresh.name} appeared!`])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Raster', key: 'picture-agent-b' }))?.props.cells).toBe(cellsOf(fresh, 'working', 0, 'full', true))
   expect((await ui.find({ type: 'Raster', key: 'picture-agent-a' }))?.props.cells).toBe(cellsOf(restored, 'working', 0))

@@ -133,18 +133,28 @@ test('odds that rule a squishy out keep it out, even when every other squishy is
   expect(roll(kit, { live: [only], rng: seeded(4), odds })).toMatchObject({ kind: 'assembled', key: only.key })
 })
 
-test('a roll is never a squishy a live agent already has', () => {
-  // Commons only, plain, no legendaries: few enough squishys that rolling
-  // nearly all of them would repeat many if the live ones weren't left out
-  const odds = { legendary: 0, shiny: 0, rarity: { common: 1, uncommon: 0, rare: 0 } }
-  const commons = (parts: readonly { rarity: string }[]) => parts.filter(part => part.rarity === 'common').length
-  const kinds = [KIT.bodies, KIT.faces, KIT.palettes, KIT.accessories]
-  const total = kinds.reduce((product, parts) => product * commons(parts), 1)
+test('a roll is never a squishy a live agent already has, shiny and legendary ones included', () => {
+  // Two of each part and two legendaries, each plain or shiny: 2^4 × 2 + 2 × 2 = 36 squishys
+  const two = <T extends { id: string; syllable: string }>(parts: readonly T[]): T[] =>
+    parts.flatMap(part => [part, { ...part, id: `${part.id}-2`, syllable: `${part.syllable}2` }])
+  const kit: Kit = {
+    ...ONE_OF_EACH,
+    bodies: two(ONE_OF_EACH.bodies),
+    faces: two(ONE_OF_EACH.faces),
+    palettes: two(ONE_OF_EACH.palettes),
+    accessories: two(ONE_OF_EACH.accessories),
+    legendaries: ['king', 'queen'].map(id => ({ id, name: `${id} bao`, grid: BLANK, colors: NO_COLORS, shiny: NO_SHINY })),
+  }
+  // Shinies and legendaries common enough to be among the live ones
+  const odds = { legendary: 0.2, shiny: 0.5 }
   const rng = seeded(7)
   const live: Squishy[] = []
-  for (let n = 0; n < total - 5; n += 1) live.push(roll(KIT, { live, rng, odds }))
+  for (let n = 0; n < 34; n += 1) live.push(roll(kit, { live, rng, odds }))
 
-  expect(new Set(live.map(squishy => squishy.key)).size).toBe(total - 5)
+  expect(new Set(live.map(squishy => squishy.key)).size).toBe(34)
+  expect(live.some(squishy => squishy.shiny)).toBe(true)
+  expect(live.some(squishy => squishy.kind === 'legendary' && !squishy.shiny)).toBe(true)
+  expect(live.some(squishy => squishy.kind === 'legendary' && squishy.shiny)).toBe(true)
 })
 
 test('when only a shiny is left, the roll is that shiny', () => {

@@ -416,13 +416,25 @@ test('a species card shows the variants met and the date first met, and makes it
   expect((await ui.find({ type: 'Raster', key: PARTNER_PICTURE }))?.props.cells).toBe(stillPicture(drawn(OTHER, PALETTE.id)).cells)
 })
 
+test('once every legendary is met, no ??? shows anywhere', async ($, on) => {
+  const legendaries = Object.fromEntries(KIT.legendaries.map(each => [each.id, { met: MET_AT }]))
+  stubStore(on, { ...PARTNERED, [SQUISHYDEX_KEY]: { species: {}, legendaries } })
+
+  const ui = await openSquishydex($)
+
+  expect(await ui.findAll({ type: 'Text', text: '???' })).toHaveLength(0)
+  for (const { id } of KIT.legendaries) expect(await ui.find({ type: 'Button', key: `squishydex-pick-${legendaryKey(id)}` })).toBeDefined()
+})
+
 test('a met legendary shows in color and opens a card with the dates first met and first met shiny, and no way to make it the partner', async ($, on) => {
   const legendary = squishyOf(KIT, legendaryKey(LEGENDARY.id))
   if (legendary === undefined) throw new Error('No legendary')
   const stored = stubStore(on, { ...PARTNERED, [SQUISHYDEX_KEY]: { species: {}, legendaries: { [LEGENDARY.id]: { met: MET_AT } } } })
   const ui = await openSquishydex($)
   expect((await ui.find({ type: 'Raster', key: `squishydex-picture-${legendary.key}` }))?.props.cells).toBe(miniCells(legendary))
+  // Its place shows no ???: only the legendaries not met yet do, one each
   expect(await ui.find({ key: `squishydex-unmet-${legendary.key}` })).toBeUndefined()
+  expect(await ui.findAll({ type: 'Text', text: '???' })).toHaveLength(KIT.legendaries.length - 1)
 
   await $.ui.press({ plugin: 'squishys', key: `squishydex-pick-${legendary.key}` })
 
