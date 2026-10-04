@@ -119,3 +119,7 @@ _Avoid_: preferences, config
 **Focus view**:
 The pane mode given over to one agent's live activity and controls, reached by picking its squishy.
 _Avoid_: detail view, main panel, expanded view
+
+**Redirect**:
+A message the user types in an agent's focus view, which the agent reads at its next step, or which resumes it if it had ended.
+_Avoid_: message, steer, nudge

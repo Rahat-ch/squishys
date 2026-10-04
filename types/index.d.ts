@@ -100,6 +100,35 @@ export type ActivityRow =
        */
       kind: 'interrupted' | 'failed' | 'stopped'
     }
+  | {
+      /** A message the user redirected the agent with, once it was delivered. */
+      kind: 'redirect'
+      /** The message, as the user typed it. */
+      text: string
+    }
+
+/** The latest redirect: being sent, or what became of it. Its agent's focus view shows it until it's cleared. */
+export type Delivery = {
+  /** The agent the message was for. */
+  agentId: string
+  /** Whether the agent had ended when the message went: once that changes, the delivery no longer shows. */
+  wasEnded: boolean
+  /** What became of it; absent while it's being sent. */
+  outcome?: RedirectOutcome
+}
+
+/** What became of a redirect. */
+export type RedirectOutcome =
+  | {
+      isDelivered: true
+      /** Sent to an agent that had ended, which the message resumed. */
+      viaResume: boolean
+    }
+  | {
+      isDelivered: false
+      /** Why not, as Claude Code or the refusing plugin said. */
+      reason: string
+    }
 
 /**
  * The focus view's Stop control armed by a first press, for one agent: a
@@ -132,6 +161,8 @@ declare module 'claude-code' {
       stopControl: StopControl | null
       /** The agents that have a feed, so feeds of agents no longer known can be emptied. */
       fedAgentIds: string[]
+      /** The latest redirect, being sent or what became of it; null when there's none to show. */
+      delivery: Delivery | null
       /**
        * Experimental: the model each agent was switched to in its focus view,
        * by agent id, which its requests use from then on. An agent's switch
