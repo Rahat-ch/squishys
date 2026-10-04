@@ -20,8 +20,8 @@ export type Settings = {
   /** The most slots the roster shows. */
   slotCap: number
   /**
-   * Experimental: the focus view can switch a running agent's model from
-   * its next request. Off when absent.
+   * Experimental: the focus view can switch a running agent's model and
+   * effort from its next request. Off when absent.
    */
   liveModelSwitch?: true
   /**
@@ -138,7 +138,7 @@ export function registerSettings(on: On): void {
 /** What each setting's control is labeled, before what it's on. */
 export const MODEL_DEFAULT_LABEL = 'Model for new agents'
 export const SLOT_CAP_LABEL = 'Roster slots, at most'
-export const LIVE_MODEL_SWITCH_LABEL = "Experimental: switch a running agent's model from its focus view"
+export const LIVE_MODEL_SWITCH_LABEL = "Experimental: switch a running agent's model and effort from its focus view"
 export const CHIME_LABEL = 'Chime on a shiny or legendary'
 
 /** The model default's choices, in the order its control steps through them. */

@@ -32,7 +32,7 @@ test('the roster: digits pick the squishys, m the overflow, o settings and d the
   expect(await hotkeysOf(ui)).toEqual({ 'squishy-agent-3': '1', overflow: 'm', settings: 'o', squishydex: 'd' })
 })
 
-test('the focus view: r back, s Stop, m the model, i Redirect, 1 the partner, and x Share once it’s Asleep', async ($, on) => {
+test('the focus view: r back, s Stop, m the model, e the effort, i Redirect, 1 the partner, and x Share once it’s Asleep', async ($, on) => {
   stubStore(on, { ...PARTNERED, settings: { slotCap: 9, liveModelSwitch: true } })
   on('settings.read', () => ({ value: {} }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
@@ -41,7 +41,7 @@ test('the focus view: r back, s Stop, m the model, i Redirect, 1 the partner, an
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
 
-  expect(await hotkeysOf(ui)).toEqual({ back: 'r', stop: 's', partner: '1', 'model-switch-agent-1': 'm', 'focus-redirect': 'i' })
+  expect(await hotkeysOf(ui)).toEqual({ back: 'r', stop: 's', partner: '1', 'model-switch-agent-1': 'm', 'effort-switch-agent-1': 'e', 'focus-redirect': 'i' })
   // The redirect Input is reached by its key
   expect(await ui.find({ type: 'Input', key: 'redirect' })).toBeDefined()
 
