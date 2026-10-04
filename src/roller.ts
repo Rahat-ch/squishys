@@ -79,7 +79,8 @@ export function roll(kit: Kit, { live, rng, odds: given }: RollOptions): Squishy
   }
   // Nearly every squishy is live: pick among the free ones directly, each
   // as likely as rolling until it came up would make it.
-  const free = everySquishy(kit, odds).filter(({ value }) => !taken.has(value.key))
+  // A squishy the odds rule out (weight 0) never comes up, even here.
+  const free = everySquishy(kit, odds).filter(({ value, weight }) => weight > 0 && !taken.has(value.key))
   return free.length > 0 ? pick(free, rng) : rollOnce(kit, odds, rng)
 }
 

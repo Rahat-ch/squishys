@@ -121,6 +121,15 @@ test('a rarity’s share is split evenly among its parts', () => {
   }
 })
 
+test('odds that rule a squishy out keep it out, even when every other squishy is live', () => {
+  const kit: Kit = { ...ONE_OF_EACH, legendaries: [{ id: 'king', name: 'King Bao', grid: BLANK, colors: {}, shiny: {} }] }
+  const odds = { legendary: 0, shiny: 0 }
+  const only = roll(kit, { live: [], rng: seeded(3), odds })
+
+  // The one assembled squishy is live, and the legendary is ruled out, so a duplicate it is
+  expect(roll(kit, { live: [only], rng: seeded(4), odds })).toMatchObject({ kind: 'assembled', key: only.key })
+})
+
 test('a roll is never a squishy a live agent already has', () => {
   // The placeholder kit makes 3^4 parts × 2 + 1 legendary × 2 = 164 squishys
   const live = rollInTurn(KIT, 160, 7)
