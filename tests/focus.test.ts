@@ -5,9 +5,9 @@ import type { On } from 'claude-code'
 import { compose } from '../src/composer'
 import { KIT } from '../src/kit'
 import { FEED_ROWS, MARKDOWN_LIMIT, focusHint } from '../src/focus'
-import { FRAME_MS, pictureKey } from '../src/pane'
+import { FRAME_MS, OPEN_PANE, OPEN_PANE_ASKED, PANE_ID, pictureKey } from '../src/pane'
 import { halfBlocks } from '../src/raster'
-import { PANE, bashFrom, finishOf, readFrom, spawnOf, stepOf, stubBlits, stubSpawns, stubTurns } from './fixtures'
+import { PANE, bashFrom, finishOf, readFrom, spawnOf, stepOf, stubBlits, stubPanes, stubSpawns, stubTurns } from './fixtures'
 import { cellsOf, spawnAndWatch } from './pictures'
 
 test('pressing a squishy’s button opens its focus view, and r returns to the roster', async ($, on) => {
@@ -52,6 +52,27 @@ test('while the pane lacks the keyboard, as after a pick from the band, the focu
   const focused = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' })
   expect(await focused.find({ key: 'focus' })).toBeDefined()
   expect(await focused.find({ type: 'Text', text: focusHint(true) })).toBeUndefined()
+})
+
+test('a pick in a pane that lacks the keyboard, as a click there leaves it, asks for the keyboard, so the focus view’s hotkeys work at once', async ($, on) => {
+  mock.store(on)
+  stubSpawns(on)
+  const panes = stubPanes(on)
+  await $.agent.spawn(spawnOf('toolu_1'))
+  await $.agent.spawn(spawnOf('toolu_2'))
+  expect(panes.opens).toEqual([OPEN_PANE])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  panes.asking = true
+  await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
+  expect(panes.opens).toEqual([OPEN_PANE, OPEN_PANE_ASKED])
+  expect(panes.panes.get(PANE_ID)?.isFocused).toBe(true)
+  expect(await ui.find({ key: 'focus' })).toBeDefined()
+
+  // Holding the keyboard already, the pane isn't opened again
+  await $.ui.press({ plugin: 'squishys', key: 'back' })
+  await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-2' })
+  expect(panes.opens).toHaveLength(2)
 })
 
 test('each squishy in the roster answers to its digit, in slot order', async ($, on) => {

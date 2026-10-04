@@ -1,7 +1,7 @@
 // Experimental: the live model switch. Behind an off-by-default setting, the
-// focus view's model picker switches a running agent to another model from
+// focus view's model control switches a running agent to another model from
 // its next request on, by rewriting that agent's requests in turn.step. The
-// focus view draws the picker; this module keeps the switches.
+// focus view draws the control; this module keeps the switches.
 //
 // Claude Code exposes no way to resolve an alias to a model id or to check
 // a model against the organization's allowlist for a turn.step request
@@ -13,14 +13,51 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Model } from '../types'
-import { MODELS, SETTINGS_KEY, isModel, settingsFrom } from './settings'
+import { cycleLabel, nextOf } from './keys'
+import { MODELS, SETTINGS_KEY, isModel, modelCycle, settingsFrom } from './settings'
 import { isEnded } from './states'
 
-/** What keys the focus view's model picker: this, then the agent id. */
+/** The model control's element key: this, then the agent id. */
 export const MODEL_SWITCH_PREFIX = 'model-switch-'
 
-/** The model picker's value for the model the agent started on. */
+/** The model control's choice of the model the agent started on. */
 export const AS_STARTED = 'as-started'
+
+/** What the model control is on for an agent, whether the allowlist still names it, and what its next press picks. */
+export type ModelStep = { on: string; isAllowed: boolean; next: string }
+
+/**
+ * The model control's step for an agent switched to `switched` (none: as
+ * started), among the models `allowed`: the label and the press both
+ * resolve it so. From a model the allowlist no longer names, the next is
+ * the first allowed after it in MODELS order, else as started.
+ */
+export function modelStep(allowed: readonly Model[], switched: Model | undefined): ModelStep {
+  const cycle = modelCycle(AS_STARTED, allowed)
+  const on = switched ?? AS_STARTED
+  return { on, isAllowed: cycle.includes(on), next: nextOf(cycle, on, modelCycle(AS_STARTED)) ?? AS_STARTED }
+}
+
+/** The model control's label: the model it's on (said to be no longer allowed), then what the next press picks. */
+export function modelControlLabel({ on, isAllowed, next }: ModelStep): string {
+  return cycleLabel('model', isAllowed ? choiceName(on) : `${on} (not allowed)`, choiceName(next))
+}
+
+function choiceName(choice: string): string {
+  return choice === AS_STARTED ? 'as started' : choice
+}
+
+/**
+ * The step each agent's model control last drew, so a press does what its
+ * label said, or says why not: kept here (a drawing never writes $.state),
+ * and used only while the agent is still on what the label was drawn from.
+ */
+const drawnSteps = new Map<string, ModelStep>()
+
+/** Notes the step an agent's model control was drawn with. */
+export function noteModelStep(agentId: string, step: ModelStep): void {
+  drawnSteps.set(agentId, step)
+}
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -70,24 +107,40 @@ export function registerModelSwitch(on: On): void {
     return await response.result
   })
 
-  // A pick in the focus view's model picker. Its own onSelect does nothing.
-  on('ui.select', { plugin: 'squishys', element: /^model-switch-/ }, async ($, e, next) => {
+  // A press of the focus view's model control (m) switches the agent to
+  // what its label offered: the next model the allowlist names, after the
+  // last back to the one it started on. A model the allowlist stopped
+  // naming since is refused, saying why. Its own onPress does nothing.
+  on('ui.press', { plugin: 'squishys', element: /^model-switch-/ }, async ($, e, next) => {
     const agentId = e.element.slice(MODEL_SWITCH_PREFIX.length)
-    if (e.value === AS_STARTED) await endSwitch($, agentId)
-    else if (isModel(e.value)) {
-      const model = e.value
-      const refusal = await refusalOf($, agentId, model)
-      if (refusal !== undefined) $.ui.toast(`Squishys: not switched to ${model}. ${refusal}`)
-      else await update($, switchedModels, all => ({ ...all, [agentId]: { model, sent: false } }))
+    let allowed: Model[]
+    try {
+      allowed = allowedModels((await $.settings.read()).availableModels)
+    } catch {
+      $.ui.toast('Squishys: not switched. Claude Code’s settings can’t be read, so the model allowlist can’t be checked.')
+      return next(e)
+    }
+    const step = modelStep(allowed, (await read($, switchedModels))[agentId]?.model)
+    const drawn = drawnSteps.get(agentId)
+    const picked = drawn?.on === step.on ? drawn.next : step.next
+    if (picked === AS_STARTED) await endSwitch($, agentId)
+    else if (isModel(picked)) {
+      const refusal = await refusalOf($, agentId, picked)
+      if (refusal !== undefined) $.ui.toast(`Squishys: not switched to ${picked}. ${refusal}`)
+      else await update($, switchedModels, all => ({ ...all, [agentId]: { model: picked, sent: false } }))
     }
     return next(e)
   })
 
-  // The setting turned off ends every switch.
-  on('ui.select', { plugin: 'squishys', element: 'liveModelSwitch' }, async ($, e, next) => {
-    const picked = await next(e)
-    if (e.value !== String(true)) await update($, switchedModels, () => ({}))
-    return picked
+  // The setting turned off ends every switch: a press of its control while it's on.
+  on('ui.press', { plugin: 'squishys', element: 'liveModelSwitch' }, async ($, e, next) => {
+    let wasOn = false
+    try {
+      wasOn = settingsFrom(await $.store.get(SETTINGS_KEY)).liveModelSwitch === true
+    } catch {}
+    const pressed = await next(e)
+    if (wasOn) await update($, switchedModels, () => ({}))
+    return pressed
   })
 
   // An agent's switch ends with its run, however it ended.

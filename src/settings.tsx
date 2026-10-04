@@ -3,7 +3,9 @@
 // changes them.
 
 import { atom, read, update } from 'claude-code'
-import type { AgentSpawnInput, EngineInterface, On, SelectOption } from 'claude-code'
+import type { AgentSpawnInput, EngineInterface, On } from 'claude-code'
+
+import { cycleLabel, nextOf } from './keys'
 
 /** The Agent tool's model aliases a default can name. */
 export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const
@@ -32,7 +34,7 @@ export type Settings = {
 /** Where the settings live in the mod's store. */
 export const SETTINGS_KEY = 'settings'
 
-/** The model Select's value for no default. */
+/** The model default control's choice of no default. */
 const LET_CLAUDE_CHOOSE = 'let-claude-choose'
 
 // The engine reads each $.state reference off the file that uses it, so
@@ -64,72 +66,103 @@ export function isModel(value: unknown): value is Model {
   return MODELS.includes(value as Model)
 }
 
-/** The options for picking among `models`, labeled and ordered the same in every model picker. */
-export function modelOptions(models: readonly Model[] = MODELS): SelectOption[] {
-  return MODELS.filter(model => models.includes(model)).map(model => ({ value: model, label: model }))
-}
-
 function isSlotCap(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_SLOTS
+}
+
+/**
+ * What a model control steps through: `first` (no model of its own), then
+ * each of `allowed` in MODELS order. Every model control (the default for
+ * new agents, the live switch) orders models so.
+ */
+export function modelCycle<First extends string>(first: First, allowed: readonly Model[] = MODELS): (First | Model)[] {
+  return [first, ...MODELS.filter(model => allowed.includes(model))]
+}
+
+/** The on-off settings, each `true` or absent. */
+type Toggle = 'liveModelSwitch' | 'chime'
+
+/** Settings with an on-off setting turned the other way. */
+export function toggled(settings: Settings, name: Toggle): Settings {
+  const { [name]: was, ...rest } = settings
+  return was === true ? rest : { ...rest, [name]: true }
 }
 
 export function registerSettings(on: On): void {
   // The settings mode of the pane. Each mode's hook draws only while the
   // pane is in that mode and passes the drawing on otherwise. The pane's id
   // is spelled out, since the engine reads a matcher off this file alone.
+  // Each setting is a control whose hotkey steps it to its next choice
+  // (AGENTS.md, "Keys"). Saves queue (saveSettings), so two presses before
+  // a redraw step a setting twice.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'settings') return next(e)
-    const { Box, Button, Select, Text } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
     const settings = await readSettings($)
     const chimes = await chimePlays($)
+    const model = settings.model ?? LET_CLAUDE_CHOOSE
+    const toggle = (name: Toggle, hotkey: string, label: string) => (
+      <Button
+        key={name}
+        hotkey={hotkey}
+        plain
+        label={cycleLabel(label, onOff(settings[name]), onOff(settings[name] !== true))}
+        onPress={() => void saveSettings($, current => toggled(current, name))}
+      />
+    )
     return (
       <Box flexDirection="column" rowGap={1}>
         <Text bold>Settings</Text>
-        <Select
+        <Button
           key="model"
-          label="Model for new agents"
-          options={[
-            { value: LET_CLAUDE_CHOOSE, label: 'Let Claude choose' },
-            ...modelOptions(),
-          ]}
-          value={settings.model ?? LET_CLAUDE_CHOOSE}
-          onSelect={value => void saveSettings($, ({ model: _, ...rest }) => (isModel(value) ? { ...rest, model: value } : rest))}
+          hotkey="m"
+          plain
+          label={cycleLabel(MODEL_DEFAULT_LABEL, modelName(model), modelName(nextOf(MODEL_DEFAULTS, model) ?? LET_CLAUDE_CHOOSE))}
+          onPress={() => void saveSettings($, withNextModel)}
         />
-        <Select
+        <Button
           key="slotCap"
-          label="Roster slots, at most"
-          options={Array.from({ length: MAX_SLOTS }, (_, index) => ({ value: String(index + 1) }))}
-          value={String(settings.slotCap)}
-          onSelect={value => void saveSettings($, current => ({ ...current, slotCap: Number(value) }))}
+          hotkey="s"
+          plain
+          label={cycleLabel(SLOT_CAP_LABEL, String(settings.slotCap), String(nextSlotCap(settings.slotCap)))}
+          onPress={() => void saveSettings($, current => ({ ...current, slotCap: nextSlotCap(current.slotCap) }))}
         />
-        <Select
-          key="liveModelSwitch"
-          label="Experimental: switch a running agent's model from its focus view"
-          options={[
-            { value: String(false), label: 'Off' },
-            { value: String(true), label: 'On' },
-          ]}
-          value={String(settings.liveModelSwitch === true)}
-          onSelect={value =>
-            void saveSettings($, ({ liveModelSwitch: _, ...rest }) => (value === String(true) ? { ...rest, liveModelSwitch: true } : rest))
-          }
-        />
-        {chimes ? (
-          <Select
-            key="chime"
-            label="Chime on a shiny or legendary"
-            options={[
-              { value: String(false), label: 'Off' },
-              { value: String(true), label: 'On' },
-            ]}
-            value={String(settings.chime === true)}
-            onSelect={value => void saveSettings($, ({ chime: _, ...rest }) => (value === String(true) ? { ...rest, chime: true } : rest))}
-          />
-        ) : null}
+        {toggle('liveModelSwitch', 'l', LIVE_MODEL_SWITCH_LABEL)}
+        {chimes ? toggle('chime', 'c', CHIME_LABEL) : null}
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>
     )
   })
+}
+
+/** What each setting's control is labeled, before what it's on. */
+export const MODEL_DEFAULT_LABEL = 'Model for new agents'
+export const SLOT_CAP_LABEL = 'Roster slots, at most'
+export const LIVE_MODEL_SWITCH_LABEL = "Experimental: switch a running agent's model from its focus view"
+export const CHIME_LABEL = 'Chime on a shiny or legendary'
+
+/** The model default's choices, in the order its control steps through them. */
+const MODEL_DEFAULTS = modelCycle(LET_CLAUDE_CHOOSE)
+
+/** How a model default's choice reads. */
+export function modelName(choice: string): string {
+  return choice === LET_CLAUDE_CHOOSE ? 'Let Claude choose' : choice
+}
+
+/** Settings with the model default stepped to its next choice. */
+function withNextModel({ model, ...rest }: Settings): Settings {
+  const stepped = nextOf(MODEL_DEFAULTS, model ?? LET_CLAUDE_CHOOSE)
+  return isModel(stepped) ? { ...rest, model: stepped } : rest
+}
+
+/** The slot cap after `cap`: one more, and 1 after the most. */
+function nextSlotCap(cap: number): number {
+  return (cap % MAX_SLOTS) + 1
+}
+
+/** How an on-off setting reads. */
+export function onOff(on: boolean | undefined): string {
+  return on === true ? 'On' : 'Off'
 }
 
 /**
@@ -151,9 +184,25 @@ async function readSettings($: EngineInterface): Promise<Settings> {
   return settingsFrom(await $.store.get(SETTINGS_KEY))
 }
 
-/** Saves an edit to the settings, validated like a stored value is on reading. */
-async function saveSettings($: EngineInterface, edit: (settings: Settings) => Settings): Promise<void> {
-  await $.store.set(SETTINGS_KEY, settingsFrom(edit(await readSettings($))))
-  // The store isn't $.state, so nothing redraws the pane on its own.
-  $.ui.invalidate('ui.render')
+/**
+ * The saves under way, one after another, so each reads what the one
+ * before it wrote: two quick presses step a setting twice. Kept here, never
+ * in $.state.
+ */
+let saving: Promise<void> = Promise.resolve()
+
+/**
+ * Saves an edit to the settings, validated like a stored value is on
+ * reading, after every save already under way. A save that fails leaves
+ * the settings as they were and the queue going.
+ */
+function saveSettings($: EngineInterface, edit: (settings: Settings) => Settings): Promise<void> {
+  saving = saving.then(async () => {
+    try {
+      await $.store.set(SETTINGS_KEY, settingsFrom(edit(await readSettings($))))
+    } catch {}
+    // The store isn't $.state, so nothing redraws the pane on its own.
+    $.ui.invalidate('ui.render')
+  })
+  return saving
 }

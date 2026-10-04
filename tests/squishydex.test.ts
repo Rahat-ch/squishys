@@ -6,6 +6,7 @@ import type { Engine, Mounted } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { compose } from '../src/composer'
+import { cycleLabel } from '../src/keys'
 import { KIT, everySpecies } from '../src/kit'
 import type { Species } from '../src/kit'
 import { OPEN_PANE, PANE_ID } from '../src/pane'
@@ -16,7 +17,7 @@ import type { Remembered } from '../src/rebuild'
 import { assembledKey, bareAccessory, legendaryKey, speciesSquishy, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { FOOTER_COLUMNS } from '../src/slots'
-import { DEX_COLUMN_GAP, DEX_GAP, DEX_PLACE_COLUMNS, DEX_PLACE_ROWS, DEX_TITLE_ROWS, SILHOUETTE_COLOR } from '../src/squishydex'
+import { DEX_COLUMN_GAP, DEX_GAP, DEX_PLACE_COLUMNS, DEX_PLACE_ROWS, DEX_TITLE_ROWS, PALETTE_LABEL, SILHOUETTE_COLOR } from '../src/squishydex'
 import { SQUISHYDEX_KEY, speciesKey, speciesOfKey, variantKey } from '../src/squishydex-record'
 import {
   PANE,
@@ -403,12 +404,15 @@ test('a species card shows the variants met and the date first met, and makes it
   expect(await ui.find({ type: 'Text', text: 'Variants met: 3' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: `${OTHER_PALETTE.id}, shiny ${PALETTE.id}, ${PALETTE.id} with ${DRESSED.id}` })).toBeDefined()
   expect((await ui.find({ type: 'Raster', key: 'squishydex-card-picture' }))?.props.cells).toBe(stillPicture(drawn(OTHER, OTHER_PALETTE.id)).cells)
-  // The plain palettes it was met in, the first met first
-  const palettes = await ui.find({ type: 'Select', key: 'squishydex-palette' })
-  expect(palettes?.props.options).toEqual([{ value: OTHER_PALETTE.id }, { value: PALETTE.id }])
-  expect(palettes?.props.value).toBe(OTHER_PALETTE.id)
+  // c steps through the plain palettes it was met in, the first met first, and wraps around
+  const palette = async () => (await ui.find({ type: 'Button', key: 'squishydex-palette' }))?.props
+  expect(await palette()).toMatchObject({ hotkey: 'c', label: cycleLabel(PALETTE_LABEL, OTHER_PALETTE.id, PALETTE.id) })
+  await $.ui.press({ plugin: 'squishys', key: 'squishydex-palette' })
+  expect((await palette())?.label).toBe(cycleLabel(PALETTE_LABEL, PALETTE.id, OTHER_PALETTE.id))
+  await $.ui.press({ plugin: 'squishys', key: 'squishydex-palette' })
+  expect((await palette())?.label).toBe(cycleLabel(PALETTE_LABEL, OTHER_PALETTE.id, PALETTE.id))
 
-  await $.ui.select({ plugin: 'squishys', key: 'squishydex-palette', value: PALETTE.id })
+  await $.ui.press({ plugin: 'squishys', key: 'squishydex-palette' })
   expect((await ui.find({ type: 'Raster', key: 'squishydex-card-picture' }))?.props.cells).toBe(stillPicture(drawn(OTHER, PALETTE.id)).cells)
   expect((await ui.find({ type: 'Button', key: 'squishydex-partner' }))?.props.hotkey).toBe('m')
   await $.ui.press({ plugin: 'squishys', key: 'squishydex-partner' })

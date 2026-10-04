@@ -2,8 +2,10 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { AgentStatus, On, SessionSendResult } from 'claude-code'
 
+import { focusHint } from '../src/focus'
+import { OPEN_PANE_ASKED, PANE_ID } from '../src/pane'
 import { PARTNER_BUTTON } from '../src/partner'
-import { PANE, PARTNERED, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
+import { PANE, PARTNERED, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubPanes, stubSpawns, stubTurns } from './fixtures'
 
 // The kit can't append to a running agent's conversation, so its redirects
 // are refused here: AGENTS.md, "A redirect goes". Most tests redirect an
@@ -269,4 +271,69 @@ test('a redirect to an agent Squished by a fallback stop resumes it, and its nex
   expect(await $.tool.call(readFrom('agent-1', 'src/config.ts'))).toEqual({ result: 'ok' })
   expect(await ui.find({ type: 'Text', text: 'Working' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: deliveryNote })).toBeUndefined()
+})
+
+// Stands in for Claude Code's focus ring in the pane, which the user moves
+// (Tab, a click): every move lands. The kit has no implementation of a
+// plugin's own $.ui.focus: no test hook or inline plugin sees it, and it
+// always rejects. So a test sees that the redirect control made the call
+// by its refusal's toast, and the move itself was checked in a session (#49).
+function stubFocusRing(on: On): void {
+  on('ui.focus', () => ({}))
+}
+
+// The user moving the pane's focus ring onto an element
+const personFocuses = (element: string) => ({ component: 'Pane', requestId: 'squishys', element, origin: { kind: 'person' } }) as const
+
+// The toast of a move into the Redirect box Claude Code refused, whatever the reason
+const REDIRECT_REFUSED = /^Squishys: the Redirect box can’t take the keys: ./
+
+test('the redirect control (i) asks for the keyboard and moves the focus into the Redirect box, saying so when it can’t; the box still sends with Enter', async ($, on) => {
+  stubFocusRing(on)
+  const panes = stubPanes(on)
+  const sent = stubSends(on)
+  const toasts: string[] = []
+  on('ui.toast', ($, e) => (toasts.push(e.text), { value: undefined }))
+  const { ui } = await focusOnAgent($, on, PARTNERED)
+  const control = await ui.find({ type: 'Button', key: 'focus-redirect' })
+  expect(control?.props.hotkey).toBe('i')
+  expect(control?.props.label).toBe('Redirect')
+
+  // A click on it presses it without handing the pane the keyboard
+  panes.panes.set(PANE_ID, { isPlaced: true, isFocused: false })
+  const opens = panes.opens.length
+  await $.ui.press({ plugin: 'squishys', key: 'focus-redirect' })
+  expect(panes.opens.slice(opens)).toEqual([OPEN_PANE_ASKED])
+  expect(toasts).toEqual([expect.stringMatching(REDIRECT_REFUSED)])
+
+  await $.turn.complete(finishOf('agent-1'))
+  await typeRedirect($, 'Keep going')
+  expect(sent).toEqual([{ to: 'agent-1', text: `${FROM_USER}Keep going` }])
+})
+
+test('while the pane has the keyboard but not the Redirect box, the box says to press i, and stops once it has the focus', async ($, on) => {
+  stubFocusRing(on)
+  mock.store(on, PARTNERED)
+  stubSpawns(on)
+  await $.agent.spawn(spawnOf('toolu_1'))
+  const focused = { ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as const
+  let ui = await $.ui.mount(focused)
+  await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
+  const placeholder = async () => (await ui.find({ type: 'Input', key: 'redirect' }))?.props.placeholder
+
+  expect(await placeholder()).toBe('Press i to redirect')
+  await $.ui.focus(personFocuses('redirect'))
+  expect(await placeholder()).toBe('a message for this agent')
+  await $.ui.focus(personFocuses('back'))
+  expect(await placeholder()).toBe('Press i to redirect')
+
+  // Esc hands the keys back to the prompt; given back to the pane, its ring starts on nothing
+  await $.ui.focus(personFocuses('redirect'))
+  await ui.unmount()
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await placeholder()).toBe('a message for this agent')
+  expect(await ui.find({ type: 'Text', text: focusHint(true) })).toBeDefined()
+  await ui.unmount()
+  ui = await $.ui.mount(focused)
+  expect(await placeholder()).toBe('Press i to redirect')
 })

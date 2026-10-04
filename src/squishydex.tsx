@@ -13,6 +13,7 @@ import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
 import { OPEN_PANE_ASKED, PANE_ID, notePaneOpened, openRefused } from './pane'
 import { PARTNER_KEY, partnerFrom, stillPicture } from './partner'
+import { cycleLabel, nextOf, pickKeys } from './keys'
 import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
 import { bareAccessory, legendaryKey, speciesSquishy, squishyOf } from './roller'
@@ -68,6 +69,20 @@ export const DEX_TITLE_ROWS = 1
 export const DEX_GAP = 1
 /** The columns between the counts, and between buttons in a row. */
 export const DEX_ITEM_GAP = 2
+
+/** The hotkeys of the Squishydex's own controls. */
+const NEXT_HOTKEY = 'n'
+const PREVIOUS_HOTKEY = 'p'
+const ROSTER_HOTKEY = 'r'
+const BACK_HOTKEY = 'b'
+const MAKE_PARTNER_HOTKEY = 'm'
+/** What the palette control is labeled, before the palette it's on. */
+export const PALETTE_LABEL = 'Partner palette'
+/** The palette control's hotkey, which steps a species' card to the next palette it was met in. */
+const PALETTE_HOTKEY = 'c'
+
+/** The hotkeys the pages' own controls take, which no place's pick does (Back shows only on a card). */
+const PAGE_KEYS = [NEXT_HOTKEY, PREVIOUS_HOTKEY, ROSTER_HOTKEY]
 
 /**
  * The color every unmet species is drawn in: its shape alone, solid. A
@@ -161,7 +176,7 @@ export function registerSquishydex(on: On): void {
   // spelled out, since the engine reads a matcher off this file alone.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'squishydex') return next(e)
-    const { Box, Button, Link, Raster, Select, Text } = $.ui.resolve(e)
+    const { Box, Button, Link, Raster, Text } = $.ui.resolve(e)
     const { bodyColumns, scroll } = e.props
     const bodyRows = scroll.bodyRows
     const dex = await readSquishydex($)
@@ -193,8 +208,8 @@ export function registerSquishydex(on: On): void {
         ))}
       </Box>
     )
-    const roster = button('squishydex-roster', 'r', 'Roster', () => void leave($))
-    const back = button('squishydex-back', 'b', 'Back', () => void update($, squishydexPicked, () => null))
+    const roster = button('squishydex-roster', ROSTER_HOTKEY, 'Roster', () => void leave($))
+    const back = button('squishydex-back', BACK_HOTKEY, 'Back', () => void update($, squishydexPicked, () => null))
 
     // A card, while a met species or legendary is picked
     const pickedKey = await read($, squishydexPicked)
@@ -221,7 +236,7 @@ export function registerSquishydex(on: On): void {
     ]
     // The footer is budgeted with every item there, the page count at its widest
     const widestPages = `${places.length}/${places.length}`
-    const footerBudget = [buttonColumns('Prev', 'p'), buttonColumns('Next', 'n'), widestPages.length, roster.columns]
+    const footerBudget = [buttonColumns('Prev', PREVIOUS_HOTKEY), buttonColumns('Next', NEXT_HOTKEY), widestPages.length, roster.columns]
     const layout = pageLayout(
       bodyColumns,
       bodyRows,
@@ -233,17 +248,21 @@ export function registerSquishydex(on: On): void {
     const page = Math.min(Math.max(0, await read($, squishydexPage)), pages - 1)
     const shown = places.slice(page * perPage, (page + 1) * perPage)
     const rows = Array.from({ length: Math.ceil(shown.length / layout.across) }, (_, row) => shown.slice(row * layout.across, (row + 1) * layout.across))
-    // Digits pick the places met on the page, in page order
-    let digit = 0
-    const pick = (place: Place, name: string) => (
-      <Button
-        key={`squishydex-pick-${place.key}`}
-        {...((digit += 1) <= 9 ? { hotkey: String(digit) } : {})}
-        plain
-        label={nameCut(name)}
-        onPress={() => void openCard($, place)}
-      />
-    )
+    // Digits, then the letters the pages leave free, pick the places met on the page, in page order
+    const pickHotkeys = pickKeys(shown.length, PAGE_KEYS)
+    let picks = 0
+    const pick = (place: Place, name: string) => {
+      const hotkey = pickHotkeys[picks++]
+      return (
+        <Button
+          key={`squishydex-pick-${place.key}`}
+          {...(hotkey === undefined ? {} : { hotkey })}
+          plain
+          label={nameCut(name)}
+          onPress={() => void openCard($, place)}
+        />
+      )
+    }
     // A place met shiny or legendary since its card was last viewed says so, over its picture's corner
     const newMark = (place: Place) =>
       isNewIn(dex, dexPlaceOf(place)) ? (
@@ -283,8 +302,8 @@ export function registerSquishydex(on: On): void {
       )
     }
     const footer = [
-      ...(page > 0 ? [button('squishydex-previous', 'p', 'Prev', () => void turnTo($, page - 1))] : []),
-      ...(page < pages - 1 ? [button('squishydex-next', 'n', 'Next', () => void turnTo($, page + 1))] : []),
+      ...(page > 0 ? [button('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', () => void turnTo($, page - 1))] : []),
+      ...(page < pages - 1 ? [button('squishydex-next', NEXT_HOTKEY, 'Next', () => void turnTo($, page + 1))] : []),
       ...(pages > 1 ? [text('squishydex-page', `${page + 1}/${pages}`, true)] : []),
       roster,
     ]
@@ -312,7 +331,7 @@ export function registerSquishydex(on: On): void {
       const sameSpecies = partner?.kind === 'assembled' && speciesKey(partner) === place.key
       const isPartner = sameSpecies && partner.palette === squishy.palette
       const actions = [
-        ...(isPartner ? [] : [button('squishydex-partner', 'm', 'Make partner', () => void makePartner($, squishy))]),
+        ...(isPartner ? [] : [button('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', () => void makePartner($, squishy))]),
         // Answered by the ui.press hook in share.tsx
         button(speciesShareKey(squishy.key), SHARE_HOTKEY, 'Share', () => {}),
         back,
@@ -329,12 +348,15 @@ export function registerSquishydex(on: On): void {
             <Text wrap="wrap">{met.variants.map(variantName).join(', ')}</Text>
           </Box>
           {palettes.length > 1 ? (
-            <Select
+            // Steps through the plain palettes it was met in, the first met first
+            <Button
               key="squishydex-palette"
-              label="Partner palette"
-              options={palettes.map(value => ({ value }))}
-              value={squishy.palette}
-              onSelect={value => void update($, squishydexPalette, () => value)}
+              hotkey={PALETTE_HOTKEY}
+              plain
+              label={cycleLabel(PALETTE_LABEL, squishy.palette, nextOf(palettes, squishy.palette) ?? squishy.palette)}
+              onPress={() =>
+                void update($, squishydexPalette, chosen => nextOf(palettes, chosen !== null && palettes.includes(chosen) ? chosen : palettes[0]) ?? null)
+              }
             />
           ) : null}
           {rowsOf('squishydex-card-footer', actions)}

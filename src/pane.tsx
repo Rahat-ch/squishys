@@ -9,6 +9,7 @@ import type { EngineInterface, On, PaneOpenArgs, Timer } from 'claude-code'
 import type { Agent, Squishy } from '../types'
 import { compose } from './composer'
 import type { Size } from './composer'
+import { pickKeys } from './keys'
 import { KIT } from './kit'
 import { isSparkling } from './moments'
 import { PARTNER_BUTTON, PARTNER_KEY, PARTNER_PICTURE, partnerFrom, stillPicture } from './partner'
@@ -64,6 +65,9 @@ export const OPEN_PANE = { id: PANE_ID, title: 'Squishys', rows: SLOT_ROWS } as 
  * and the starter pick say how to give it the keyboard while it lacks it.
  */
 export const OPEN_PANE_ASKED = { ...OPEN_PANE, focus: true } as const
+
+/** The keys the roster's footer takes, which no squishy's pick does. */
+const ROSTER_KEYS = [OVERFLOW_HOTKEY, SETTINGS_BUTTON.hotkey, SQUISHYDEX_BUTTON.hotkey]
 
 /**
  * Whether the user asked for the pane since it last opened unasked. While
@@ -334,13 +338,21 @@ export function registerPane(on: On): void {
     const columns = Math.max(1, layout.columns)
     const rows = Array.from({ length: Math.ceil(slots.length / columns) }, (_, row) => slots.slice(row * columns, (row + 1) * columns))
     const noAgents = <Text dimColor>No agents yet. Each agent the orchestrator starts gets a squishy here.</Text>
+    // Digits, then the letters the footer leaves free, pick the squishys shown
+    const pickHotkeys = pickKeys(showsList ? layout.overflow.length : slots.length, ROSTER_KEYS)
     const body = showsList ? (
       // The overflow list: one line per agent, in place of the slots. Its
       // presses pick the squishy, as a slot's do: src/focus.tsx answers them.
       <Box key="overflow-list" flexDirection="column">
-        {layout.overflow.map(agent => (
+        {layout.overflow.map((agent, index) => (
           <Box key={`overflow-${agent.id}`} flexDirection="row" columnGap={1}>
-            <Button key={`${PICK_PREFIX}${agent.id}`} plain label={agent.squishy.name} onPress={() => {}} />
+            <Button
+              key={`${PICK_PREFIX}${agent.id}`}
+              {...(pickHotkeys[index] === undefined ? {} : { hotkey: pickHotkeys[index] })}
+              plain
+              label={agent.squishy.name}
+              onPress={() => {}}
+            />
             <Text dimColor wrap="truncate-end">
               {agent.description}
             </Text>
@@ -355,7 +367,7 @@ export function registerPane(on: On): void {
           <Box key={`slot-row-${rowIndex}`} flexDirection="row" columnGap={SLOT_COLUMN_GAP}>
             {row.map((slot, column) => {
               const index = rowIndex * columns + column
-              const hotkey = index < 9 ? String(index + 1) : undefined
+              const hotkey = pickHotkeys[index]
               return (
                 <Box key={`slot-${slot.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS}>
                   <Raster key={slot.pictureKey} {...slot.picture} />
