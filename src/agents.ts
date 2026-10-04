@@ -7,9 +7,11 @@ import type { AgentStatus, EngineInterface, On, Timer } from 'claude-code'
 
 import type { Agent, SquishyState } from '../types'
 import { KIT } from './kit'
+import { rosterSlots } from './pane'
 import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
 import { cryptoRandom, roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
+import { liveSquishys } from './slots'
 import { answered, endedState, isEnded, stateAfterRun } from './states'
 
 /**
@@ -233,9 +235,9 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
 
 /**
  * Gives an agent a freshly rolled squishy, unless it already has one. The
- * roll leaves out every squishy in the roster, running or ended: an Asleep
- * squishy stays on screen in its slot. (Once slots are reused, an agent
- * whose slot went to another leaves the pool.) An ended agent that wakes
+ * roll leaves out every running agent's squishy and every one in the
+ * roster's slots: an Asleep squishy stays on screen in its slot until a new
+ * agent takes it (see liveSquishys). An ended agent that wakes
  * keeps its own squishy, even if another agent has rolled it since: an
  * agent's identity wins over keeping squishys apart.
  */
@@ -243,7 +245,7 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   let assigned: Agent | undefined
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
-    const squishy = roll(KIT, { live: known.map(agent => agent.squishy), rng: cryptoRandom })
+    const squishy = roll(KIT, { live: liveSquishys(known, rosterSlots()), rng: cryptoRandom })
     assigned = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
     return [...known, assigned]
   })

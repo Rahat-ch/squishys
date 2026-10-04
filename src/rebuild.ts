@@ -10,7 +10,9 @@ import type { AgentInfo, EngineInterface, On } from 'claude-code'
 
 import type { Agent, Squishy } from '../types'
 import { KIT } from './kit'
+import { rosterSlots } from './pane'
 import { cryptoRandom, roll, squishyOf } from './roller'
+import { liveSquishys } from './slots'
 import { stateOfStatus } from './states'
 
 // The engine reads each $.state reference off the file that uses it, so
@@ -91,7 +93,8 @@ export function registerRebuild(on: On): void {
  * Adds every agent the agent list names that the roster lacks, in its
  * status's state. An agent the store kept a squishy for gets it back,
  * even one another agent shows (an agent's identity wins); any other gets
- * a fresh roll that no squishy in the roster has, restored ones included.
+ * a fresh roll that repeats no live squishy (see liveSquishys), restored
+ * ones included.
  * A store that can't be read means fresh rolls, never no roster.
  */
 async function rebuild($: EngineInterface): Promise<void> {
@@ -116,13 +119,16 @@ async function rebuild($: EngineInterface): Promise<void> {
   // Against the roster as it is now, which a spawn may have joined meanwhile
   await update($, agents, current => {
     const missing = listed.filter(info => !current.some(agent => agent.id === info.id))
-    const live: Squishy[] = [...current.map(agent => agent.squishy), ...missing.flatMap(info => restored.get(info.id) ?? [])]
+    const back = missing.flatMap((info): Agent[] => {
+      const squishy = restored.get(info.id)
+      return squishy === undefined ? [] : [{ id: info.id, description: info.description, squishy, state: stateOfStatus(info.status) }]
+    })
+    const live: Squishy[] = liveSquishys([...current, ...back], rosterSlots())
     added = missing.map((info): Agent => {
-      let squishy = restored.get(info.id)
-      if (squishy === undefined) {
-        squishy = roll(KIT, { live, rng: cryptoRandom })
-        live.push(squishy)
-      }
+      const kept = back.find(agent => agent.id === info.id)
+      if (kept !== undefined) return kept
+      const squishy = roll(KIT, { live, rng: cryptoRandom })
+      live.push(squishy)
       return { id: info.id, description: info.description, squishy, state: stateOfStatus(info.status) }
     })
     return added.length === 0 ? current : [...current, ...added]

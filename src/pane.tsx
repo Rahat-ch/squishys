@@ -1,6 +1,7 @@
 // The pane: one Squishys panel beside the main view. It shows one mode at a
-// time (see PaneMode); this file draws the roster, one slot per agent, and
-// animates the squishys every mode shows.
+// time (see PaneMode); this file draws the roster, as many slots as fit
+// with the overflow as "+N" (see slots.ts), and animates the squishys every
+// mode shows.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
@@ -11,6 +12,8 @@ import type { Size } from './composer'
 import { KIT } from './kit'
 import { halfBlocks } from './raster'
 import type { RasterCells } from './raster'
+import { SETTINGS_KEY, settingsFrom } from './settings'
+import { FOOTER_COLUMNS, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP, layoutRoster } from './slots'
 import { moves } from './states'
 
 export const PANE_ID = 'squishys'
@@ -29,6 +32,19 @@ export const FRAME_MS = 200
 const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
 const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 const reducedMotion = atom({ plugin: 'squishys', key: 'reducedMotion' } as const, false)
+const overflowOpen = atom({ plugin: 'squishys', key: 'overflowOpen' } as const, false)
+
+/**
+ * The agents the roster's slots showed when it was last drawn, by id in
+ * slot order: where each keeps its slot on the next drawing. Undefined
+ * until the roster is first drawn. A reload only lays the slots out afresh.
+ */
+let slotted: string[] | undefined
+
+/** The agents in the roster's slots as last drawn; undefined before the first drawing. */
+export function rosterSlots(): readonly string[] | undefined {
+  return slotted
+}
 
 // The animator. Its frames repaint the pane's pictures with `$.ui.blit`,
 // never a redraw, so they're kept here rather than in $.state: a reload
@@ -88,8 +104,16 @@ export function registerPane(on: On): void {
   on('command.run', { command: 'squishys' }, async $ => {
     const panes = await $.ui.panes()
     if (panes.some(pane => pane.id === PANE_ID)) await $.ui.close({ id: PANE_ID })
-    else await $.ui.open({ id: PANE_ID, title: 'Squishys' })
+    // Inline, rows are scarce: ask for one row of slots
+    else await $.ui.open({ id: PANE_ID, title: 'Squishys', rows: SLOT_ROWS })
     return {}
+  })
+
+  // Picking a squishy from the overflow list closes the list; src/focus.tsx
+  // answers the same press with the agent's focus view.
+  on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e, next) => {
+    if (await read($, overflowOpen)) await update($, overflowOpen, () => false)
+    return next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
@@ -107,43 +131,109 @@ export function registerPane(on: On): void {
       return drawing
     }
     const { Box, Button, Raster, Text } = $.ui.resolve(e)
-    // Drawn at the animation's current frame, so a redraw doesn't jump back
-    const slots = (await read($, agents)).map(agent => ({ agent, picture: animatedPicture(agent) }))
+    const { placement, bodyColumns, scroll, view } = e.props
+    const known = await read($, agents)
+    const layout = layoutRoster({ placement, bodyColumns, bodyRows: scroll.bodyRows, slotCap: await readSlotCap($), agents: known, slotted })
+    slotted = layout.slots.map(agent => agent.id)
+    const open = await read($, overflowOpen)
+    // A list left open when the overflow emptied closes. A drawing can't
+    // write $.state, so the write goes out just after it.
+    if (open && layout.overflow.length === 0) $.clock.after(0, () => void closeOverflow($))
+    const listing = open && layout.overflow.length > 0
+    // Drawn at the animation's current frame, so a redraw doesn't jump
+    // back. Only the slots' pictures are drawn, so only they animate.
+    const slots = listing ? [] : layout.slots.map(agent => ({ agent, picture: animatedPicture(agent) }))
     if (!motionReduced) await animateShown($)
-    return (
-      <Box flexDirection="column" rowGap={1}>
-        {slots.length === 0 ? (
-          <Text dimColor>No agents yet. Each agent the orchestrator starts gets a squishy here.</Text>
-        ) : (
-          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-            {slots.map(({ agent, picture }, index) => (
-              <Box key={`slot-${agent.id}`} flexDirection="column" alignItems="center">
-                <Raster key={pictureKey(agent.id)} {...picture} />
-                {/* Its press picks the squishy: src/focus.tsx answers it. */}
-                <Button
-                  key={`${PICK_PREFIX}${agent.id}`}
-                  {...(index < 9 ? { hotkey: String(index + 1) } : {})}
-                  plain
-                  label={agent.squishy.name}
-                  onPress={() => {}}
-                />
-                <Text key={`description-${agent.id}`} dimColor>
-                  {agent.description}
-                </Text>
-                {/* Squishys only reads the main view, never changes it (ADR 0001). */}
-                {agent.id === e.props.view.agentId ? (
-                  <Box key={`in-view-${agent.id}`}>
-                    <Text color="cyan">▲ in main view</Text>
-                  </Box>
-                ) : null}
-              </Box>
-            ))}
+
+    const columns = Math.max(1, layout.columns)
+    const rows = Array.from({ length: Math.ceil(slots.length / columns) }, (_, row) => slots.slice(row * columns, (row + 1) * columns))
+    const body = listing ? (
+      // The overflow list: one line per agent, in place of the slots. Its
+      // presses pick the squishy, as a slot's do: src/focus.tsx answers them.
+      <Box key="overflow-list" flexDirection="column">
+        {layout.overflow.map(agent => (
+          <Box key={`overflow-${agent.id}`} flexDirection="row" columnGap={1}>
+            <Button key={`${PICK_PREFIX}${agent.id}`} plain label={agent.squishy.name} onPress={() => {}} />
+            <Text dimColor wrap="truncate-end">
+              {agent.description}
+            </Text>
           </Box>
-        )}
-        <Button key="settings" hotkey="o" plain dimColor label="Settings" onPress={() => void update($, mode, () => 'settings')} />
+        ))}
+      </Box>
+    ) : known.length === 0 ? (
+      <Text dimColor>No agents yet. Each agent the orchestrator starts gets a squishy here.</Text>
+    ) : (
+      <Box key="slots" flexDirection="column" rowGap={SLOT_ROW_GAP}>
+        {rows.map((row, rowIndex) => (
+          <Box key={`slot-row-${rowIndex}`} flexDirection="row" columnGap={SLOT_COLUMN_GAP}>
+            {row.map(({ agent, picture }, column) => {
+              const index = rowIndex * columns + column
+              return (
+                <Box key={`slot-${agent.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS}>
+                  <Raster key={pictureKey(agent.id)} {...picture} />
+                  {/* Its press picks the squishy: src/focus.tsx answers it. */}
+                  <Button
+                    key={`${PICK_PREFIX}${agent.id}`}
+                    {...(index < 9 ? { hotkey: String(index + 1) } : {})}
+                    plain
+                    label={agent.squishy.name}
+                    onPress={() => {}}
+                  />
+                  <Text key={`description-${agent.id}`} dimColor wrap="truncate-end">
+                    {agent.description}
+                  </Text>
+                  {/* Squishys only reads the main view, never changes it (ADR 0001). */}
+                  {agent.id === view.agentId ? (
+                    <Box key={`in-view-${agent.id}`}>
+                      <Text color="cyan">▲ in main view</Text>
+                    </Box>
+                  ) : null}
+                </Box>
+              )
+            })}
+          </Box>
+        ))}
+      </Box>
+    )
+    const footer = [
+      ...(layout.overflow.length > 0
+        ? [<Button key="overflow" hotkey="m" plain label={`+${layout.overflow.length}`} onPress={() => void update($, overflowOpen, was => !was)} />]
+        : []),
+      <Button key="settings" hotkey="o" plain dimColor label="Settings" onPress={() => void update($, mode, () => 'settings')} />,
+    ]
+    // Docked, the footer goes under the slots; inline, where rows are
+    // scarce, beside them
+    return placement === 'inline' ? (
+      <Box flexDirection="row" columnGap={SLOT_COLUMN_GAP}>
+        <Box flexDirection="column" flexGrow={1}>
+          {body}
+        </Box>
+        <Box key="footer" flexDirection="column" width={FOOTER_COLUMNS}>
+          {footer}
+        </Box>
+      </Box>
+    ) : (
+      <Box flexDirection="column" rowGap={1}>
+        {body}
+        <Box key="footer" flexDirection="row" columnGap={2}>
+          {footer}
+        </Box>
       </Box>
     )
   })
+}
+
+async function closeOverflow($: EngineInterface): Promise<void> {
+  if (await read($, overflowOpen)) await update($, overflowOpen, () => false)
+}
+
+/** The slot cap from settings; a store that can't be read leaves the most. */
+async function readSlotCap($: EngineInterface): Promise<number> {
+  try {
+    return settingsFrom(await $.store.get(SETTINGS_KEY)).slotCap
+  } catch {
+    return settingsFrom(undefined).slotCap
+  }
 }
 
 /** An agent's squishy in its state's pose, at the animation's current frame. */

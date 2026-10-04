@@ -131,6 +131,8 @@ declare module 'claude-code' {
        * and after each /config change: while it's on, nothing animates.
        */
       reducedMotion: boolean
+      /** Whether the roster shows its overflow list in place of its slots. */
+      overflowOpen: boolean
     }
   }
 }

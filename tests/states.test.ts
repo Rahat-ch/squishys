@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { AgentStatus } from 'claude-code'
 
 import { AGENT_CHECK_MS } from '../src/agents'
-import { PANE, drain, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
+import { PANE, drain, finishOf, paneSized, readFrom, roomFor, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
 import { spawnAndWatch, watch } from './pictures'
 
 test('a spawned agent’s squishy is Working', async ($, on) => {
@@ -157,9 +157,10 @@ test('an Asleep squishy stays in the roster, so no new agent gets it', async ($,
   mock.store(on)
   stubSpawns(on)
   stubTurns(on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // Rolled at random, sixteen from the placeholder kit would very likely
-  // repeat one if Asleep squishys went back to the pool
+  // Room for every agent, so the Asleep squishys keep their slots
+  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 3, 3)), surface: 'terminal' })
+  // Rolled at random, nine from the placeholder kit would likely repeat
+  // one if Asleep squishys went back to the pool
   const spawnAndRead = async (from: number, to: number) => {
     const squishys = []
     for (let n = from; n <= to; n += 1) {
@@ -168,12 +169,12 @@ test('an Asleep squishy stays in the roster, so no new agent gets it', async ($,
     }
     return squishys
   }
-  const first = await spawnAndRead(1, 8)
-  for (let n = 1; n <= 8; n += 1) await $.turn.complete(finishOf(`agent-${n}`))
+  const first = await spawnAndRead(1, 4)
+  for (let n = 1; n <= 4; n += 1) await $.turn.complete(finishOf(`agent-${n}`))
 
-  const second = await spawnAndRead(9, 16)
+  const second = await spawnAndRead(5, 9)
 
-  expect(new Set([...first, ...second].map(squishy => JSON.stringify(squishy))).size).toBe(16)
+  expect(new Set([...first, ...second].map(squishy => JSON.stringify(squishy))).size).toBe(9)
 })
 
 test('the orchestrator’s own turns leave every squishy as it was', async ($, on) => {

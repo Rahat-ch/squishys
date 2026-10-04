@@ -14,7 +14,7 @@ import type { Remembered, RememberedPair } from '../src/rebuild'
 import { roll, squishyOf } from '../src/roller'
 import { seeded } from '../src/seeded'
 import type { SquishyState } from '../src/states'
-import { PANE, finishOf, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
+import { PANE, finishOf, paneSized, roomFor, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, spawnAndWatch, squishyIn, watch } from './pictures'
 
 const LISTED = [
@@ -103,7 +103,7 @@ test('after /clear, agents never seen before get fresh squishys, none of them on
 
   await $.classic.SessionStart({ source: 'clear' })
 
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 3, 3)), surface: 'terminal' })
   const pictures = (await ui.findAll({ type: 'Raster' })).map(picture => picture.props.cells)
   expect(pictures).toHaveLength(6)
   expect(new Set(pictures).size).toBe(6)
