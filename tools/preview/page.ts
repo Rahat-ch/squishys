@@ -1,8 +1,11 @@
 // The art preview page: the preview's items as one self-contained HTML
 // page, ready to publish as an Artifact. Each picture is a set of SVG rects,
-// drawn once and shown at 1x and 4x, so every pixel stays a crisp square.
-// The page script (client.js) adds the keep / redo / notes verdicts.
+// drawn once and shown at 1x and ZOOM x, so every pixel stays a crisp
+// square, on a dark and a light terminal background, since see-through
+// pixels show the terminal's own. The page script (client.js) adds the
+// keep / redo / notes verdicts.
 
+import { PICTURE_SIZE } from '../../src/composer'
 import { hexColor } from '../../src/raster'
 import type { Pixels } from '../../src/raster'
 import { verdictDocId } from './items'
@@ -29,7 +32,7 @@ const SECTIONS: readonly { section: Section; heading: string; about: string }[] 
 export function previewPage(items: readonly PreviewItem[], { generatedAt, seed, script }: PageOptions): string {
   const symbols: string[] = []
   const pictureOf = (pixels: Pixels): number => {
-    symbols.push(`<symbol id="p${symbols.length}" viewBox="0 0 16 16">${rects(pixels)}</symbol>`)
+    symbols.push(`<symbol id="p${symbols.length}" viewBox="0 0 ${PICTURE_SIZE} ${PICTURE_SIZE}">${rects(pixels)}</symbol>`)
     return symbols.length - 1
   }
   const sections = SECTIONS.map(({ section, heading, about }) => {
@@ -89,9 +92,11 @@ ${sections}
 function card(item: PreviewItem, pictureOf: (pixels: Pixels) => number): string {
   const doc = escaped(verdictDocId(item.id))
   const use = `<use href="#p${pictureOf(item.pixels)}"/>`
-  const label = (scale: string) => escaped(`${item.heading}, ${item.caption}, ${scale}`)
+  const svg = (scale: number, backdrop: string) =>
+    `<svg width="${PICTURE_SIZE * scale}" height="${PICTURE_SIZE * scale}" viewBox="0 0 ${PICTURE_SIZE} ${PICTURE_SIZE}" role="img" aria-label="${escaped(`${item.heading}, ${item.caption}, ${scale}x on ${backdrop}`)}">${use}</svg>`
+  const backdrop = (name: string) => `<div class="backdrop ${name}">${svg(ZOOM, name)}${svg(1, name)}</div>`
   return `<article class="card" id="item-${doc}" data-item="${escaped(item.id)}" data-doc="${doc}" data-art="${escaped(item.art)}" data-verdict="">
-<figure><div class="x4"><svg width="64" height="64" viewBox="0 0 16 16" role="img" aria-label="${label('4x')}">${use}</svg></div><div class="x1"><svg width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="${label('1x')}">${use}</svg><span>1&times;</span></div><figcaption>${escaped(item.caption)}</figcaption></figure>
+<figure>${backdrop('dark')}${backdrop('light')}<figcaption>${escaped(item.caption)}, on dark and light</figcaption></figure>
 <div class="about"><h3>${escaped(item.heading)}</h3><p class="id">${escaped(item.id)}</p><p class="detail">${escaped(item.detail)}</p></div>
 <p class="changed" id="changed-${doc}" hidden></p>
 <div class="verdict" role="group" aria-label="${escaped(`Verdict on ${item.id}`)}"><button type="button" id="keep-${doc}" class="keep" data-verdict="keep" aria-pressed="false">Keep</button><button type="button" id="redo-${doc}" class="redo" data-verdict="redo" aria-pressed="false">Redo</button></div>
@@ -99,6 +104,9 @@ function card(item: PreviewItem, pictureOf: (pixels: Pixels) => number): string 
 <textarea id="notes-${doc}" rows="2" placeholder="Notes for the redraw"></textarea>
 </article>`
 }
+
+/** How many times larger than 1x the big picture is. */
+const ZOOM = 6
 
 /** A picture as SVG rects, one per run of same-colored pixels in a row. */
 function rects(pixels: Pixels): string {
@@ -138,11 +146,11 @@ function safeScript(script: string): string {
 /** The dark theme's tokens, for the system setting and the explicit choice alike. */
 const DARK = `--bg: #131620; --surface: #1c2030; --ink: #e5e8f1; --muted: #99a0b4; --line: #2d3346;
   --accent: #8fa3ff; --keep: #52c784; --keep-soft: #173626; --redo: #ff9159; --redo-soft: #3f2418;
-  --check-a: #262b3b; --check-b: #2f3548; color-scheme: dark;`
+  color-scheme: dark;`
 
 const STYLE = `
 /* A contact sheet on a light table: sections of cards, each card a
-   4x picture on a checkerboard with its 1x beside it, verdicts underneath. */
+   picture big and at 1x on a dark and a light terminal, verdicts underneath. */
 :root {
   --bg: #e9ecf2;
   --surface: #ffffff;
@@ -154,8 +162,6 @@ const STYLE = `
   --keep-soft: #dcf2e4;
   --redo: #b4400f;
   --redo-soft: #fbe5d8;
-  --check-a: #dfe3eb;
-  --check-b: #f4f6f9;
   --display: "Pixelify Sans", "Atkinson Hyperlegible", system-ui, sans-serif;
   --body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -218,11 +224,12 @@ main { display: grid; gap: 2.5rem; }
 #sheet[data-filter="undecided"] .card:not([data-verdict=""]),
 #sheet[data-filter="redo"] .card:not([data-verdict="redo"]),
 #sheet[data-filter="keep"] .card:not([data-verdict="keep"]) { display: none; }
-figure { justify-self: start; margin: 0; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; gap: 0.3rem 0.5rem; align-items: end; }
-.x4 { padding: 4px; border-radius: 3px; background: repeating-conic-gradient(var(--check-a) 0% 25%, var(--check-b) 0% 50%) 0 0 / 16px 16px; }
-.x1 { display: grid; justify-items: center; gap: 0.2rem; padding: 4px; border-radius: 3px; background: repeating-conic-gradient(var(--check-a) 0% 25%, var(--check-b) 0% 50%) 0 0 / 4px 4px; }
-.x1 span, figcaption { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
-figcaption { grid-column: 1 / -1; }
+figure { justify-self: start; margin: 0; display: grid; grid-template-columns: auto auto; gap: 0.3rem 0.4rem; }
+/* The backgrounds of a typical dark and light terminal */
+.backdrop { display: flex; align-items: end; gap: 6px; padding: 6px; border-radius: 3px; }
+.backdrop.dark { background: #1e1e1e; }
+.backdrop.light { background: #fafafa; box-shadow: inset 0 0 0 1px var(--line); }
+figcaption { grid-column: 1 / -1; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
 .about { display: grid; gap: 0.1rem; min-width: 0; }
 .id { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
 .detail { font-size: 0.85rem; color: var(--muted); }

@@ -1,9 +1,10 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { FoundElement } from 'claude-code/testing'
 
+import { PICTURE_SIZE } from '../src/composer'
 import { PANE, glyphsOf, readFrom, spawnOf, stubSpawns } from './fixtures'
 
-test('a spawned agent’s squishy shows as a 16x16 half-block picture, its name, and the agent’s description underneath', async ($, on) => {
+test('a spawned agent’s squishy shows as a half-block picture, its name, and the agent’s description underneath', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
 
@@ -12,10 +13,10 @@ test('a spawned agent’s squishy shows as a 16x16 half-block picture, its name,
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const slot = await ui.find({ key: 'slot-agent-1' })
   const [picture, name, description] = (slot?.children ?? []) as FoundElement[]
-  // 16 pixels across, and 16 down packed two to a cell
-  expect(picture).toMatchObject({ type: 'Raster', props: { columns: 16, rows: 8 } })
+  // PICTURE_SIZE pixels across, and PICTURE_SIZE down packed two to a cell
+  expect(picture).toMatchObject({ type: 'Raster', props: { columns: PICTURE_SIZE, rows: PICTURE_SIZE / 2 } })
   const glyphs = glyphsOf(picture?.props.cells)
-  expect(glyphs).toHaveLength(16 * 8)
+  expect(glyphs).toHaveLength(PICTURE_SIZE * (PICTURE_SIZE / 2))
   expect(glyphs.every(glyph => ['▀', '▄', ' '].includes(glyph))).toBe(true)
   expect(glyphs).toContain('▀')
   expect(name).toMatchObject({ type: 'Button', props: { label: expect.stringMatching(/^[A-Z]/) } })

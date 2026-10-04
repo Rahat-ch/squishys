@@ -60,6 +60,12 @@
 - A Button with a hotkey draws as `x: label`, so widths are budgeted with `buttonColumns(label, hotkey)` from `src/slots.ts`, never from the label alone. Rows of buttons and counts that may not fit across are laid out with `linedUp`, as many to a row as fit, and the rows they take are budgeted: the roster's docked footer (`footerRows`, with every button there and the overflow count at its widest), and the Squishydex's counts, footer and card actions. The inline roster's footer column is `FOOTER_COLUMNS`, its widest button. A pane too short for the counts and a row of places leaves the counts out.
 - The version lives only in `.claude-plugin/plugin.json`.
 
+## Kit art
+
+- A squishy's picture is `SIDE` pixels square (`src/kit.ts`). Code and tests work every size and position out from `SIDE` (and `SIDES` in `src/composer.ts` for the 2x and mini sizes), never a literal, so the size can change in one place. Kit data is drawn at the size it is.
+- A squishy has four colors, as on a Game Boy Color sprite: a palette (or legendary) gives `outline`, `dark`, `base` and `highlight`, and its shiny side gives its own plus a fifth, `sparkle`. Grid keys map onto those colors through `KEY_COLORS` in `src/kit.ts`: eyes (`e`) and mouth (`m`) draw in the outline color, blush (`c`) in the dark one, and a glint (`*`) sparkles only on a shiny. Keep eyes as `e` even though they share the outline's color: the Asleep pose finds them by key.
+- `tests/kit.test.ts` holds the shipped kit to its rarities, pronounceable Names, the color counts, and colors that survive a 256-color terminal and the `Raster`'s 1024 color pairs.
+
 ## Art preview
 
 - `tools/preview/` is development only and the mod never loads it. `items.ts` lists the items and draws them through `compose` and `roll` (tested in `tests/preview.test.ts`), `page.ts` writes the HTML, `client.js` is the page script, and `build.mjs` runs it all under Node's built-in type stripping, with a resolve hook that adds the `.ts` the mod's imports leave off. It imports only the pure modules, never `claude-code`.

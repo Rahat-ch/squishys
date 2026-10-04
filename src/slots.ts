@@ -13,8 +13,13 @@ import type { SquishyState } from './states'
  */
 export const PICTURE_COLUMNS = PICTURE_SIZE
 export const PICTURE_ROWS = Math.ceil(PICTURE_SIZE / 2)
-/** A slot's width: its squishy's picture. */
-export const SLOT_COLUMNS = PICTURE_COLUMNS
+/** The longest Name the kit spells (tests/kit.test.ts holds it to this). */
+export const NAME_COLUMNS = 13
+/**
+ * A slot's width: its squishy's picture, centered, or its Name as its
+ * button draws it, `9: ` hotkey and all, whichever is wider.
+ */
+export const SLOT_COLUMNS = Math.max(PICTURE_COLUMNS, buttonColumns('x'.repeat(NAME_COLUMNS), '9'))
 /**
  * A slot's height: the picture, then its name, its description and a row
  * for the mark on the squishy of the agent open in the main view.

@@ -17,6 +17,7 @@ import {
   textColumns,
   BAND_PICTURE_COLUMNS,
   BAND_PICTURE_ROWS,
+  NAME_COLUMNS,
   PICTURE_COLUMNS,
   PICTURE_ROWS,
   SLOT_COLUMNS,
@@ -218,12 +219,13 @@ test('before the roster is first drawn, every agent’s squishy is live', () => 
   expect(liveSquishys(known, undefined)).toHaveLength(2)
 })
 
-test('a slot is as wide as a composed squishy picture and as tall as its half-block rows, with three lines under it', () => {
+test('a slot is as wide as its picture or its longest Name’s button, whichever is wider, and as tall as its half-block rows with three lines under it', () => {
   const picture = halfBlocks(compose(KIT, roll(KIT, { live: [], rng: seeded(1) }), { state: 'working', frame: 0 }))
 
   expect({ columns: PICTURE_COLUMNS, rows: PICTURE_ROWS }).toEqual({ columns: picture.columns, rows: picture.rows })
   expect(picture.columns).toBe(PICTURE_SIZE)
-  expect(SLOT_COLUMNS).toBe(picture.columns)
+  // A Name NAME_COLUMNS long, after its `9: ` hotkey
+  expect(SLOT_COLUMNS).toBe(Math.max(picture.columns, NAME_COLUMNS + 3))
   // Its name, its description and the main view's mark
   expect(SLOT_ROWS).toBe(picture.rows + 3)
 })

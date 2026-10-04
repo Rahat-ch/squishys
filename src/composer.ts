@@ -3,7 +3,8 @@
 // and never touches Claude Code, so tools outside the mod (the art preview)
 // draw squishys exactly as the mod does.
 
-import type { Colors, Grid, Kit } from './kit'
+import { KEY_COLORS } from './kit'
+import type { Colors, Grid, Kit, ShinyColors } from './kit'
 import type { Pixel, Pixels } from './raster'
 import type { Squishy } from './roller'
 import type { SquishyState } from './states'
@@ -12,10 +13,21 @@ import type { SquishyState } from './states'
 export type { SquishyState } from './states'
 
 /**
- * How big to draw: `full` is the 16x16 roster picture, `double` the 32x32
- * focus-view picture, `mini` the 8x8 band picture.
+ * A squishy picture's side in pixels, before any resizing: what the kit
+ * draws, and what every size and pose is worked out from. It is even, so
+ * the mini picture halves it.
+ */
+export const PICTURE_SIZE = 10
+
+/**
+ * How big to draw: `full` is the PICTURE_SIZE square roster picture,
+ * `double` the focus-view picture at twice that, `mini` the band picture
+ * at half.
  */
 export type Size = 'full' | 'double' | 'mini'
+
+/** How many pixels across and down a picture of each size is. */
+export const SIDES: Readonly<Record<Size, number>> = { full: PICTURE_SIZE, double: PICTURE_SIZE * 2, mini: PICTURE_SIZE / 2 }
 
 export type Pose = {
   state: SquishyState
@@ -29,16 +41,16 @@ export type Pose = {
 /** The key that draws nothing in a part's grid, letting what lies beneath show. */
 export const SEE_THROUGH = '.'
 
-/** A squishy picture's side in pixels, before any resizing: what the kit draws. */
-export const PICTURE_SIZE = 16
+/** How many rows from the top lean as a Working squishy wiggles: those above the middle. */
+const LEANING_ROWS = PICTURE_SIZE / 2 - 1
 
-/** How many rows from the top lean as a Working squishy wiggles. */
-const LEANING_ROWS = 7
+/** How wide an Asleep squishy's shut eye is, at least. */
+const SHUT_EYE_WIDTH = Math.ceil(PICTURE_SIZE / 6)
 
 /**
  * The squishy's picture in a pose. Each pose is made from the squishy's
- * still 16x16 picture, by moving its pixels and drawing over them, so every
- * part and legendary has every pose without art of its own.
+ * still PICTURE_SIZE x PICTURE_SIZE picture, by moving its pixels and drawing over them, so
+ * every part and legendary has every pose without art of its own.
  *
  * `frame` counts the animator's ticks: a Working squishy's wiggle moves
  * every second frame, and a Thinking squishy's bounce every frame.
@@ -50,8 +62,8 @@ export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full
   const { grids, colors } = gridsOf(kit, squishy)
   const picture = posedPicture(grids, colors, state, frame)
   const sized = size === 'double' ? doubled(picture) : size === 'mini' ? halved(picture) : picture
-  // A shiny's colors may give its glints their own color
-  const sparkled = sparkle ? withGlints(sized, frame, colors.sparkle ?? SPARKLE_COLOR) : sized
+  // A shiny's glints are its own sparkle color; a plain legendary's, SPARKLE_COLOR
+  const sparkled = sparkle ? withGlints(sized, frame, squishy.shiny ? colors.sparkle : SPARKLE_COLOR) : sized
   return state === 'needsYou' ? withBubble(sparkled) : sparkled
 }
 
@@ -63,7 +75,7 @@ export function stillPixels(kit: Kit, squishy: Squishy): Pixels {
   return compose(kit, squishy, { state: 'working', frame: 0 })
 }
 
-function posedPicture(grids: readonly Grid[], colors: Colors, state: SquishyState, frame: number): Pixels {
+function posedPicture(grids: readonly Grid[], colors: ShinyColors, state: SquishyState, frame: number): Pixels {
   const still = painted(grids, colors)
   switch (state) {
     case 'working':
@@ -97,12 +109,8 @@ function flattened(pixels: Pixels): Pixels {
 /** The color of an Asleep squishy's z, the same for every palette. */
 export const ZZZ_COLOR = 0x88aaee
 
-/** The z an Asleep squishy shows, top right: `#` is drawn. */
-const Z_GLYPH: Grid = [
-  '............###.',
-  '.............#..',
-  '............###.',
-]
+/** The z an Asleep squishy shows, top right, a pixel in from the edge: `#` is drawn. */
+const Z_GLYPH: Grid = ['###.', '.#..', '###.'].map(row => row.padStart(PICTURE_SIZE, '.'))
 
 /**
  * The colors of a squishy's "!" bubble when it Needs you, the same for every
@@ -124,8 +132,9 @@ const BUBBLE_COLORS: Readonly<Record<string, number>> = { k: RING_COLOR, w: BUBB
 const BUBBLE: Grid = ['kkkkk', 'kw!wk', 'kw!wk', 'kwwwk', 'kw!wk', 'kkkkk']
 const COMPACT_BUBBLE: Grid = ['kkk', 'k!k', 'kkk', 'k!k', 'kkk']
 const TINY_BUBBLE: Grid = ['kkk', 'k!k', 'kkk']
-const BUBBLE_FROM = 16
-const COMPACT_BUBBLE_FROM = 8
+// In PICTURE_SIZE terms: the whole bubble at 2x, the compact one at full size, the dot on the mini
+const BUBBLE_FROM = SIDES.double
+const COMPACT_BUBBLE_FROM = SIDES.full
 
 /** The picture, at whatever size, with the "!" bubble of a squishy that Needs you. */
 function withBubble(pixels: Pixels): Pixels {
@@ -204,17 +213,23 @@ function overlaid(pixels: Pixels, glyph: Grid, colors: Readonly<Record<string, n
 /**
  * The picture with its eyes shut: wherever an eye shows, what lies beneath
  * it shows instead (the body color where nothing does, as on a legendary),
- * and each eye becomes a line along its bottom row, at least three wide.
+ * and each eye becomes a line along its bottom row, at least SHUT_EYE_WIDTH
+ * wide, widening away from the middle so two eyes stay apart.
  */
-function shutEyes(grids: readonly Grid[], colors: Colors): Pixels {
+function shutEyes(grids: readonly Grid[], colors: ShinyColors): Pixels {
   const lidded = painted(grids, colors, { eyesShut: true })
-  const eye = colors.e
-  if (eye === undefined) return lidded
+  const eye = colors[KEY_COLORS.e ?? 'outline']
+  const middle = (PICTURE_SIZE - 1) / 2
   const lines = eyesOf(grids).map(cells => {
     const row = Math.max(...cells.map(([at]) => at))
     let left = Math.min(...cells.map(([, column]) => column))
     let right = Math.max(...cells.map(([, column]) => column))
-    if (left === right) [left, right] = [left - 1, right + 1]
+    // Widen a pixel at a time, outward first, then inward, and so on
+    const leftOfMiddle = (left + right) / 2 < middle
+    for (let outward = true; right - left + 1 < SHUT_EYE_WIDTH; outward = !outward) {
+      if (outward === leftOfMiddle) left -= 1
+      else right += 1
+    }
     return { row, left, right }
   })
   return lidded.map((pixels, row) =>
@@ -281,10 +296,10 @@ function lowered(pixels: Pixels, by: number): Pixels {
 }
 
 /**
- * What the 16x16 picture is painted from: body, then face, then accessory
+ * What the still picture is painted from: body, then face, then accessory
  * (or a legendary's one grid), and the squishy's colors.
  */
-function gridsOf(kit: Kit, squishy: Squishy): { grids: readonly Grid[]; colors: Colors } {
+function gridsOf(kit: Kit, squishy: Squishy): { grids: readonly Grid[]; colors: ShinyColors } {
   if (squishy.kind === 'legendary') {
     const legendary = partOf(kit.legendaries, squishy.legendary, 'legendary')
     return { grids: [legendary.grid], colors: colorsFor(legendary, squishy.shiny) }
@@ -296,9 +311,12 @@ function gridsOf(kit: Kit, squishy: Squishy): { grids: readonly Grid[]; colors: 
   return { grids: [body.grid, face.grid, accessory.grid], colors: colorsFor(palette, squishy.shiny) }
 }
 
-/** A palette's or legendary's colors, or its shiny ones for a shiny squishy. */
-function colorsFor(source: { colors: Colors; shiny: Colors }, shiny: boolean): Colors {
-  return shiny ? source.shiny : source.colors
+/**
+ * A palette's or legendary's colors, or its shiny ones for a shiny squishy.
+ * Only a shiny sparkles: elsewhere a glint is just highlight.
+ */
+function colorsFor(source: { colors: Colors; shiny: ShinyColors }, shiny: boolean): ShinyColors {
+  return shiny ? source.shiny : { ...source.colors, sparkle: source.colors.highlight }
 }
 
 function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind: string): T {
@@ -315,7 +333,7 @@ function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind:
  * With `eyesShut`, eye pixels (`e`) are passed over like `.`, and where only
  * eyes were drawn the body color fills in.
  */
-function painted(grids: readonly Grid[], colors: Colors, { eyesShut = false } = {}): Pixels {
+function painted(grids: readonly Grid[], colors: ShinyColors, { eyesShut = false } = {}): Pixels {
   for (const grid of grids) {
     if (grid.length !== PICTURE_SIZE || grid.some(line => line.length !== PICTURE_SIZE)) {
       throw new Error(`A grid is not ${PICTURE_SIZE}x${PICTURE_SIZE}: ${JSON.stringify(grid)}`)
@@ -328,7 +346,8 @@ function painted(grids: readonly Grid[], colors: Colors, { eyesShut = false } = 
         let key = grid[row]?.[column] ?? '.'
         if (key === 'e' && eyesShut) key = pixel === null ? 'b' : '.'
         if (key === '.') continue
-        const color = colors[key]
+        const role = KEY_COLORS[key]
+        const color = role === undefined ? undefined : colors[role]
         if (color === undefined) throw new Error(`The colors have no color for "${key}"`)
         pixel = color
       }

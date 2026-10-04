@@ -1,33 +1,38 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BUBBLE_COLOR, MARK_COLOR, RING_COLOR, SPARKLE_COLOR, ZZZ_COLOR, compose } from '../src/composer'
+import { BUBBLE_COLOR, MARK_COLOR, PICTURE_SIZE, RING_COLOR, SIDES, SPARKLE_COLOR, ZZZ_COLOR, compose } from '../src/composer'
 import type { Size } from '../src/composer'
 import { KIT } from '../src/kit'
-import type { Grid, Kit } from '../src/kit'
+import type { Colors, Grid, Kit, ShinyColors } from '../src/kit'
 import { roll } from '../src/roller'
 import { seeded } from '../src/seeded'
 import { SQUISHY_STATES } from '../src/states'
 import type { SquishyState } from '../src/states'
 import { eachPart } from './pictures'
 
-const BLANK: Grid = Array.from({ length: 16 }, () => '................')
 const GREY = 0x808080
 const SHINY_GREY = 0xc0c0c0
 const EYE = 0x000000
-const LEAF = 0x00ff00
+const SHADE = 0x404040
+const LIGHT = 0xe0e0e0
+const SHINY_LIGHT = 0xf0f0f0
+const SPARKLE = 0xffff00
+
+const COLORS: Colors = { outline: EYE, dark: SHADE, base: GREY, highlight: LIGHT }
+const SHINY_COLORS: ShinyColors = { outline: EYE, dark: SHADE, base: SHINY_GREY, highlight: SHINY_LIGHT, sparkle: SPARKLE }
 
 /** A grid filled with one key, apart from the rows given by row number. */
 function grid(fill: string, rows: Readonly<Record<number, string>> = {}): Grid {
-  return Array.from({ length: 16 }, (_, row) => rows[row] ?? fill.repeat(16))
+  return Array.from({ length: PICTURE_SIZE }, (_, row) => (rows[row] ?? fill.repeat(PICTURE_SIZE)).padEnd(PICTURE_SIZE, '.'))
 }
+
+const BLANK = grid('.')
 
 const TEST_KIT: Kit = {
   bodies: [{ id: 'block', rarity: 'common', syllable: 'mo', grid: grid('b') }],
-  faces: [{ id: 'eye', rarity: 'common', syllable: 'chi', grid: grid('.', { 5: '.....e..........' }) }],
-  palettes: [
-    { id: 'grey', rarity: 'common', syllable: '', colors: { b: GREY, e: EYE, a: LEAF }, shiny: { b: SHINY_GREY, e: EYE, a: LEAF } },
-  ],
-  accessories: [{ id: 'leaf', rarity: 'common', syllable: '', grid: grid('.', { 0: 'a...............' }) }],
+  faces: [{ id: 'eye', rarity: 'common', syllable: 'chi', grid: grid('.', { 5: '.....e' }) }],
+  palettes: [{ id: 'grey', rarity: 'common', syllable: '', colors: COLORS, shiny: SHINY_COLORS }],
+  accessories: [{ id: 'leaf', rarity: 'common', syllable: '', grid: grid('.', { 0: 'h' }) }],
   legendaries: [],
   starters: [],
 }
@@ -39,36 +44,53 @@ test('a squishy is its body, with its face and then its accessory drawn over it,
   const pixels = compose(TEST_KIT, PLAIN, { state: 'working', frame: 0 })
 
   expect(pixels[5]?.[5]).toBe(EYE)
-  expect(pixels[0]?.[0]).toBe(LEAF)
-  expect(pixels[15]?.[15]).toBe(GREY)
+  expect(pixels[0]?.[0]).toBe(LIGHT)
+  expect(pixels[PICTURE_SIZE - 1]?.[PICTURE_SIZE - 1]).toBe(GREY)
+})
+
+test('every key draws in one of the four colors: eyes and mouth in the outline, blush in the dark shade', () => {
+  const kit: Kit = { ...TEST_KIT, bodies: [{ id: 'keys', rarity: 'common', syllable: 'mo', grid: grid('b', { 1: 'oemdcbh' }) }] }
+  const pixels = compose(kit, roll(kit, { live: [], rng: seeded(1), odds: { shiny: 0 } }), { state: 'working', frame: 0 })
+
+  expect(pixels[1]?.slice(0, 7)).toEqual([EYE, EYE, EYE, SHADE, SHADE, GREY, LIGHT])
 })
 
 test('a shiny squishy is drawn in its palette’s shiny colors', () => {
   const plain = compose(TEST_KIT, PLAIN, { state: 'working', frame: 0 })
   const shiny = compose(TEST_KIT, SHINY, { state: 'working', frame: 0 })
 
-  expect(plain[10]?.[10]).toBe(GREY)
-  expect(shiny[10]?.[10]).toBe(SHINY_GREY)
-  // The parts drawn over the body keep their own colors
+  expect(plain[PICTURE_SIZE - 2]?.[PICTURE_SIZE - 2]).toBe(GREY)
+  expect(shiny[PICTURE_SIZE - 2]?.[PICTURE_SIZE - 2]).toBe(SHINY_GREY)
   expect(shiny[5]?.[5]).toBe(EYE)
+})
+
+test('a glint sparkles only on a shiny, and is plain highlight otherwise', () => {
+  const kit: Kit = { ...TEST_KIT, bodies: [{ id: 'glinting', rarity: 'common', syllable: 'mo', grid: grid('b', { 2: 'b*' }) }] }
+  const at = (shiny: number) =>
+    compose(kit, roll(kit, { live: [], rng: seeded(1), odds: { shiny } }), { state: 'working', frame: 0 })[2]?.[1]
+
+  expect(at(0)).toBe(LIGHT)
+  expect(at(1)).toBe(SPARKLE)
 })
 
 test('at 2× every pixel becomes a 2x2 block', () => {
   const pixels = compose(TEST_KIT, PLAIN, { state: 'working', frame: 0, size: 'double' })
 
-  expect(pixels).toHaveLength(32)
-  expect(pixels[0]?.slice(0, 3)).toEqual([LEAF, LEAF, GREY])
-  expect(pixels[1]?.slice(0, 3)).toEqual([LEAF, LEAF, GREY])
+  expect(pixels).toHaveLength(PICTURE_SIZE * 2)
+  expect(pixels[0]?.slice(0, 3)).toEqual([LIGHT, LIGHT, GREY])
+  expect(pixels[1]?.slice(0, 3)).toEqual([LIGHT, LIGHT, GREY])
   expect(pixels[10]?.slice(9, 13)).toEqual([GREY, EYE, EYE, GREY])
   expect(pixels[11]?.slice(9, 13)).toEqual([GREY, EYE, EYE, GREY])
 })
 
-test('the 8x8 mini keeps a pixel wherever most of its 2x2 block is drawn', () => {
-  // Left half drawn, right half see-through, a lone pixel at the far right
+test('the mini at half size keeps a pixel wherever most of its 2x2 block is drawn', () => {
+  // Two blocks' worth drawn at the left, see-through after, a lone pixel at the far right
+  const drawnBlocks = 2
+  const left = 'b'.repeat(drawnBlocks * 2)
   const kit: Kit = {
     ...TEST_KIT,
     bodies: [{ id: 'half', rarity: 'common', syllable: 'mo', grid: grid('.', Object.fromEntries(
-      Array.from({ length: 16 }, (_, row) => [row, 'bbbbbbbb.......' + (row === 0 ? 'b' : '.')]),
+      Array.from({ length: PICTURE_SIZE }, (_, row) => [row, row === 0 ? left.padEnd(PICTURE_SIZE - 1, '.') + 'b' : left]),
     )) }],
     faces: [{ id: 'none', rarity: 'common', syllable: '', grid: BLANK }],
     accessories: [{ id: 'none', rarity: 'common', syllable: '', grid: BLANK }],
@@ -77,11 +99,9 @@ test('the 8x8 mini keeps a pixel wherever most of its 2x2 block is drawn', () =>
 
   const mini = compose(kit, squishy, { state: 'working', frame: 0, size: 'mini' })
 
-  const row = [GREY, GREY, GREY, GREY, null, null, null, null]
-  expect(mini).toEqual(Array.from({ length: 8 }, () => row))
+  const row = Array.from({ length: PICTURE_SIZE / 2 }, (_, column) => (column < drawnBlocks ? GREY : null))
+  expect(mini).toEqual(Array.from({ length: PICTURE_SIZE / 2 }, () => row))
 })
-
-const SIDES: Readonly<Record<Size, number>> = { full: 16, double: 32, mini: 8 }
 
 function wellFormed(pixels: ReturnType<typeof compose>, side: number): boolean {
   return (
@@ -118,9 +138,9 @@ test('with every part and legendary, a squishy moves when Working or Thinking, s
     if (JSON.stringify(at('thinking', 0)) === JSON.stringify(at('thinking', 1))) throw new Error(`${what} does not bounce`)
     if (JSON.stringify(at('thinking', 0)) === JSON.stringify(still)) throw new Error(`${what} looks Working when Thinking`)
     const asleep = at('asleep', 0)
-    if (!(asleep[0]?.[12] === ZZZ_COLOR && asleep[1]?.[13] === ZZZ_COLOR)) throw new Error(`${what} has no z asleep`)
+    if (!(asleep[0]?.[PICTURE_SIZE - 4] === ZZZ_COLOR && asleep[1]?.[PICTURE_SIZE - 3] === ZZZ_COLOR)) throw new Error(`${what} has no z asleep`)
     const squished = at('squished', 0)
-    if (rowsDrawn(squished).some(row => row < 7)) throw new Error(`${what} is not flat when Squished`)
+    if (rowsDrawn(squished).some(row => row < PICTURE_SIZE / 2 - 1)) throw new Error(`${what} is not flat when Squished`)
     const bottom = Math.max(...rowsDrawn(still))
     if (JSON.stringify(squished[bottom]) !== JSON.stringify(still[bottom])) throw new Error(`${what} leaves its bottom row`)
   }
@@ -129,14 +149,14 @@ test('with every part and legendary, a squishy moves when Working or Thinking, s
 test('kit art the composer can’t draw is an error, not a gap in the picture', () => {
   const [face] = TEST_KIT.faces
   if (face === undefined) throw new Error('TEST_KIT has a face')
-  const uncolored: Kit = { ...TEST_KIT, faces: [{ ...face, grid: grid('.', { 5: '.....q..........' }) }] }
+  const uncolored: Kit = { ...TEST_KIT, faces: [{ ...face, grid: grid('.', { 5: '.....q' }) }] }
   const short: Kit = { ...TEST_KIT, faces: [{ ...face, grid: BLANK.slice(1) }] }
 
   expect(() => compose(uncolored, PLAIN, { state: 'working', frame: 0 })).toThrow('no color for "q"')
-  expect(() => compose(short, PLAIN, { state: 'working', frame: 0 })).toThrow('16x16')
+  expect(() => compose(short, PLAIN, { state: 'working', frame: 0 })).toThrow(`${PICTURE_SIZE}x${PICTURE_SIZE}`)
 })
 
-// The poses: each state's picture is made from the squishy's own 16x16
+// The poses: each state's picture is made from the squishy's own still
 // picture, so these kits draw single pixels to follow where they go.
 
 /** A kit with this body and face, no accessory, in TEST_KIT's palette. */
@@ -163,17 +183,19 @@ function rowsDrawn(pixels: ReturnType<typeof compose>): number[] {
   return pixels.flatMap((row, index) => (row.some(pixel => pixel !== null) ? [index] : []))
 }
 
-// A pixel near the top and one near the bottom
-const MARKERS = grid('.', { 2: '.......b........', 12: '.......b........' })
+// A pixel near the top and one near the bottom, in one column
+const COLUMN = PICTURE_SIZE / 2 - 1
+const [TOP, LOW] = [2, PICTURE_SIZE - 4]
+const MARKERS = grid('.', { [TOP]: 'b'.padStart(COLUMN + 1, '.'), [LOW]: 'b'.padStart(COLUMN + 1, '.') })
 
 test('a Working squishy wiggles: upright for two frames, then its top leans over for two', () => {
   const at = (frame: number) => posed(kitWith(MARKERS), 'working', frame)
 
-  expect(drawnIn(at(0), 2)).toEqual([7])
-  expect(drawnIn(at(0), 12)).toEqual([7])
+  expect(drawnIn(at(0), TOP)).toEqual([COLUMN])
+  expect(drawnIn(at(0), LOW)).toEqual([COLUMN])
   expect(at(1)).toEqual(at(0))
-  expect(drawnIn(at(2), 2)).toEqual([8])
-  expect(drawnIn(at(2), 12)).toEqual([7])
+  expect(drawnIn(at(2), TOP)).toEqual([COLUMN + 1])
+  expect(drawnIn(at(2), LOW)).toEqual([COLUMN])
   expect(at(3)).toEqual(at(2))
   expect(at(4)).toEqual(at(0))
 })
@@ -181,25 +203,26 @@ test('a Working squishy wiggles: upright for two frames, then its top leans over
 test('a Thinking squishy bounces every frame, twice as fast as the wiggle: a pixel down, then back up', () => {
   const at = (frame: number) => posed(kitWith(MARKERS), 'thinking', frame)
 
-  expect(rowsDrawn(at(0))).toEqual([3, 13])
-  expect(drawnIn(at(0), 3)).toEqual([7])
-  expect(rowsDrawn(at(1))).toEqual([2, 12])
+  expect(rowsDrawn(at(0))).toEqual([TOP + 1, LOW + 1])
+  expect(drawnIn(at(0), TOP + 1)).toEqual([COLUMN])
+  expect(rowsDrawn(at(1))).toEqual([TOP, LOW])
   expect(at(2)).toEqual(at(0))
   expect(at(3)).toEqual(at(1))
 })
 
-// Two eyes two pixels tall, one a pixel wide and one two wide
-const EYES = grid('.', { 5: '.....e...ee.....', 6: '.....e...ee.....' })
+// Two eyes two pixels tall: left of the middle one a pixel wide, right of it one two wide
+const EYES = grid('.', { 5: '..e...ee', 6: '..e...ee' })
 
 test('an Asleep squishy shuts its eyes to a line along their bottom, and a z floats up top right', () => {
   const asleep = posed(kitWith(grid('b'), EYES), 'asleep', 0)
 
   // The eyes' upper row is body again
-  expect(asleep[5]?.slice(3, 12)).toEqual([GREY, GREY, GREY, GREY, GREY, GREY, GREY, GREY, GREY])
-  // A one-pixel eye shuts as a line three wide, a wider one as wide as it was
-  expect(asleep[6]?.slice(3, 12)).toEqual([GREY, EYE, EYE, EYE, GREY, GREY, EYE, EYE, GREY])
+  expect(asleep[5]).toEqual(Array.from({ length: PICTURE_SIZE }, () => GREY))
+  // A one-pixel eye shuts as a line two wide, widening outward; a wider one stays as wide as it was
+  expect(asleep[6]?.slice(0, 9)).toEqual([GREY, EYE, EYE, GREY, GREY, GREY, EYE, EYE, GREY])
   const z = (row: number) => drawnIn(asleep.map(line => line.map(pixel => (pixel === ZZZ_COLOR ? pixel : null))), row)
-  expect([z(0), z(1), z(2)]).toEqual([[12, 13, 14], [13], [12, 13, 14]])
+  const right = [PICTURE_SIZE - 4, PICTURE_SIZE - 3, PICTURE_SIZE - 2]
+  expect([z(0), z(1), z(2)]).toEqual([right, [PICTURE_SIZE - 3], right])
   // Asleep holds still
   expect(posed(kitWith(grid('b'), EYES), 'asleep', 1)).toEqual(asleep)
 })
@@ -215,27 +238,22 @@ test('a squishy that Needs you holds still with a ringed “!” bubble up top r
   const needsYou = posed(kitWith(grid('b')), 'needsYou', 0)
   const still = posed(kitWith(grid('b')), 'working', 0)
 
-  expect(topRight(needsYou, 6, 7)).toEqual(['.kkkkk', '.kw!wk', '.kw!wk', '.kwwwk', '.kw!wk', '.kkkkk', '......'])
+  expect(topRight(needsYou, 4, 6)).toEqual(['.kkk', '.k!k', '.kkk', '.k!k', '.kkk', '....'])
   // Everywhere else it is the still picture
-  expect(needsYou.slice(6)).toEqual(still.slice(6))
-  expect(needsYou.map(row => row.slice(0, 11))).toEqual(still.map(row => row.slice(0, 11)))
+  expect(needsYou.slice(5)).toEqual(still.slice(5))
+  expect(needsYou.map(row => row.slice(0, PICTURE_SIZE - 3))).toEqual(still.map(row => row.slice(0, PICTURE_SIZE - 3)))
   expect(posed(kitWith(grid('b')), 'needsYou', 1)).toEqual(needsYou)
 })
 
-test('the “!” bubble is drawn at the picture’s own size: twice as big at 2×, a compact ringed “!” on the mini', () => {
+test('the “!” bubble is drawn at the picture’s own size: the whole bubble at 2×, a ringed dot on the mini', () => {
   const kit = kitWith(grid('b'))
   const squishy = roll(kit, { live: [], rng: seeded(1), odds: { shiny: 0 } })
 
   const double = compose(kit, squishy, { state: 'needsYou', frame: 0, size: 'double' })
-  const big = ['kkkkk', 'kw!wk', 'kw!wk', 'kwwwk', 'kw!wk', 'kkkkk'].flatMap(row => {
-    const wide = [...row].map(key => key + key).join('')
-    return [wide, wide]
-  })
-  expect(topRight(double, 10, 12)).toEqual(big)
-  expect(topRight(double, 11, 13)[12]).toBe('...........')
+  expect(topRight(double, 6, 7)).toEqual(['.kkkkk', '.kw!wk', '.kw!wk', '.kwwwk', '.kw!wk', '.kkkkk', '......'])
 
   const mini = compose(kit, squishy, { state: 'needsYou', frame: 0, size: 'mini' })
-  expect(topRight(mini, 4, 6)).toEqual(['.kkk', '.k!k', '.kkk', '.k!k', '.kkk', '....'])
+  expect(topRight(mini, 4, 4)).toEqual(['.kkk', '.k!k', '.kkk', '....'])
 })
 
 test('with every part and legendary, at every size, the “!” shows and the bubble’s ring differs from the squishy beneath it', () => {
@@ -257,20 +275,25 @@ test('with every part and legendary, at every size, the “!” shows and the bu
 })
 
 test('a Squished squishy lies flat: half as tall, every other row kept, still standing on its bottom row', () => {
-  // A post from row 2 to a floor at row 14, a mark on row 4 and one on row 5
+  // A post from row 2 to a floor, a mark on row 4 and one on row 5
+  const floor = PICTURE_SIZE - 2
+  const post = 'b'.padStart(COLUMN + 1, '.')
   const body = grid('.', {
-    ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [index + 2, '.......b........'])),
-    4: '...b...b........',
-    5: '.......b....b...',
-    14: 'bbbbbbbbbbbbbbbb',
+    ...Object.fromEntries(Array.from({ length: floor - 2 }, (_, index) => [index + 2, post])),
+    4: post.slice(0, 3) + 'b' + post.slice(4),
+    5: post.padEnd(PICTURE_SIZE - 3, '.') + 'b',
+    [floor]: 'b'.repeat(PICTURE_SIZE),
   })
 
   const squished = posed(kitWith(body), 'squished', 0)
 
-  expect(rowsDrawn(squished)).toEqual([8, 9, 10, 11, 12, 13, 14])
-  expect(drawnIn(squished, 14)).toHaveLength(16)
-  expect(drawnIn(squished, 9)).toEqual([3, 7])
-  expect(squished.some(row => row[12] !== null && row !== squished[14])).toBe(false)
+  // Row r of the flat picture shows row 2r - floor of the upright one
+  const firstRow = (2 + floor) / 2
+  expect(rowsDrawn(squished)).toEqual(Array.from({ length: floor - firstRow + 1 }, (_, index) => firstRow + index))
+  expect(drawnIn(squished, floor)).toHaveLength(PICTURE_SIZE)
+  expect(drawnIn(squished, (4 + floor) / 2)).toEqual([3, COLUMN])
+  // Row 5 falls between kept rows, so its mark is gone
+  expect(squished.some(row => row[PICTURE_SIZE - 3] !== null && row !== squished[floor])).toBe(false)
   expect(posed(kitWith(body), 'squished', 1)).toEqual(squished)
 })
 
@@ -278,21 +301,15 @@ test('a legendary shuts its eyes too, over its own body color', () => {
   const kit: Kit = {
     ...TEST_KIT,
     legendaries: [
-      {
-        id: 'blob',
-        name: 'Blob',
-        grid: grid('b', { 5: 'bbbbbebbbbbbbbbb', 6: 'bbbbbebbbbbbbbbb' }),
-        colors: { b: GREY, e: EYE },
-        shiny: { b: SHINY_GREY, e: EYE },
-      },
+      { id: 'blob', name: 'Blob', grid: grid('b', { 5: 'bbebbbbbbb', 6: 'bbebbbbbbb' }), colors: COLORS, shiny: SHINY_COLORS },
     ],
   }
   const squishy = roll(kit, { live: [], rng: seeded(1), odds: { legendary: 1, shiny: 0 } })
 
   const asleep = compose(kit, squishy, { state: 'asleep', frame: 0 })
 
-  expect(asleep[5]?.[5]).toBe(GREY)
-  expect(asleep[6]?.slice(4, 7)).toEqual([EYE, EYE, EYE])
+  expect(asleep[5]?.[2]).toBe(GREY)
+  expect(asleep[6]?.slice(1, 4)).toEqual([EYE, EYE, GREY])
 })
 
 // Sparkles: a shiny or legendary squishy's glints, for a while after it appears
@@ -318,24 +335,27 @@ const SPARKLY_KIT: Kit = {
   palettes: TEST_KIT.palettes.map(palette => ({ ...palette, shiny: { ...palette.shiny, sparkle: GLINT_WARM } })),
 }
 
-test('a sparkling squishy shows glints over its picture that move from frame to frame, in SPARKLE_COLOR where its colors give none', () => {
+test('a sparkling shiny shows glints over its picture that move from frame to frame, in its palette’s sparkle color', () => {
   const glints = [0, 1, 2, 3].map(frame =>
-    changed(compose(TEST_KIT, SHINY, { state: 'working', frame }), compose(TEST_KIT, SHINY, { state: 'working', frame, sparkle: true })),
+    changed(compose(SPARKLY_KIT, SHINY, { state: 'working', frame }), compose(SPARKLY_KIT, SHINY, { state: 'working', frame, sparkle: true })),
   )
 
   for (const { at, colors } of glints) {
     expect(at.length).toBeGreaterThan(0)
-    expect([...colors]).toEqual([SPARKLE_COLOR])
+    expect([...colors]).toEqual([GLINT_WARM])
   }
   for (const [frame, { at }] of glints.entries()) {
     if (frame > 0) expect(at).not.toEqual(glints[frame - 1]?.at)
   }
 })
 
-test('a shiny’s glints take its palette’s sparkle color when it has one', () => {
-  const { colors } = changed(compose(SPARKLY_KIT, SHINY, { state: 'asleep', frame: 0 }), compose(SPARKLY_KIT, SHINY, { state: 'asleep', frame: 0, sparkle: true }))
+test('a plain legendary’s glints, which its colors give no sparkle for, are SPARKLE_COLOR', () => {
+  const kit: Kit = { ...TEST_KIT, legendaries: [{ id: 'blob', name: 'Blob', grid: grid('b'), colors: COLORS, shiny: SHINY_COLORS }] }
+  const legendary = roll(kit, { live: [], rng: seeded(1), odds: { legendary: 1, shiny: 0 } })
 
-  expect([...colors]).toEqual([GLINT_WARM])
+  const { colors } = changed(compose(kit, legendary, { state: 'asleep', frame: 0 }), compose(kit, legendary, { state: 'asleep', frame: 0, sparkle: true }))
+
+  expect([...colors]).toEqual([SPARKLE_COLOR])
 })
 
 test('glints are drawn at the picture’s own size: two pluses at full size, twice as long at 2×, lone pixels that twinkle on the mini', () => {

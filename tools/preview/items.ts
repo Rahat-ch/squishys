@@ -3,7 +3,7 @@
 // it draws through the mod's own roller and composer, so the preview shows
 // exactly what ships.
 
-import { compose } from '../../src/composer'
+import { PICTURE_SIZE, compose } from '../../src/composer'
 import type { Accessory, Body, Face, Kit, Legendary, Palette } from '../../src/kit'
 import type { Pixels } from '../../src/raster'
 import { roll, speciesSquishy } from '../../src/roller'
@@ -28,7 +28,7 @@ export type PreviewItem = {
   detail: string
   /** What sets this picture apart from its neighbours: "alone", "shiny". */
   caption: string
-  /** The 16x16 picture. */
+  /** The PICTURE_SIZE x PICTURE_SIZE picture. */
   pixels: Pixels
   /**
    * A fingerprint of the picture. A verdict records the art it was given
@@ -45,7 +45,7 @@ export type PreviewOptions = {
 }
 
 /** A see-through face and accessory, so a part can be drawn with nothing over it. */
-const NOTHING = Array.from({ length: 16 }, () => '................')
+const NOTHING = Array.from({ length: PICTURE_SIZE }, () => '.'.repeat(PICTURE_SIZE))
 const NO_FACE: Face = { id: 'preview-no-face', rarity: 'common', syllable: '', grid: NOTHING }
 const NO_ACCESSORY: Accessory = { id: 'preview-no-accessory', rarity: 'common', syllable: '', grid: NOTHING }
 
