@@ -283,3 +283,64 @@ test('a band place is as wide as a mini picture or a Name, and as tall as the mi
   expect(BAND_PICTURE_COLUMNS).toBe(Math.max(mini.columns, BAND_NAME_COLUMNS))
   expect(BAND_PICTURE_ROWS).toBe(mini.rows + 1)
 })
+
+// The partner stands for the orchestrator: pinned in the first slot, with
+// the agents in the rest
+const PARTNER = { key: 'squishy-of-partner' }
+
+test('the partner takes the first slot, and the agents fill the rest and overflow past them', () => {
+  const layout = layoutRoster({ ...roomFor('dock', 3, 1), slotCap: MAX_SLOTS, agents: agents(4), partner: PARTNER })
+
+  expect(layout.partnerSlot).toBe(true)
+  expect(ids(layout.slots)).toEqual(['agent-1', 'agent-2'])
+  expect(ids(layout.overflow)).toEqual(['agent-3', 'agent-4'])
+})
+
+test('the partner’s slot comes on top of the slot cap, which counts the agents’ slots', () => {
+  const layout = layoutRoster({ ...roomFor('dock', 6, 6), slotCap: 3, agents: agents(5), partner: PARTNER })
+
+  expect(layout.partnerSlot).toBe(true)
+  expect(ids(layout.slots)).toEqual(['agent-1', 'agent-2', 'agent-3'])
+  expect(ids(layout.overflow)).toEqual(['agent-4', 'agent-5'])
+  expect(layout.columns).toBe(4)
+})
+
+test('the partner still takes the first slot the pane has room for, cap or no cap', () => {
+  const layout = layoutRoster({ ...roomFor('dock', 2, 1), slotCap: 3, agents: agents(3), partner: PARTNER })
+
+  expect(ids(layout.slots)).toEqual(['agent-1'])
+  expect(ids(layout.overflow)).toEqual(['agent-2', 'agent-3'])
+})
+
+test('with one slot, the partner keeps it and every agent waits in the overflow', () => {
+  const layout = layoutRoster({ ...roomFor('dock', 1, 1), slotCap: MAX_SLOTS, agents: agents(2), partner: PARTNER, slotted: ['agent-1'] })
+
+  expect(layout.partnerSlot).toBe(true)
+  expect(layout.slots).toEqual([])
+  expect(ids(layout.overflow)).toEqual(['agent-1', 'agent-2'])
+})
+
+test('with no room for a slot, the partner has none either', () => {
+  const layout = layoutRoster({ ...roomFor('dock', 1, 1, { columns: -1, rows: 0 }), slotCap: MAX_SLOTS, agents: agents(1), partner: PARTNER })
+
+  expect(layout.partnerSlot).toBe(false)
+  expect(ids(layout.overflow)).toEqual(['agent-1'])
+})
+
+test('without a partner, no slot is pinned', () => {
+  expect(layoutRoster({ ...TWO_SLOTS, slotCap: MAX_SLOTS, agents: agents(2) }).partnerSlot).toBe(false)
+})
+
+test('an ended agent showing the partner’s squishy gets no slot beside it', () => {
+  const twin = { ...agent('agent-2', 'asleep'), squishy: PARTNER }
+  const layout = layoutRoster({ ...roomFor('dock', 3, 1), slotCap: MAX_SLOTS, agents: [agent('agent-1', 'asleep'), twin], partner: PARTNER })
+
+  expect(ids(layout.slots)).toEqual(['agent-1'])
+  expect(ids(layout.overflow)).toEqual(['agent-2'])
+})
+
+test('the roll pool leaves out the partner’s squishy', () => {
+  const live = liveSquishys([agent('agent-1')], ['agent-1'], PARTNER)
+
+  expect(live.map(squishy => squishy.key)).toEqual(['squishy-of-agent-1', 'squishy-of-partner'])
+})

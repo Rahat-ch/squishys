@@ -5,9 +5,10 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentInfo, AgentStatus, EngineInterface, On, Timer } from 'claude-code'
 
-import type { Agent, SquishyState } from '../types'
+import type { Agent, Squishy, SquishyState } from '../types'
 import { KIT } from './kit'
 import { OPEN_PANE, PANE_ID, squishysOnScreen } from './pane'
+import { PARTNER_KEY, partnerFrom } from './partner'
 import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
 import { cryptoRandom, roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
@@ -296,14 +297,19 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
  * roster's slots: an Asleep squishy stays on screen in its slot until a new
  * agent takes it (see liveSquishys). An ended agent that wakes
  * keeps its own squishy, even if another agent has rolled it since: an
- * agent's identity wins over keeping squishys apart.
+ * agent's identity wins over keeping squishys apart. Nor does it repeat
+ * the partner's.
  */
 async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<void> {
+  let partner: Squishy | undefined
+  try {
+    partner = partnerFrom(await $.store.get(PARTNER_KEY))
+  } catch {}
   let assigned: Agent | undefined
   let first = false
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
-    const squishy = roll(KIT, { live: liveSquishys(known, squishysOnScreen()), rng: cryptoRandom })
+    const squishy = roll(KIT, { live: liveSquishys(known, squishysOnScreen(), partner), rng: cryptoRandom })
     assigned = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
     first = known.length === 0
     return [...known, assigned]

@@ -8,6 +8,7 @@ import { registerBand } from '../src/band'
 import { registerFocus } from '../src/focus'
 import { registerModelSwitch } from '../src/model-switch'
 import { registerPane } from '../src/pane'
+import { registerPartner } from '../src/partner'
 import { registerRebuild } from '../src/rebuild'
 import { registerSettings } from '../src/settings'
 
@@ -21,6 +22,7 @@ export const register: Register = on => {
   registerPane(on)
   registerRebuild(on)
   registerSettings(on)
+  registerPartner(on)
   registerFocus(on)
   registerModelSwitch(on)
   registerBand(on)

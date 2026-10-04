@@ -63,7 +63,9 @@ export type RosterAgent = {
 }
 
 export type RosterLayout<A extends RosterAgent> = {
-  /** The agents in slots, in slot order. */
+  /** Whether the partner has the first slot: it does whenever a slot fits. */
+  partnerSlot: boolean
+  /** The agents in slots, in slot order, after the partner's. */
   slots: A[]
   /** The agents with no slot, in the order they were first seen. */
   overflow: A[]
@@ -72,7 +74,9 @@ export type RosterLayout<A extends RosterAgent> = {
 }
 
 /**
- * Lays out the roster. Agents keep the slots they had in `slotted` (the ids
+ * Lays out the roster. The partner (its squishy), when there is one, is
+ * pinned in the first slot, beyond the slot cap, which counts the agents'
+ * slots; the agents share the rest. Agents keep the slots they had in `slotted` (the ids
  * the roster last showed, in slot order), so squishys stay put. A running
  * agent without a slot takes a free one, else an ended squishy's (in
  * SLOT_GIVING_ORDER), and otherwise waits in the overflow: a running
@@ -86,9 +90,15 @@ export function layoutRoster<A extends RosterAgent>({
   agents,
   slotCap,
   slotted = [],
+  partner,
   ...size
-}: RosterSize & { agents: readonly A[]; slotCap: number; slotted?: readonly string[] }): RosterLayout<A> {
-  const count = slotCount(size, slotCap)
+}: RosterSize & { agents: readonly A[]; slotCap: number; slotted?: readonly string[]; partner?: A['squishy'] }): RosterLayout<A> {
+  // The partner's slot comes on top of the cap
+  const cap = partner !== undefined ? slotCap + 1 : slotCap
+  const total = slotCount(size, cap)
+  const partnerSlot = partner !== undefined && total > 0
+  // The slots the agents share
+  const count = partnerSlot ? total - 1 : total
   const byId = new Map(agents.map(agent => [agent.id, agent]))
   const holding: A[] = [...new Set(slotted)].flatMap(id => byId.get(id) ?? [])
   while (holding.length > count) holding.splice(slotGivenUp(holding, 'last') ?? holding.length - 1, 1)
@@ -104,14 +114,14 @@ export function layoutRoster<A extends RosterAgent>({
     const taken = slotGivenUp(slots, 'first')
     if (taken !== undefined) slots[taken] = agent
   }
-  const showing = () => new Set([...slots, ...newcomers].map(agent => agent.squishy.key))
+  const showing = () => new Set([...(partnerSlot ? [partner.key] : []), ...[...slots, ...newcomers].map(agent => agent.squishy.key)])
   for (const agent of agents.filter(each => !holding.includes(each) && isEnded(each.state))) {
     if (free() > 0 && !showing().has(agent.squishy.key)) newcomers.push(agent)
   }
   // Newcomers to free slots take them in the order they were first seen
   slots.push(...agents.filter(agent => newcomers.includes(agent)))
 
-  return { slots, overflow: agents.filter(agent => !slots.includes(agent)), columns: slotsAcross(size, slotCap) }
+  return { partnerSlot, slots, overflow: agents.filter(agent => !slots.includes(agent)), columns: slotsAcross(size, cap) }
 }
 
 /**
@@ -120,12 +130,17 @@ export function layoutRoster<A extends RosterAgent>({
  * in the roster's slots and any other the pane draws, as in the focus
  * view). An ended agent's squishy that is nowhere on screen goes back to
  * the pool. Before the pane first draws (`onScreen` undefined), every
- * agent's.
+ * agent's. And the partner's, which is never an agent's.
  */
-export function liveSquishys<A extends RosterAgent>(agents: readonly A[], onScreen: readonly string[] | undefined): A['squishy'][] {
-  return agents
-    .filter(agent => onScreen === undefined || !isEnded(agent.state) || onScreen.includes(agent.id))
-    .map(agent => agent.squishy)
+export function liveSquishys<A extends RosterAgent>(
+  agents: readonly A[],
+  onScreen: readonly string[] | undefined,
+  partner?: A['squishy'],
+): A['squishy'][] {
+  return [
+    ...agents.filter(agent => onScreen === undefined || !isEnded(agent.state) || onScreen.includes(agent.id)).map(agent => agent.squishy),
+    ...(partner !== undefined ? [partner] : []),
+  ]
 }
 
 /** The band's room: its body columns, the rows it may take and its hint's width. */
@@ -170,8 +185,12 @@ export function layoutBand<A extends RosterAgent>({ agents, bodyColumns, maxRows
 /** How many slots fit across the pane, at most `slotCap`. */
 function slotsAcross({ placement, bodyColumns }: RosterSize, slotCap: number): number {
   // Inline, the footer and the gap before it come off the columns
-  const room = bodyColumns + SLOT_COLUMN_GAP - (placement === 'inline' ? FOOTER_COLUMNS + FOOTER_COLUMN_GAP : 0)
-  return Math.max(0, Math.min(slotCap, Math.floor(room / (SLOT_COLUMNS + SLOT_COLUMN_GAP))))
+  return Math.min(slotCap, slotsThatFit(bodyColumns - (placement === 'inline' ? FOOTER_COLUMNS + FOOTER_COLUMN_GAP : 0)))
+}
+
+/** How many slots fit side by side in this many columns, with no cap. */
+export function slotsThatFit(columns: number): number {
+  return Math.max(0, Math.floor((columns + SLOT_COLUMN_GAP) / (SLOT_COLUMNS + SLOT_COLUMN_GAP)))
 }
 
 /** How many slots fit the pane, at most `slotCap`. */

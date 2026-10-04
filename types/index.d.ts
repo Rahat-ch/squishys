@@ -109,10 +109,10 @@ export type ActivityRow =
 export type StopControl = { agentId: string; armedAt: number }
 
 /**
- * What the pane is showing. Later modes (starter pick, Squishydex) join
- * this union.
+ * What the pane is showing: `starter` is the starter pick, while no partner
+ * is saved. Later modes (Squishydex) join this union.
  */
-export type PaneMode = 'roster' | 'settings' | 'focus'
+export type PaneMode = 'roster' | 'settings' | 'focus' | 'starter'
 
 declare module 'claude-code' {
   interface PluginState {

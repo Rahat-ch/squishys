@@ -11,6 +11,7 @@ import type { AgentInfo, EngineInterface, On } from 'claude-code'
 import type { Agent, Squishy } from '../types'
 import { KIT } from './kit'
 import { squishysOnScreen } from './pane'
+import { PARTNER_KEY, partnerFrom } from './partner'
 import { cryptoRandom, roll, squishyOf } from './roller'
 import { liveSquishys } from './slots'
 import { stateOfStatus } from './states'
@@ -93,8 +94,8 @@ export function registerRebuild(on: On): void {
  * Adds every agent the agent list names that the roster lacks, in its
  * status's state. An agent the store kept a squishy for gets it back,
  * even one another agent shows (an agent's identity wins); any other gets
- * a fresh roll that repeats no live squishy (see liveSquishys) and no
- * restored one.
+ * a fresh roll that repeats no live squishy (see liveSquishys), no
+ * restored one and not the partner's.
  * A store that can't be read means fresh rolls, never no roster.
  */
 async function rebuild($: EngineInterface): Promise<void> {
@@ -106,8 +107,10 @@ async function rebuild($: EngineInterface): Promise<void> {
   }
   if (listed.length === 0) return
   let remembered: Remembered = []
+  let partner: Squishy | undefined
   try {
     remembered = rememberedFrom(await $.store.get(REMEMBERED_KEY))
+    partner = partnerFrom(await $.store.get(PARTNER_KEY))
   } catch {}
   const keyOf = new Map(remembered)
   const restored = new Map<string, Squishy>()
@@ -120,7 +123,7 @@ async function rebuild($: EngineInterface): Promise<void> {
   await update($, agents, current => {
     const missing = listed.filter(info => !current.some(agent => agent.id === info.id))
     // Restored squishys all count, so no fresh roll repeats one
-    const live: Squishy[] = [...liveSquishys(current, squishysOnScreen()), ...missing.flatMap(info => restored.get(info.id) ?? [])]
+    const live: Squishy[] = [...liveSquishys(current, squishysOnScreen(), partner), ...missing.flatMap(info => restored.get(info.id) ?? [])]
     added = missing.map((info): Agent => {
       let squishy = restored.get(info.id)
       if (squishy === undefined) {

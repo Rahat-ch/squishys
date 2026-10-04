@@ -2,7 +2,7 @@
 // the squishys already live and a source of randomness, and never touches
 // Claude Code, so its tests seed the randomness and call it directly.
 
-import type { Kit, PartBase, Rarity } from './kit'
+import type { Kit, PartBase, Rarity, Species } from './kit'
 
 /** A squishy assembled from the kit's parts. */
 export type AssembledSquishy = {
@@ -111,6 +111,23 @@ export function squishyOf(kit: Kit, key: string): Squishy | undefined {
   ]
   if (!body || !face || !palette || !accessory) return undefined
   return assembledOf({ body, face, palette, accessory }, shiny)
+}
+
+/**
+ * A species as a squishy, the way a starter and the partner are drawn: in
+ * `palette` (the kit's first when it's not given or the kit no longer has
+ * it), with the bare accessory (the one that is all `.`, else the kit's
+ * first), never shiny. Undefined when the kit lacks the body or face.
+ */
+export function speciesSquishy(kit: Kit, { body, face }: Species, palette?: string): AssembledSquishy | undefined {
+  const parts = {
+    body: kit.bodies.find(part => part.id === body),
+    face: kit.faces.find(part => part.id === face),
+    palette: kit.palettes.find(part => part.id === palette) ?? kit.palettes[0],
+    accessory: kit.accessories.find(part => part.grid.every(row => /^\.*$/.test(row))) ?? kit.accessories[0],
+  }
+  if (!parts.body || !parts.face || !parts.palette || !parts.accessory) return undefined
+  return assembledOf({ body: parts.body, face: parts.face, palette: parts.palette, accessory: parts.accessory }, false)
 }
 
 function rollOnce(kit: Kit, odds: Odds, rng: Rng): Squishy {

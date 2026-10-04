@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { AgentStatus } from 'claude-code'
 
 import { AGENT_CHECK_MS } from '../src/agents'
-import { PANE, drain, finishOf, paneSized, readFrom, roomFor, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
+import { PANE, PARTNERED, drain, finishOf, paneSized, readFrom, roomFor, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
 import { spawnAndWatch, watch } from './pictures'
 
 test('a spawned agent’s squishy is Working', async ($, on) => {
@@ -114,7 +114,7 @@ for (const [status, how] of [['failed', 'failed'], ['killed', 'was stopped']] as
 }
 
 test('after a hot reload, which keeps the agents but drops the timers, the agent list is checked again', async ($, on) => {
-  mock.store(on)
+  mock.store(on, PARTNERED)
   stubSpawns(on)
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))

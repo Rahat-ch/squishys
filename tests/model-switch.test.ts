@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { PANE, drain, finishOf, spawnOf, stepOf, stubSessionStart, stubSpawns, stubStore } from './fixtures'
+import { PANE, PARTNERED, drain, finishOf, spawnOf, stepOf, stubSessionStart, stubSpawns, stubStore } from './fixtures'
 
 type Sent = { agentId: string | undefined; model: string; effort?: unknown }
 
@@ -37,7 +37,7 @@ function stubToasts(on: On): string[] {
 // Spawns agent-1 and agent-2 with the store as `settings` left it, and opens
 // agent-1's focus view
 async function focusOnAgent($: Engine, on: On, settings?: Record<string, unknown>) {
-  const stored = stubStore(on, settings === undefined ? {} : { settings })
+  const stored = stubStore(on, settings === undefined ? PARTNERED : { ...PARTNERED, settings })
   stubSpawns(on)
   await $.agent.spawn(spawnOf('toolu_1'))
   await $.agent.spawn(spawnOf('toolu_2'))

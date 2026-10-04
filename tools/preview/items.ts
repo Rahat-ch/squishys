@@ -6,7 +6,7 @@
 import { compose } from '../../src/composer'
 import type { Accessory, Body, Face, Kit, Legendary, Palette } from '../../src/kit'
 import type { Pixels } from '../../src/raster'
-import { roll } from '../../src/roller'
+import { roll, speciesSquishy } from '../../src/roller'
 import type { AssembledSquishy, Squishy } from '../../src/roller'
 import { seeded } from '../../src/seeded'
 
@@ -103,14 +103,15 @@ export function previewItems(kit: Kit, { samples, seed }: PreviewOptions): Previ
         })
       }),
     ),
+    // Drawn as the mod draws a starter, and the partner picked from it
     ...kit.starters.map(starter => {
-      const parts = { ...base, body: partOf(kit.bodies, starter.body, 'body'), face: partOf(kit.faces, starter.face, 'face') }
-      const squishy = assembled(parts, false)
+      const squishy = speciesSquishy(kit, starter)
+      if (squishy === undefined) throw new Error(`The kit has no ${starter.body} body or ${starter.face} face for a starter`)
       return item({
         id: `starter/${starter.body}/${starter.face}`,
         section: 'starter',
         heading: squishy.name,
-        detail: `${starter.body} + ${starter.face}, in ${palette.id}`,
+        detail: `${starter.body} + ${starter.face}, in ${squishy.palette}`,
         caption: 'starter',
         pixels: draw(squishy),
       })
@@ -182,10 +183,4 @@ function sampleSquishys(kit: Kit, count: number, seed: number): AssembledSquishy
     rolled.push(squishy)
   }
   return rolled
-}
-
-function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind: string): T {
-  const part = parts.find(each => each.id === id)
-  if (part === undefined) throw new Error(`The kit has no ${kind} "${id}"`)
-  return part
 }

@@ -53,8 +53,11 @@ export type Legendary = {
   shiny: Colors
 }
 
-/** A starter species, offered to a new user as their first partner. */
-export type Starter = { body: string; face: string }
+/**
+ * A species: the body and face that make one. The kit's starters are
+ * species, offered to a new user as their first partner.
+ */
+export type Species = { body: string; face: string }
 
 export type Kit = {
   bodies: readonly Body[]
@@ -62,7 +65,7 @@ export type Kit = {
   palettes: readonly Palette[]
   accessories: readonly Accessory[]
   legendaries: readonly Legendary[]
-  starters: readonly Starter[]
+  starters: readonly Species[]
 }
 
 /** The kit the mod ships: placeholder art until the real kit is drawn. */

@@ -4,11 +4,12 @@ import type { On, PaneOpenArgs } from 'claude-code'
 import { OPEN_HINT } from '../src/band'
 import { KIT } from '../src/kit'
 import { FRAME_MS, PANE_ID, pictureKey } from '../src/pane'
+import { PARTNER_BUTTON, PARTNER_PICTURE } from '../src/partner'
 import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { BAND_GAP, BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS } from '../src/slots'
-import { PANE, SQUISHYS_COMMAND, readFrom, spawnOf, stubBlits, stubSpawns, stubStore } from './fixtures'
+import { PANE, PARTNERED, SQUISHYS_COMMAND, readFrom, spawnOf, stubBlits, stubSpawns, stubStore } from './fixtures'
 import { cellsOf } from './pictures'
 
 // The band's render input, as Claude Code passes it, with room for `across`
@@ -137,6 +138,19 @@ test('while the opened pane is unplaced, the band shows a mini squishy for each 
     expect((await band.find({ type: 'Raster', key: pictureKey(agentId, 'mini') }))?.props.cells).toBe(cellsOf(squishy, 'working', 0, 'mini'))
   }
   expect(await band.find({ type: 'Text', text: OPEN_HINT })).toBeDefined()
+})
+
+test('the band shows the agents alone, never the partner', async ($, on) => {
+  stubStore(on, PARTNERED)
+  stubSpawns(on)
+  stubPanes(on, { wide: false })
+
+  await $.agent.spawn(spawnOf('toolu_1'))
+  const band = await $.ui.mount(bandSized(2))
+
+  expect((await band.findAll({ type: 'Raster' })).map(picture => picture.key)).toEqual([pictureKey('agent-1', 'mini')])
+  expect(await band.find({ key: PARTNER_BUTTON })).toBeUndefined()
+  expect(await band.find({ key: PARTNER_PICTURE })).toBeUndefined()
 })
 
 test('while the pane is placed, the band leaves the space to Claude Code', async ($, on) => {
