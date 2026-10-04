@@ -314,6 +314,8 @@ export function registerPane(on: On): void {
         ? [<Button key="overflow" hotkey="m" plain label={`+${layout.overflow.length}`} onPress={() => void showOverflowList($, !showsList)} />]
         : []),
       <Button key="settings" hotkey="o" plain dimColor label="Settings" onPress={() => void update($, mode, () => 'settings')} />,
+      // src/squishydex.tsx answers its press
+      <Button key="squishydex" hotkey="d" plain dimColor label="Squishydex" onPress={() => {}} />,
     ]
     // Docked, the footer goes under the slots; inline, where rows are
     // scarce, beside them

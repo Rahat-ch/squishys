@@ -14,6 +14,7 @@ import { squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
 import { cryptoRandom, roll, squishyOf } from './roller'
 import { liveSquishys } from './slots'
+import { SQUISHYDEX_KEY, recordMet } from './squishydex'
 import { stateOfStatus } from './states'
 
 // The engine reads each $.state reference off the file that uses it, so
@@ -136,4 +137,6 @@ async function rebuild($: EngineInterface): Promise<void> {
   })
   if (added.length === 0) return
   await rememberSquishys({ get: () => $.store.get(REMEMBERED_KEY), set: remembered => $.store.set(REMEMBERED_KEY, remembered) }, added)
+  // The Squishydex keeps a squishy's first-met date, so recording a restored one again changes nothing
+  await recordMet({ get: () => $.store.get(SQUISHYDEX_KEY), set: dex => $.store.set(SQUISHYDEX_KEY, dex) }, added.map(agent => agent.squishy), await $.clock.now())
 }

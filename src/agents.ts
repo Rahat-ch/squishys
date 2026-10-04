@@ -11,6 +11,7 @@ import { OPEN_PANE, PANE_ID, squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
 import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
 import { cryptoRandom, roll } from './roller'
+import { SQUISHYDEX_KEY, recordMet } from './squishydex'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
 import { liveSquishys } from './slots'
 import { answered, endedState, isEnded, stateAfterRun, stateAtStop } from './states'
@@ -319,4 +320,6 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   // Kept in the store too, so it comes back after /clear or /resume
   if (assigned === undefined) return
   await rememberSquishys({ get: () => $.store.get(REMEMBERED_KEY), set: remembered => $.store.set(REMEMBERED_KEY, remembered) }, [assigned])
+  // and met: the Squishydex records it
+  await recordMet({ get: () => $.store.get(SQUISHYDEX_KEY), set: dex => $.store.set(SQUISHYDEX_KEY, dex) }, [assigned.squishy], await $.clock.now())
 }
