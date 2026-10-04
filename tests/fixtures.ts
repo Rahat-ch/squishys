@@ -1,6 +1,6 @@
 // Inputs Claude Code would hand the mod, shared by the test files.
 
-import type { AgentStatus, On, PaneOpenArgs } from 'claude-code'
+import type { AgentStatus, BoxHoverProps, On, PaneOpenArgs, RenderElement, RenderNode, TextHoverProps } from 'claude-code'
 import type { Mounted } from 'claude-code/testing'
 
 import { KIT } from '../src/kit'
@@ -266,13 +266,11 @@ export const SQUISHYDEX_COMMAND = {
 // The hover styles of the element keyed `key` in a mounted drawing, as drawn.
 // `find` leaves an element's hover out (it lies beside its props), so this
 // walks the tree `drawn()` returns.
-export async function hoverOf(ui: { drawn: () => Promise<unknown> }, key: string): Promise<unknown> {
-  type Drawn = { props?: { key?: unknown }; hover?: unknown; children?: unknown[] }
-  const search = (node: unknown): Drawn | undefined => {
-    if (typeof node !== 'object' || node === null) return undefined
-    const element = node as Drawn
-    if (element.props?.key === key) return element
-    for (const child of element.children ?? []) {
+export async function hoverOf(ui: { drawn: () => Promise<RenderElement> }, key: string): Promise<BoxHoverProps | TextHoverProps | undefined> {
+  const search = (node: RenderNode): RenderElement | undefined => {
+    if (typeof node === 'string') return undefined
+    if ('props' in node && node.props !== undefined && 'key' in node.props && node.props.key === key) return node
+    for (const child of 'children' in node ? (node.children ?? []) : []) {
       const found = search(child)
       if (found !== undefined) return found
     }
@@ -280,5 +278,20 @@ export async function hoverOf(ui: { drawn: () => Promise<unknown> }, key: string
   }
   const found = search(await ui.drawn())
   if (found === undefined) throw new Error(`Nothing drawn is keyed ${key}`)
-  return found.hover
+  return 'hover' in found ? found.hover : undefined
+}
+
+// A Claude Code theme key, such as `userMessageBackground`: a name, never a
+// raw color (`#rrggbb`, `rgb(...)`, `ansi:...`), so it follows the theme
+export const THEME_KEY = /^[a-z][A-Za-z]*$/
+
+// What a squishy's slot lights in under the pointer: the color its hover
+// sets as the background. A hover that sets anything else (a border, a
+// reveal, an offset) fails, since only a background leaves the layout be.
+export async function slotLight(ui: { drawn: () => Promise<RenderElement> }, key: string): Promise<string | undefined> {
+  const hover = await hoverOf(ui, key)
+  if (hover === undefined) return undefined
+  const { backgroundColor, ...rest } = hover
+  if (Object.keys(rest).length > 0) throw new Error(`${key}'s hover sets more than a background: ${Object.keys(rest).join(', ')}`)
+  return backgroundColor
 }

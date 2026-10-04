@@ -3,13 +3,13 @@ import type { On } from 'claude-code'
 
 import { OPEN_HINT } from '../src/band'
 import { KIT } from '../src/kit'
-import { FRAME_MS, PANE_ID, SLOT_HOVER, pictureKey } from '../src/pane'
+import { FRAME_MS, PANE_ID, pictureKey } from '../src/pane'
 import { PARTNER_BUTTON, PARTNER_PICTURE } from '../src/partner'
 import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { BAND_GAP, BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, nameCut } from '../src/slots'
-import { PANE, PARTNERED, SQUISHYS_COMMAND, hoverOf, readFrom, spawnOf, stubBlits, stubPanes, stubSpawns, stubStore } from './fixtures'
+import { PANE, PARTNERED, SQUISHYS_COMMAND, THEME_KEY, hoverOf, readFrom, slotLight, spawnOf, stubBlits, stubPanes, stubSpawns, stubStore } from './fixtures'
 import { cellsOf } from './pictures'
 
 // The band's render input, as Claude Code passes it, with room for `across`
@@ -119,7 +119,7 @@ test('the pointer anywhere over a mini squishy’s place in the band lights the 
   await $.agent.spawn(spawnOf('toolu_2'))
   const band = await $.ui.mount(bandSized(2))
 
-  for (const agentId of ['agent-1', 'agent-2']) expect(await hoverOf(band, `band-${agentId}`)).toEqual(SLOT_HOVER)
+  for (const agentId of ['agent-1', 'agent-2']) expect(await slotLight(band, `band-${agentId}`)).toMatch(THEME_KEY)
   // The hint isn't a squishy, so it stays as it is
   expect(await hoverOf(band, 'band-hint')).toBeUndefined()
 })

@@ -47,11 +47,12 @@ export const PICK_PREFIX = 'squishy-'
  * How a squishy's slot lights while the pointer is anywhere over it (the
  * roster's, the band's and a met Squishydex place's keyed Box), so a
  * squishy feels clickable; its Name stays the press. A background alone,
- * which takes no cells, so nothing moves, in the theme's own tone for a
- * hovered message, so it fits dark and light themes alike. Only fullscreen
- * rendering has the pointer; on the main screen nothing changes.
+ * which takes no cells, so nothing moves, in the theme's grey for the
+ * person's own messages (a theme key: AGENTS.md says which themes it was
+ * seen on). Only fullscreen rendering has the pointer; on the main screen
+ * nothing changes.
  */
-export const SLOT_HOVER = { backgroundColor: 'userMessageBackgroundHover' } as const
+export const SLOT_HOVER = { backgroundColor: 'userMessageBackground' } as const
 
 /**
  * How the pane is opened unasked, at the first spawn, with no `focus`, so it

@@ -2,8 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { FoundElement } from 'claude-code/testing'
 
 import { PICTURE_SIZE } from '../src/composer'
-import { SLOT_HOVER } from '../src/pane'
-import { PANE, PARTNERED, glyphsOf, hoverOf, readFrom, spawnOf, stubSpawns, stubStore } from './fixtures'
+import { PANE, PARTNERED, THEME_KEY, glyphsOf, readFrom, slotLight, spawnOf, stubSpawns, stubStore } from './fixtures'
 
 test('a spawned agent’s squishy shows as a half-block picture, its name, and the agent’s description underneath', async ($, on) => {
   mock.store(on)
@@ -24,16 +23,15 @@ test('a spawned agent’s squishy shows as a half-block picture, its name, and t
   expect(description).toMatchObject({ type: 'Text', children: ['Find config parser'] })
 })
 
-test('the pointer anywhere over a slot, the partner’s too, lights the whole slot in Claude Code’s hover tone, and nothing moves', async ($, on) => {
+test('the pointer anywhere over a slot, the partner’s too, lights the whole slot in a theme color, and nothing moves', async ($, on) => {
   stubStore(on, PARTNERED)
   stubSpawns(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // A background alone: unlike a border or a reveal, it takes no cells, so the slot keeps its size
-  expect(SLOT_HOVER).toEqual({ backgroundColor: 'userMessageBackgroundHover' })
-  for (const key of ['slot-partner', 'slot-agent-1']) expect(await hoverOf(ui, key)).toEqual(SLOT_HOVER)
+  // A background alone (slotLight fails on anything else) takes no cells, so the slot keeps its size; a theme key follows the theme
+  for (const key of ['slot-partner', 'slot-agent-1']) expect(await slotLight(ui, key)).toMatch(THEME_KEY)
 })
 
 test('each agent gets its own roster entry, under its own description', async ($, on) => {
