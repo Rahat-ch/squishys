@@ -47,7 +47,7 @@ export function registerAgentTracking(on: On): void {
       settings = settingsFrom(await $.store.get(SETTINGS_KEY))
     } catch {}
     const started = await next(withModelDefault(e, settings))
-    if (started.agentId !== undefined) await assignSquishy($, started.agentId, e.description)
+    if (started.agentId !== undefined) await assignSquishy($, started.agentId, e.description, started.model)
     return started
   })
 
@@ -229,11 +229,11 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
  * keeps its own squishy, even if another agent has rolled it since: an
  * agent's identity wins over keeping squishys apart.
  */
-async function assignSquishy($: EngineInterface, agentId: string, description: string): Promise<void> {
+async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<void> {
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
     const squishy = roll(KIT, { live: known.map(agent => agent.squishy), rng: cryptoRandom })
-    const agent: Agent = { id: agentId, description, squishy, state: 'working' }
+    const agent: Agent = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
     return [...known, agent]
   })
   keepChecking($)

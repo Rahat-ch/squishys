@@ -1,18 +1,25 @@
 // The pane: one Squishys panel beside the main view. It shows one mode at a
 // time (see PaneMode); this file draws the roster, one slot per agent, and
-// animates the squishys in it.
+// animates the squishys every mode shows.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
 
 import type { Agent } from '../types'
 import { compose } from './composer'
+import type { Size } from './composer'
 import { KIT } from './kit'
 import { halfBlocks } from './raster'
 import type { RasterCells } from './raster'
 import { moves } from './states'
 
 export const PANE_ID = 'squishys'
+
+/**
+ * What a Button that picks a squishy is keyed: this, then its agent's id.
+ * src/focus.tsx answers a press on any pane Button keyed so (the pick).
+ */
+export const PICK_PREFIX = 'squishy-'
 
 /** How long each animation frame shows, in milliseconds. */
 export const FRAME_MS = 200
@@ -23,7 +30,7 @@ const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
 const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 const reducedMotion = atom({ plugin: 'squishys', key: 'reducedMotion' } as const, false)
 
-// The animator. Its frames repaint the roster's pictures with `$.ui.blit`,
+// The animator. Its frames repaint the pane's pictures with `$.ui.blit`,
 // never a redraw, so they're kept here rather than in $.state: a reload
 // only restarts the animation.
 
@@ -34,10 +41,28 @@ let animator: Timer | undefined
 /** Whether a frame's repaints are still going out. */
 let painting = false
 /**
- * The cells each slot's picture shows now, by agent id: the pictures the
- * animator may repaint. Each drawing of the roster fills it again.
+ * The pictures the animator may repaint, by Raster key: whose squishy each
+ * shows, at what size, and the cells it shows now. Each drawing of the pane
+ * fills it again, through `animatedPicture`.
  */
-const shown = new Map<string, string>()
+const shown = new Map<string, { agentId: string; size: Size; cells: string }>()
+
+/** The key of the Raster showing an agent's squishy at this size. */
+export function pictureKey(agentId: string, size: Size = 'full'): string {
+  return size === 'full' ? `picture-${agentId}` : `${size}-picture-${agentId}`
+}
+
+/**
+ * An agent's squishy in its state's pose at the animation's current frame,
+ * for the Raster keyed `pictureKey(agent.id, size)`, which the animator then
+ * keeps repainting while the squishy moves. Every mode draws its squishys
+ * through this.
+ */
+export function animatedPicture(agent: Agent, size: Size = 'full'): RasterCells {
+  const picture = pictureOf(agent, size)
+  shown.set(pictureKey(agent.id, size), { agentId: agent.id, size, cells: picture.cells })
+  return picture
+}
 
 export function registerPane(on: On): void {
   on('session.start', async ($, e, next) => {
@@ -70,33 +95,47 @@ export function registerPane(on: On): void {
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     // v1 draws only in the terminal; elsewhere Claude Code draws its own.
     if (e.surface !== 'terminal') return next(e)
-    // Each pane mode has its own hook, which draws only in its own mode.
-    if ((await read($, mode)) !== 'roster') {
-      shown.clear()
-      return next(e)
-    }
-    const { Box, Button, Raster, Text } = $.ui.resolve(e)
+    // Under Reduce motion every squishy is drawn at rest
     const motionReduced = await read($, reducedMotion)
     if (motionReduced) stopAnimating()
-    // Drawn at the animation's current frame, so a redraw doesn't jump back
-    const slots = (await read($, agents)).map(agent => ({ agent, picture: pictureOf(agent) }))
     shown.clear()
-    for (const { agent, picture } of slots) shown.set(agent.id, picture.cells)
-    if (!motionReduced && slots.some(({ agent }) => moves(agent.state))) startAnimating($)
+    // Each pane mode has its own hook, which draws only in its own mode; the
+    // animator moves whichever squishys it drew.
+    if ((await read($, mode)) !== 'roster') {
+      const drawing = await next(e)
+      if (!motionReduced) await animateShown($)
+      return drawing
+    }
+    const { Box, Button, Raster, Text } = $.ui.resolve(e)
+    // Drawn at the animation's current frame, so a redraw doesn't jump back
+    const slots = (await read($, agents)).map(agent => ({ agent, picture: animatedPicture(agent) }))
+    if (!motionReduced) await animateShown($)
     return (
       <Box flexDirection="column" rowGap={1}>
         {slots.length === 0 ? (
           <Text dimColor>No agents yet. Each agent the orchestrator starts gets a squishy here.</Text>
         ) : (
           <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-            {slots.map(({ agent, picture }) => (
+            {slots.map(({ agent, picture }, index) => (
               <Box key={`slot-${agent.id}`} flexDirection="column" alignItems="center">
-                <Raster key={`picture-${agent.id}`} {...picture} />
-                {/* Picking a squishy opens its focus view in a later ticket. */}
-                <Button key={`squishy-${agent.id}`} plain label={agent.squishy.name} onPress={() => {}} />
+                <Raster key={pictureKey(agent.id)} {...picture} />
+                {/* Its press picks the squishy: src/focus.tsx answers it. */}
+                <Button
+                  key={`${PICK_PREFIX}${agent.id}`}
+                  {...(index < 9 ? { hotkey: String(index + 1) } : {})}
+                  plain
+                  label={agent.squishy.name}
+                  onPress={() => {}}
+                />
                 <Text key={`description-${agent.id}`} dimColor>
                   {agent.description}
                 </Text>
+                {/* Squishys only reads the main view, never changes it (ADR 0001). */}
+                {agent.id === e.props.view.agentId ? (
+                  <Box key={`in-view-${agent.id}`}>
+                    <Text color="cyan">▲ in main view</Text>
+                  </Box>
+                ) : null}
               </Box>
             ))}
           </Box>
@@ -108,8 +147,8 @@ export function registerPane(on: On): void {
 }
 
 /** An agent's squishy in its state's pose, at the animation's current frame. */
-function pictureOf(agent: Agent): RasterCells {
-  return halfBlocks(compose(KIT, agent.squishy, { state: agent.state, frame }))
+function pictureOf(agent: Agent, size: Size): RasterCells {
+  return halfBlocks(compose(KIT, agent.squishy, { state: agent.state, frame, size }))
 }
 
 /** Keeps `reducedMotion` in step with Claude Code's `prefersReducedMotion` setting. */
@@ -123,8 +162,17 @@ async function readMotionSetting($: EngineInterface): Promise<void> {
   if ((await read($, reducedMotion)) !== reduced) await update($, reducedMotion, () => reduced)
 }
 
-function startAnimating($: EngineInterface): void {
-  animator ??= $.clock.every(FRAME_MS, () => void nextFrame($))
+/** Starts the animator if a squishy just drawn is Working or Thinking. */
+async function animateShown($: EngineInterface): Promise<void> {
+  if (movingPictures(await read($, agents)).length > 0) animator ??= $.clock.every(FRAME_MS, () => void nextFrame($))
+}
+
+/** The shown pictures whose squishy is Working or Thinking, each with its agent. */
+function movingPictures(known: readonly Agent[]) {
+  return [...shown].flatMap(([key, each]) => {
+    const agent = known.find(({ id }) => id === each.agentId)
+    return agent !== undefined && moves(agent.state) ? [{ key, agent, ...each }] : []
+  })
 }
 
 function stopAnimating(): void {
@@ -137,26 +185,26 @@ function stopAnimating(): void {
  * Moves the animation on a frame, blitting each shown squishy whose
  * picture changed. A tick that comes while the last frame's repaints are
  * still going out is skipped. A squishy whose repaint is refused is left
- * alone until the roster is drawn again. The animation stops once no shown
+ * alone until the pane is drawn again. The animation stops once no shown
  * squishy is Working or Thinking, or Reduce motion is on; the next drawing
- * of the roster starts it again.
+ * of the pane starts it again.
  */
 async function nextFrame($: EngineInterface): Promise<void> {
   if (painting) return
   painting = true
   try {
-    const moving = (await read($, agents)).filter(agent => shown.has(agent.id) && moves(agent.state))
+    const moving = movingPictures(await read($, agents))
     if (moving.length === 0 || (await read($, reducedMotion))) return stopAnimating()
     frame += 1
-    for (const agent of moving) {
-      const picture = pictureOf(agent)
-      if (shown.get(agent.id) === picture.cells) continue
+    for (const { key, agent, size, cells } of moving) {
+      const picture = pictureOf(agent, size)
+      if (cells === picture.cells) continue
       let refused = true
       try {
-        refused = (await $.ui.blit({ requestId: PANE_ID, key: `picture-${agent.id}`, ...picture })).deny !== undefined
+        refused = (await $.ui.blit({ requestId: PANE_ID, key, ...picture })).deny !== undefined
       } catch {}
-      if (refused) shown.delete(agent.id)
-      else shown.set(agent.id, picture.cells)
+      if (refused) shown.delete(key)
+      else shown.set(key, { agentId: agent.id, size, cells: picture.cells })
     }
   } finally {
     painting = false

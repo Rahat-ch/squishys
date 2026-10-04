@@ -6,6 +6,7 @@
 import type { Engine, Mounted } from 'claude-code/testing'
 
 import { compose } from '../src/composer'
+import type { Size } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Kit } from '../src/kit'
 import { halfBlocks } from '../src/raster'
@@ -34,9 +35,9 @@ export function eachPart(kit: Kit = KIT): Squishy[] {
   ])
 }
 
-/** The cells of a slot's Raster showing this squishy in this pose. */
-export function cellsOf(squishy: Squishy, state: SquishyState, frame = 0): string {
-  return halfBlocks(compose(KIT, squishy, { state, frame })).cells
+/** The cells of a Raster showing this squishy in this pose: a slot's, or at `double`, a focus view's. */
+export function cellsOf(squishy: Squishy, state: SquishyState, frame = 0, size: Size = 'full'): string {
+  return halfBlocks(compose(KIT, squishy, { state, frame, size })).cells
 }
 
 /**

@@ -72,6 +72,11 @@ export function readFrom(agentId: string, filePath: string) {
   return { tool: 'Read', file_path: filePath, agentId } as const
 }
 
+// A Bash command the agent with this id runs from inside its own loop, as readFrom
+export function bashFrom(agentId: string, command: string) {
+  return { tool: 'Bash', command, agentId } as const
+}
+
 // One model request inside the agent's loop, as the engine raises turn.step
 export function stepOf(agentId: string) {
   return { turnId: `turn-${agentId}`, index: 0, model: 'claude-opus-5-5', messageCount: 3, agentId } as const
