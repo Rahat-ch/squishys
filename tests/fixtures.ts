@@ -36,11 +36,6 @@ export function stubStore(on: On, entries: Record<string, unknown> = {}): Map<st
     stored.set(e.key, JSON.parse(JSON.stringify(e.value)))
     return { value: undefined }
   })
-  on('store.delete', ($, e) => {
-    stored.delete(e.key)
-    return { value: undefined }
-  })
-  on('store.keys', () => ({ value: [...stored.keys()] }))
   return stored
 }
 

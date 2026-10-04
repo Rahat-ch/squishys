@@ -40,7 +40,8 @@ export function settingsFrom(stored: unknown): Settings {
 
 /**
  * The spawn as it should start: on the default model when one is set.
- * Forks always inherit their parent's model, so they're left alone.
+ * A fork always inherits the model of the agent or orchestrator it forked
+ * from, so it's left alone.
  */
 export function withModelDefault(spawn: AgentSpawnInput, settings: Settings): AgentSpawnInput {
   if (spawn.fork || settings.model === undefined) return spawn
@@ -62,7 +63,7 @@ export function registerSettings(on: On): void {
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'settings') return next(e)
     const { Box, Button, Select, Text } = $.ui.resolve(e)
-    const settings = settingsFrom(await $.store.get(SETTINGS_KEY))
+    const settings = await readSettings($)
     return (
       <Box flexDirection="column" rowGap={1}>
         <Text bold>Settings</Text>
@@ -74,14 +75,14 @@ export function registerSettings(on: On): void {
             ...MODELS.map(model => ({ value: model, label: model })),
           ]}
           value={settings.model ?? LET_CLAUDE_CHOOSE}
-          onSelect={value => void change($, ({ model: _, ...rest }) => (isModel(value) ? { ...rest, model: value } : rest))}
+          onSelect={value => void saveSettings($, ({ model: _, ...rest }) => (isModel(value) ? { ...rest, model: value } : rest))}
         />
         <Select
           key="slotCap"
           label="Roster slots, at most: "
-          options={Array.from({ length: MAX_SLOTS }, (_, at) => ({ value: String(at + 1) }))}
+          options={Array.from({ length: MAX_SLOTS }, (_, index) => ({ value: String(index + 1) }))}
           value={String(settings.slotCap)}
-          onSelect={value => void change($, current => ({ ...current, slotCap: Number(value) }))}
+          onSelect={value => void saveSettings($, current => ({ ...current, slotCap: Number(value) }))}
         />
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>
@@ -89,8 +90,13 @@ export function registerSettings(on: On): void {
   })
 }
 
-async function change($: EngineInterface, edit: (settings: Settings) => Settings): Promise<void> {
-  await $.store.set(SETTINGS_KEY, edit(settingsFrom(await $.store.get(SETTINGS_KEY))))
+async function readSettings($: EngineInterface): Promise<Settings> {
+  return settingsFrom(await $.store.get(SETTINGS_KEY))
+}
+
+/** Saves an edit to the settings, validated like a stored value is on reading. */
+async function saveSettings($: EngineInterface, edit: (settings: Settings) => Settings): Promise<void> {
+  await $.store.set(SETTINGS_KEY, settingsFrom(edit(await readSettings($))))
   // The store isn't $.state, so nothing redraws the pane on its own.
   $.ui.invalidate('ui.render')
 }

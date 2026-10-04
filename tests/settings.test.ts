@@ -97,13 +97,24 @@ test('with a model set, every new agent starts on it, over Claude’s pick', asy
   expect(models).toEqual(['haiku', 'haiku', 'haiku'])
 })
 
-test('forks keep inheriting their parent’s model', async ($, on) => {
+test('forks keep inheriting the model they forked from', async ($, on) => {
   stubStore(on, { settings: { model: 'haiku', slotCap: 9 } })
   const models = spawnedModels(on)
 
   await $.agent.spawn({ ...spawnOf('toolu_1'), fork: true, subagentType: 'fork' })
 
   expect(models).toEqual([undefined])
+})
+
+test('a store that cannot be read leaves spawns untouched and still assigns squishys', async ($, on) => {
+  on('store.get', () => ({ deny: 'store unavailable' }))
+  const models = spawnedModels(on)
+
+  await $.agent.spawn(spawnOf('toolu_1'))
+
+  expect(models).toEqual([undefined])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Raster' })).toBeDefined()
 })
 
 test('a model picked in settings applies to the next spawn', async ($, on) => {

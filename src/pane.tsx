@@ -31,7 +31,7 @@ export function registerPane(on: On): void {
     return {}
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
+  on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     // v1 draws only in the terminal; elsewhere Claude Code draws its own.
     // Each pane mode has its own hook, which draws only in its own mode.
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'roster') return next(e)

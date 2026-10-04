@@ -20,7 +20,12 @@ export function registerAgentTracking(on: On): void {
   // Subagents, forks and background agents all start through agent.spawn,
   // on the user's default model when one is set.
   on('agent.spawn', async ($, e, next) => {
-    const started = await next(withModelDefault(e, settingsFrom(await $.store.get(SETTINGS_KEY))))
+    // A store that can't be read means no default, never a lost squishy.
+    let settings = settingsFrom(undefined)
+    try {
+      settings = settingsFrom(await $.store.get(SETTINGS_KEY))
+    } catch {}
+    const started = await next(withModelDefault(e, settings))
     if (started.agentId !== undefined) await assignSquishy($, started.agentId)
     return started
   })
