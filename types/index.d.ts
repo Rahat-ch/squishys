@@ -94,9 +94,19 @@ export type ActivityRow =
       text: string
     }
   | {
-      /** A run that ended without a final answer: the user stopped it, or it failed. */
-      kind: 'interrupted' | 'failed'
+      /**
+       * A run that ended without a final answer: interrupted, failed, or
+       * stopped by the user through the focus view's Stop control.
+       */
+      kind: 'interrupted' | 'failed' | 'stopped'
     }
+
+/**
+ * The focus view's Stop control armed by a first press, for one agent: a
+ * second press within STOP_CONFIRM_MS of `armedAt` (`$.clock.now()`) stops
+ * the agent.
+ */
+export type StopControl = { agentId: string; armedAt: number }
 
 /**
  * What the pane is showing. Later modes (starter pick, Squishydex) join
@@ -118,6 +128,8 @@ declare module 'claude-code' {
        * oldest first, kept after the agent ends.
        */
       activity: StateFamily<ActivityRow[]>
+      /** The focus view's Stop control, while a first press has armed it for an agent. */
+      stopControl: StopControl | null
       /** The agents that have a feed, so feeds of agents no longer known can be emptied. */
       fedAgentIds: string[]
       /**

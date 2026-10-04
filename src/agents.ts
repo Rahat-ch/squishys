@@ -3,7 +3,7 @@
 // The state rules themselves live in states.ts.
 
 import { atom, read, update } from 'claude-code'
-import type { AgentStatus, EngineInterface, On, Timer } from 'claude-code'
+import type { AgentInfo, AgentStatus, EngineInterface, On, Timer } from 'claude-code'
 
 import type { Agent, SquishyState } from '../types'
 import { KIT } from './kit'
@@ -12,7 +12,8 @@ import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
 import { cryptoRandom, roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
 import { liveSquishys } from './slots'
-import { answered, endedState, isEnded, stateAfterRun } from './states'
+import { answered, endedState, isEnded, stateAfterRun, stateAtStop } from './states'
+import { STOPPED_BY_USER, disarmed, entryNamed, forgetStops, isHeldBack, refusalOf, resumed, runEnded, wasStoppedByUser } from './stop'
 
 /**
  * How often, in milliseconds, the agent list is checked for agents that
@@ -22,6 +23,7 @@ export const AGENT_CHECK_MS = 5000
 
 /** Every agent seen this session, in the order they were first seen. */
 const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
+const stopControl = atom({ plugin: 'squishys', key: 'stopControl' } as const, null)
 
 /**
  * Ids a tool call carried that `$.agent.list()` didn't name (workflow agents,
@@ -44,7 +46,9 @@ export function registerAgentTracking(on: On): void {
   // After /clear, /resume, a branch or compaction, rebuild.ts's hook rebuilds
   // the roster before passing the event on, and this one checks after it:
   // the agent list is checked while any rebuilt agent runs.
+  // Stop forgets every agent but after compaction, which keeps the session.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork', 'compact'] }, async ($, e, next) => {
+    if (e.source !== 'compact') forgetStops()
     const started = await next(e)
     if ((await read($, agents)).some(agent => !isEnded(agent.state))) keepChecking($)
     return started
@@ -68,8 +72,12 @@ export function registerAgentTracking(on: On): void {
   // (in-process teammates may): an agent first seen through its tool call.
   // Only ids `$.agent.list()` names count, which leaves out workflow agents
   // and Claude Code's own forks.
+  //
+  // An agent Stop holds back (src/stop.ts) has its tool calls refused,
+  // before anything else sees them.
   on('tool.call', async ($, e, next) => {
     const { agentId } = e
+    if (agentId !== undefined && isHeldBack(agentId)) return { deny: STOPPED_BY_USER }
     if (agentId !== undefined && !notAgents.has(agentId) && !hasSquishy(await read($, agents), agentId)) {
       const listed = (await $.agent.list()).find(agent => agent.id === agentId)
       if (listed !== undefined) await assignSquishy($, agentId, listed.description)
@@ -80,14 +88,40 @@ export function registerAgentTracking(on: On): void {
     // A prompt the call raised has been answered once its result is in. This
     // dispatch's reads predate the prompt, so `asking` says whether one came.
     if (agentId !== undefined && asking.has(agentId)) await setState($, agentId, answered, { current: true })
+    // The squishy of an agent TaskStop stopped (the focus view's Stop, or the
+    // orchestrator itself) is Squished, once the agent list shows it ended.
+    // TaskStop names a teammate by its address or name, any other agent by id.
+    if (e.tool === 'TaskStop' && e.task_id !== undefined && refusalOf(result) === undefined) {
+      let entry: AgentInfo | undefined
+      try {
+        entry = entryNamed(e.task_id, await $.agent.list())
+      } catch {}
+      if (entry !== undefined && endedState(entry.status) !== undefined) {
+        const { id, status } = entry
+        await setState($, id, state => stateAtStop(state, { status, stoppedByUser: wasStoppedByUser(id) }))
+      }
+    }
     return result
   })
 
   // A squishy is Thinking from the first piece of its agent's response to
   // the last, then Working while the agent runs the tools the response
   // called, or until the turn completes.
+  //
+  // An agent Stop holds back gets an answer that ends its run instead of a
+  // model request: no model is called. A request from one whose squishy
+  // is Asleep or Squished is a resume, though, and goes through.
   on('turn.step', async function* ($, e, next) {
     const { agentId } = e
+    if (agentId !== undefined && isHeldBack(agentId)) {
+      const resuming = (await read($, agents)).some(agent => agent.id === agentId && isEnded(agent.state))
+      if (resuming) {
+        resumed(agentId)
+      } else {
+        yield { kind: 'text', index: 0, text: STOPPED_BY_USER } as const
+        return { turnId: e.turnId, index: e.index, answer: STOPPED_BY_USER, toolUses: [], stopReason: 'end_turn', usage: null }
+      }
+    }
     const response = next(e)
     if (agentId === undefined) return yield* response
     await signOfLife($, agentId)
@@ -109,10 +143,11 @@ export function registerAgentTracking(on: On): void {
   })
 
   // Each run of an agent's loop is one turn, and how it ended says whether
-  // the agent finished, failed or was stopped.
+  // the agent finished, failed or was stopped. A run the user stopped was
+  // stopped, whatever it answered.
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
-    if (e.agentId !== undefined) await setState($, e.agentId, stateAfterRun(e.reason))
+    if (e.agentId !== undefined) await setState($, e.agentId, stateAfterRun(e.reason, wasStoppedByUser(e.agentId)))
     return completed
   })
 
@@ -139,16 +174,15 @@ export function registerAgentTracking(on: On): void {
     return next(e)
   })
 
-  // An agent that stopped: the agent list says whether it finished, failed
-  // or was stopped. One the list can't tell about finished.
+  // An agent that stopped: the agent list says how (see stateAtStop).
   on('classic.SubagentStop', async ($, e, next) => {
-    const stopped = await next(e)
+    const result = await next(e)
     let status: AgentStatus | undefined
     try {
       status = (await $.agent.list()).find(agent => agent.id === e.agent_id)?.status
     } catch {}
-    await setState($, e.agent_id, (status !== undefined ? endedState(status) : undefined) ?? 'asleep')
-    return stopped
+    await setState($, e.agent_id, state => stateAtStop(state, { ...(status === undefined ? {} : { status }), stoppedByUser: wasStoppedByUser(e.agent_id) }))
+    return result
   })
 }
 
@@ -176,9 +210,19 @@ async function setState(
     if (to === 'needsYou' && hasSquishy(known, agentId)) asking.add(agentId)
     if (!known.some(changes)) return
   }
-  const written = await update($, agents, known => known.map(agent => (changes(agent) ? { ...agent, state: stateFrom(agent.state) } : agent)))
+  let before: SquishyState | undefined
+  const written = await update($, agents, known => {
+    before = known.find(agent => agent.id === agentId)?.state
+    return known.map(agent => (changes(agent) ? { ...agent, state: stateFrom(agent.state) } : agent))
+  })
   const state = written.find(agent => agent.id === agentId)?.state
   if (state !== undefined && !isEnded(state)) keepChecking($)
+  // An agent that ends or resumes: Stop no longer holds it back, forgets it
+  // once it resumes, and disarms for it either way.
+  if (state === undefined || before === undefined || isEnded(state) === isEnded(before)) return
+  if (isEnded(state)) runEnded(agentId)
+  else resumed(agentId)
+  await update($, stopControl, control => disarmed(control, agentId))
 }
 
 /**
@@ -224,8 +268,8 @@ async function checkAgentList($: EngineInterface): Promise<void> {
   }
   for (const agent of running) {
     const status = listed.find(each => each.id === agent.id)?.status
-    const ended = status !== undefined ? endedState(status) : undefined
-    if (ended !== undefined) await setState($, agent.id, ended)
+    if (status === undefined || endedState(status) === undefined) continue
+    await setState($, agent.id, state => stateAtStop(state, { status, stoppedByUser: wasStoppedByUser(agent.id) }))
   }
 }
 
