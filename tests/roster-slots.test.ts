@@ -6,6 +6,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, Mounted } from 'claude-code/testing'
 
 import { FRAME_MS } from '../src/pane'
+import { REMEMBERED_KEY } from '../src/rebuild'
 import { SQUISHYS_COMMAND, finishOf, paneSized, roomFor, spawnOf, stubBlits, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, watch } from './pictures'
 
@@ -28,22 +29,22 @@ const TWO_SLOTS = paneSized(roomFor('dock', 2, 1))
 test('the slot count follows the pane’s size, docked and inline, and the rest show only as +N', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
-  await spawn($, 9)
+  await spawn($, 5)
 
   const sizes = [
     [paneSized(roomFor('dock', 2, 2)), 4],
     [paneSized(roomFor('dock', 2, 2, { columns: -1, rows: 0 })), 2],
-    [paneSized(roomFor('dock', 3, 3)), 9],
-    [paneSized(roomFor('inline', 6, 1)), 6],
+    [paneSized(roomFor('dock', 3, 2)), 5],
+    [paneSized(roomFor('inline', 4, 1)), 4],
     [paneSized(roomFor('inline', 3, 1, { columns: 1, rows: 3 })), 3],
   ] as const
   for (const [pane, slots] of sizes) {
     const ui = await $.ui.mount({ ...pane, surface: 'terminal' })
     expect(await ui.findAll({ type: 'Raster' })).toHaveLength(slots)
-    expect(await overflowCount(ui)).toBe(slots < 9 ? `+${9 - slots}` : undefined)
+    expect(await overflowCount(ui)).toBe(slots < 5 ? `+${5 - slots}` : undefined)
     // An agent in the overflow has no name button or description of its own
-    const description = await ui.find({ type: 'Text', text: 'Task 9' })
-    if (slots < 9) expect(description).toBeUndefined()
+    const description = await ui.find({ type: 'Text', text: 'Task 5' })
+    if (slots < 5) expect(description).toBeUndefined()
     else expect(description).toBeDefined()
     await ui.unmount()
   }
@@ -60,6 +61,27 @@ test('the roster takes in a resize of the pane', async ($, on) => {
 
   expect(await slotted(ui)).toEqual(['agent-1', 'agent-2', 'agent-3'])
   expect(await overflowCount(ui)).toBe('+2')
+})
+
+test('when the pane shrinks, ended squishys go to the overflow, Asleep before Squished, before any running one', async ($, on) => {
+  mock.store(on)
+  stubSpawns(on)
+  stubTurns(on)
+  await spawn($, 4)
+  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 2, 2)), surface: 'terminal' })
+  await $.turn.complete(finishOf('agent-2', 'error'))
+  await $.turn.complete(finishOf('agent-3'))
+
+  await ui.redraw(paneSized(roomFor('dock', 3, 1)).props)
+  expect(await slotted(ui)).toEqual(['agent-1', 'agent-2', 'agent-4'])
+
+  await ui.redraw(TWO_SLOTS.props)
+  expect(await slotted(ui)).toEqual(['agent-1', 'agent-4'])
+
+  // With no ended squishy left in a slot, a running one gives way
+  await ui.redraw(paneSized(roomFor('dock', 1, 1)).props)
+  expect(await slotted(ui)).toEqual(['agent-1'])
+  expect(await overflowCount(ui)).toBe('+3')
 })
 
 test('the slot cap in settings limits the slots on a pane with room for more', async ($, on) => {
@@ -119,8 +141,7 @@ test('picking +N again closes the list', async ($, on) => {
   expect(await ui.find({ key: 'overflow-agent-3' })).toBeUndefined()
 })
 
-test('a list left open closes once the overflow empties', async ($, on) => {
-  const clock = mock.clock(on)
+test('a list left open closes once the overflow empties, and never reopens unasked', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
   await spawn($, 3)
@@ -131,10 +152,26 @@ test('a list left open closes once the overflow empties', async ($, on) => {
   // The pane grows to fit every agent, then shrinks again
   await ui.redraw(paneSized(roomFor('dock', 3, 1)).props)
   expect(await overflowCount(ui)).toBeUndefined()
-  await clock.advance(0)
   await ui.redraw(TWO_SLOTS.props)
 
+  // The list stays shut until it's asked for again, with one press
   expect(await overflowCount(ui)).toBe('+1')
+  expect(await ui.find({ key: 'overflow-agent-3' })).toBeUndefined()
+  expect(await slotted(ui)).toEqual(['agent-1', 'agent-2'])
+  await ui.press({ key: 'overflow' })
+  expect(await ui.find({ key: 'overflow-agent-3' })).toBeDefined()
+})
+
+test('any other press in the pane shuts the overflow list', async ($, on) => {
+  stubStore(on)
+  stubSpawns(on)
+  await spawn($, 3)
+  const ui = await $.ui.mount({ ...TWO_SLOTS, surface: 'terminal' })
+  await ui.press({ key: 'overflow' })
+
+  await ui.press({ key: 'settings' })
+  await ui.press({ key: 'back' })
+
   expect(await ui.find({ key: 'overflow-agent-3' })).toBeUndefined()
   expect(await slotted(ui)).toEqual(['agent-1', 'agent-2'])
 })
@@ -226,10 +263,8 @@ test('no two running agents share a squishy, in a slot or in the overflow', asyn
   mock.store(on)
   stubSpawns(on)
   stubTurns(on)
-  // Rolled at random, twenty from the placeholder kit would all but
-  // certainly repeat one if the running squishys weren't left out
-  await spawn($, 20)
-  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 3, 3)), surface: 'terminal' })
+  await spawn($, 5)
+  const ui = await $.ui.mount({ ...TWO_SLOTS, surface: 'terminal' })
 
   // Each agent shows in a slot once those ahead of it fall Asleep
   const pictures = new Map<string, unknown>()
@@ -241,8 +276,30 @@ test('no two running agents share a squishy, in a slot or in the overflow', asyn
     }
   }
 
-  expect(pictures.size).toBe(20)
-  expect(new Set(pictures.values()).size).toBe(20)
+  expect(pictures.size).toBe(5)
+  expect(new Set(pictures.values()).size).toBe(5)
+})
+
+test('an ended agent open in the focus view keeps its squishy out of the pool, though its slot went to another', async ($, on) => {
+  const stored = stubStore(on, { settings: { slotCap: 1 } })
+  stubSpawns(on)
+  stubTurns(on)
+  await spawn($, 1)
+  const ui = await $.ui.mount({ ...TWO_SLOTS, surface: 'terminal' })
+  await $.turn.complete(finishOf('agent-1'))
+  // agent-2 takes agent-1's slot, and agent-1 goes to the overflow
+  await spawn($, 1, 2)
+  await ui.press({ key: 'overflow' })
+  await ui.press({ key: 'squishy-agent-1' })
+  expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
+
+  await spawn($, 4, 3)
+
+  // Each agent's squishy key, as the store keeps it
+  const keys = new Map(stored.get(REMEMBERED_KEY) as [string, string][])
+  const focused = keys.get('agent-1')
+  expect(focused).toBeDefined()
+  for (let n = 3; n <= 6; n += 1) expect(keys.get(`agent-${n}`)).not.toBe(focused)
 })
 
 test('/squishys asks for room for a row of slots, for when the pane opens inline', async ($, on) => {

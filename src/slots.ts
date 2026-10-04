@@ -1,18 +1,17 @@
 // The roster layout: how many slots fit the pane, which agents get them and
 // which wait in the overflow. Pure: it takes plain data and never touches
 // Claude Code, so the pane and the tests share it.
-//
-// The partner (pinned first) comes later and will take the first slot.
 
-import { isEnded } from './states'
+import { PICTURE_SIZE } from './composer'
+import { SLOT_GIVING_ORDER, isEnded } from './states'
 import type { SquishyState } from './states'
 
 /**
  * A squishy's picture in the roster, in cells: a pixel across each cell and
  * two down it (half blocks).
  */
-export const PICTURE_COLUMNS = 16
-export const PICTURE_ROWS = 8
+export const PICTURE_COLUMNS = PICTURE_SIZE
+export const PICTURE_ROWS = Math.ceil(PICTURE_SIZE / 2)
 /** A slot's width: its squishy's picture. */
 export const SLOT_COLUMNS = PICTURE_COLUMNS
 /**
@@ -20,18 +19,21 @@ export const SLOT_COLUMNS = PICTURE_COLUMNS
  * for the mark on the squishy of the agent open in the main view.
  */
 export const SLOT_ROWS = PICTURE_ROWS + 3
-/** The rows the docked footer takes under the slots: its own and the gap above it. */
-export const FOOTER_ROWS = 2
 /** The columns between slots side by side. */
 export const SLOT_COLUMN_GAP = 2
 /** The rows between rows of slots. */
 export const SLOT_ROW_GAP = 1
 /**
- * The columns the footer (the overflow count and Settings) takes beside the
- * slots in an inline pane, where rows are scarce. Docked, where columns are,
- * it takes a row under them, a row apart.
+ * The footer: the overflow count and Settings. Docked, where columns are
+ * plenty, it takes a row under the slots, FOOTER_ROW_GAP rows below them;
+ * inline, where rows are scarce, FOOTER_COLUMNS beside them,
+ * FOOTER_COLUMN_GAP columns away. Its buttons sit FOOTER_BUTTON_GAP apart.
  */
+export const FOOTER_ROWS = 1
+export const FOOTER_ROW_GAP = 1
 export const FOOTER_COLUMNS = 10
+export const FOOTER_COLUMN_GAP = 2
+export const FOOTER_BUTTON_GAP = 2
 
 /** Where the pane sits and how big its body is, as its render props say. */
 export type RosterSize = {
@@ -59,11 +61,13 @@ export type RosterLayout<A extends RosterAgent> = {
 /**
  * Lays out the roster. Agents keep the slots they had in `slotted` (the ids
  * the roster last showed, in slot order), so squishys stay put. A running
- * agent without a slot takes a free one, else an Asleep squishy's, else a
- * Squished one's, and otherwise waits in the overflow: a running squishy is
- * never displaced. Free slots left over go to ended agents, but never to a
- * second picture of a squishy already showing. `agents` is in the order
- * they were first seen.
+ * agent without a slot takes a free one, else an ended squishy's (in
+ * SLOT_GIVING_ORDER), and otherwise waits in the overflow: a running
+ * squishy is never displaced. Free slots left over go to ended agents, but
+ * never to a second picture of a squishy already showing. When the pane
+ * shrinks, ended squishys give up their slots first, in the same order,
+ * and running ones only once no ended one is left. `agents` is in the
+ * order they were first seen.
  */
 export function layoutRoster<A extends RosterAgent>({
   agents,
@@ -71,67 +75,69 @@ export function layoutRoster<A extends RosterAgent>({
   slotted = [],
   ...size
 }: RosterSize & { agents: readonly A[]; slotCap: number; slotted?: readonly string[] }): RosterLayout<A> {
-  const { count, columns } = grid(size, slotCap)
+  const count = slotCount(size, slotCap)
   const byId = new Map(agents.map(agent => [agent.id, agent]))
-  const kept: A[] = [...new Set(slotted)].flatMap(id => byId.get(id) ?? [])
-  while (kept.length > count) kept.splice(leastNeeded(kept), 1)
+  const holding: A[] = [...new Set(slotted)].flatMap(id => byId.get(id) ?? [])
+  while (holding.length > count) holding.splice(slotGivenUp(holding, 'last') ?? holding.length - 1, 1)
 
-  const slots: (A | undefined)[] = [...kept]
+  const slots: A[] = [...holding]
   const newcomers: A[] = []
-  const free = () => count - kept.length - newcomers.length
-  for (const agent of agents.filter(each => !kept.includes(each) && !isEnded(each.state))) {
+  const free = () => count - holding.length - newcomers.length
+  for (const agent of agents.filter(each => !holding.includes(each) && !isEnded(each.state))) {
     if (free() > 0) {
       newcomers.push(agent)
       continue
     }
-    const taken = endedSlot(slots, 'asleep') ?? endedSlot(slots, 'squished')
+    const taken = slotGivenUp(slots, 'first')
     if (taken !== undefined) slots[taken] = agent
   }
-  const showing = () => new Set([...slots, ...newcomers].flatMap(agent => (agent ? [agent.squishy.key] : [])))
-  for (const agent of agents.filter(each => !kept.includes(each) && isEnded(each.state))) {
+  const showing = () => new Set([...slots, ...newcomers].map(agent => agent.squishy.key))
+  for (const agent of agents.filter(each => !holding.includes(each) && isEnded(each.state))) {
     if (free() > 0 && !showing().has(agent.squishy.key)) newcomers.push(agent)
   }
   // Newcomers to free slots take them in the order they were first seen
   slots.push(...agents.filter(agent => newcomers.includes(agent)))
 
-  const shown = slots.filter((agent): agent is A => agent !== undefined)
-  return { slots: shown, overflow: agents.filter(agent => !shown.includes(agent)), columns }
+  return { slots, overflow: agents.filter(agent => !slots.includes(agent)), columns: slotsAcross(size, slotCap) }
 }
 
 /**
  * The squishys a roll must not repeat: every running agent's, since it may
- * take a slot at any time, and every one in the roster's slots now. An
- * ended agent's squishy with no slot goes back to the pool. Before the
- * roster is first drawn (`slotted` undefined), every agent's.
+ * take a slot at any time, and every one on screen (`onScreen`: the agents
+ * in the roster's slots and any other the pane draws, as in the focus
+ * view). An ended agent's squishy that is nowhere on screen goes back to
+ * the pool. Before the pane first draws (`onScreen` undefined), every
+ * agent's.
  */
-export function liveSquishys<A extends RosterAgent>(agents: readonly A[], slotted: readonly string[] | undefined): A['squishy'][] {
+export function liveSquishys<A extends RosterAgent>(agents: readonly A[], onScreen: readonly string[] | undefined): A['squishy'][] {
   return agents
-    .filter(agent => slotted === undefined || !isEnded(agent.state) || slotted.includes(agent.id))
+    .filter(agent => onScreen === undefined || !isEnded(agent.state) || onScreen.includes(agent.id))
     .map(agent => agent.squishy)
 }
 
-/** How many slots fit, at most `slotCap`, and how many go across a row. */
-function grid({ placement, bodyColumns, bodyRows }: RosterSize, slotCap: number): { count: number; columns: number } {
-  const step = SLOT_COLUMNS + SLOT_COLUMN_GAP
+/** How many slots fit across the pane, at most `slotCap`. */
+function slotsAcross({ placement, bodyColumns }: RosterSize, slotCap: number): number {
   // Inline, the footer and the gap before it come off the columns
-  const across = Math.floor((bodyColumns + SLOT_COLUMN_GAP - (placement === 'inline' ? FOOTER_COLUMNS + SLOT_COLUMN_GAP : 0)) / step)
+  const room = bodyColumns + SLOT_COLUMN_GAP - (placement === 'inline' ? FOOTER_COLUMNS + FOOTER_COLUMN_GAP : 0)
+  return Math.max(0, Math.min(slotCap, Math.floor(room / (SLOT_COLUMNS + SLOT_COLUMN_GAP))))
+}
+
+/** How many slots fit the pane, at most `slotCap`. */
+function slotCount(size: RosterSize, slotCap: number): number {
   // Docked, the footer row and the gap above it come off the rows
-  const rows = Math.floor((bodyRows + SLOT_ROW_GAP - (placement === 'dock' ? FOOTER_ROWS : 0)) / (SLOT_ROWS + SLOT_ROW_GAP))
-  const count = Math.max(0, Math.min(slotCap, across * rows))
-  return { count, columns: Math.min(Math.max(0, across), Math.max(0, slotCap)) }
+  const room = size.bodyRows + SLOT_ROW_GAP - (size.placement === 'dock' ? FOOTER_ROWS + FOOTER_ROW_GAP : 0)
+  const down = Math.max(0, Math.floor(room / (SLOT_ROWS + SLOT_ROW_GAP)))
+  return Math.min(slotCap, slotsAcross(size, slotCap) * down)
 }
 
-/** The slot whose squishy is in `state` (an ended one) that goes first. */
-function endedSlot(slots: readonly (RosterAgent | undefined)[], state: 'asleep' | 'squished'): number | undefined {
-  const at = slots.findIndex(agent => agent?.state === state)
-  return at === -1 ? undefined : at
-}
-
-/** The slot to give up when the pane shrinks: the last Asleep, else the last Squished, else the last. */
-function leastNeeded(slots: readonly RosterAgent[]): number {
-  for (const state of ['asleep', 'squished'] as const) {
-    const at = slots.findLastIndex(agent => agent.state === state)
+/**
+ * The slot whose ended squishy gives it up next, by SLOT_GIVING_ORDER: the
+ * `first` such slot or the `last`. Undefined when every squishy runs.
+ */
+function slotGivenUp(slots: readonly RosterAgent[], which: 'first' | 'last'): number | undefined {
+  for (const state of SLOT_GIVING_ORDER) {
+    const at = which === 'first' ? slots.findIndex(agent => agent.state === state) : slots.findLastIndex(agent => agent.state === state)
     if (at !== -1) return at
   }
-  return slots.length - 1
+  return undefined
 }

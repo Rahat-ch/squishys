@@ -24,7 +24,8 @@ export type Pose = {
   size?: Size
 }
 
-const SIDE = 16
+/** A squishy picture's side in pixels, before any resizing: what the kit draws. */
+export const PICTURE_SIZE = 16
 
 /** How many rows from the top lean as a Working squishy wiggles. */
 const LEANING_ROWS = 7
@@ -74,7 +75,7 @@ function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: nu
 function flattened(pixels: Pixels): Pixels {
   const drawn = pixels.flatMap((row, index) => (row.some(pixel => pixel !== null) ? [index] : []))
   const bottom = Math.max(-1, ...drawn)
-  const blank = Array.from({ length: SIDE }, () => null)
+  const blank = Array.from({ length: PICTURE_SIZE }, () => null)
   return pixels.map((row, index) => (index > bottom ? row : (pixels[2 * index - bottom] ?? blank)))
 }
 
@@ -163,22 +164,22 @@ type Cell = readonly [row: number, column: number]
 /** Each eye: the pixels where an eye shows, grouped into touching sets (corners count). */
 function eyesOf(grids: readonly Grid[]): Cell[][] {
   const showing = (row: number, column: number) => topKey(grids, row, column) === 'e'
-  // Which pixels are in an eye found so far, by row * SIDE + column
+  // Which pixels are in an eye found so far, by row * PICTURE_SIZE + column
   const seen: boolean[] = []
   const eyes: Cell[][] = []
-  for (let row = 0; row < SIDE; row += 1) {
-    for (let column = 0; column < SIDE; column += 1) {
-      if (!showing(row, column) || seen[row * SIDE + column]) continue
+  for (let row = 0; row < PICTURE_SIZE; row += 1) {
+    for (let column = 0; column < PICTURE_SIZE; column += 1) {
+      if (!showing(row, column) || seen[row * PICTURE_SIZE + column]) continue
       const eye: Cell[] = []
       const queue: Cell[] = [[row, column]]
-      seen[row * SIDE + column] = true
+      seen[row * PICTURE_SIZE + column] = true
       for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
         eye.push(next)
         const [at, across] = next
         for (const [down, right] of NEIGHBORS) {
           const [r, c] = [at + down, across + right]
-          if (r < 0 || r >= SIDE || c < 0 || c >= SIDE || seen[r * SIDE + c] || !showing(r, c)) continue
-          seen[r * SIDE + c] = true
+          if (r < 0 || r >= PICTURE_SIZE || c < 0 || c >= PICTURE_SIZE || seen[r * PICTURE_SIZE + c] || !showing(r, c)) continue
+          seen[r * PICTURE_SIZE + c] = true
           queue.push([r, c])
         }
       }
@@ -251,12 +252,12 @@ function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind:
  */
 function painted(grids: readonly Grid[], colors: Colors, { eyesShut = false } = {}): Pixels {
   for (const grid of grids) {
-    if (grid.length !== SIDE || grid.some(line => line.length !== SIDE)) {
-      throw new Error(`A grid is not ${SIDE}x${SIDE}: ${JSON.stringify(grid)}`)
+    if (grid.length !== PICTURE_SIZE || grid.some(line => line.length !== PICTURE_SIZE)) {
+      throw new Error(`A grid is not ${PICTURE_SIZE}x${PICTURE_SIZE}: ${JSON.stringify(grid)}`)
     }
   }
-  return Array.from({ length: SIDE }, (_, row) =>
-    Array.from({ length: SIDE }, (_, column) => {
+  return Array.from({ length: PICTURE_SIZE }, (_, row) =>
+    Array.from({ length: PICTURE_SIZE }, (_, column) => {
       let pixel: Pixel = null
       for (const grid of grids) {
         let key = grid[row]?.[column] ?? '.'

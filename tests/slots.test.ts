@@ -4,7 +4,13 @@
 
 import { expect, test } from 'claude-code/testing'
 
-import { layoutRoster, liveSquishys } from '../src/slots'
+import { PICTURE_SIZE, compose } from '../src/composer'
+import { KIT } from '../src/kit'
+import { halfBlocks } from '../src/raster'
+import { roll } from '../src/roller'
+import { seeded } from '../src/seeded'
+import { MAX_SLOTS } from '../src/settings'
+import { PICTURE_COLUMNS, PICTURE_ROWS, SLOT_COLUMNS, SLOT_ROWS, layoutRoster, liveSquishys } from '../src/slots'
 import type { RosterAgent, RosterSize } from '../src/slots'
 import type { SquishyState } from '../src/states'
 import { roomFor } from './fixtures'
@@ -40,7 +46,7 @@ test('the slot count is however many slots fit the pane, docked or inline', () =
     [roomFor('dock', 1, 1, short(1, 0)), 0],
   ]
   for (const [size, slots] of sizes) {
-    const layout = layoutRoster({ ...size, slotCap: 9, agents: agents(12) })
+    const layout = layoutRoster({ ...size, slotCap: MAX_SLOTS, agents: agents(12) })
     expect({ size, slots: layout.slots.length }).toEqual({ size, slots })
   }
 })
@@ -48,18 +54,18 @@ test('the slot count is however many slots fit the pane, docked or inline', () =
 test('the slot cap from settings limits the slots, however big the pane', () => {
   const big: RosterSize = roomFor('dock', 6, 6)
 
-  expect(layoutRoster({ ...big, slotCap: 9, agents: agents(12) }).slots).toHaveLength(9)
+  expect(layoutRoster({ ...big, slotCap: MAX_SLOTS, agents: agents(12) }).slots).toHaveLength(MAX_SLOTS)
   expect(layoutRoster({ ...big, slotCap: 3, agents: agents(12) }).slots).toHaveLength(3)
 })
 
 test('it says how many slots go across a row', () => {
-  expect(layoutRoster({ ...roomFor('dock', 2, 2), slotCap: 9, agents: [] }).columns).toBe(2)
-  expect(layoutRoster({ ...roomFor('inline', 6, 1), slotCap: 9, agents: [] }).columns).toBe(6)
+  expect(layoutRoster({ ...roomFor('dock', 2, 2), slotCap: MAX_SLOTS, agents: [] }).columns).toBe(2)
+  expect(layoutRoster({ ...roomFor('inline', 6, 1), slotCap: MAX_SLOTS, agents: [] }).columns).toBe(6)
   expect(layoutRoster({ ...roomFor('inline', 6, 1), slotCap: 4, agents: [] }).columns).toBe(4)
 })
 
 test('agents beyond the slots are the overflow, in the order they were first seen', () => {
-  const layout = layoutRoster({ ...TWO_SLOTS, slotCap: 9, agents: agents(5) })
+  const layout = layoutRoster({ ...TWO_SLOTS, slotCap: MAX_SLOTS, agents: agents(5) })
 
   expect(ids(layout.slots)).toEqual(['agent-1', 'agent-2'])
   expect(ids(layout.overflow)).toEqual(['agent-3', 'agent-4', 'agent-5'])
@@ -68,7 +74,7 @@ test('agents beyond the slots are the overflow, in the order they were first see
 test('first drawn, running agents take the slots before ended ones, shown in the order they were first seen', () => {
   const layout = layoutRoster({
     ...TWO_SLOTS,
-    slotCap: 9,
+    slotCap: MAX_SLOTS,
     agents: [agent('agent-1', 'asleep'), agent('agent-2', 'working'), agent('agent-3', 'needsYou')],
   })
 
@@ -79,7 +85,7 @@ test('first drawn, running agents take the slots before ended ones, shown in the
 test('an ended agent keeps its slot while no running agent needs it', () => {
   const layout = layoutRoster({
     ...TWO_SLOTS,
-    slotCap: 9,
+    slotCap: MAX_SLOTS,
     agents: [agent('agent-1', 'asleep'), agent('agent-2', 'squished')],
     slotted: ['agent-1', 'agent-2'],
   })
@@ -91,7 +97,7 @@ test('an ended agent keeps its slot while no running agent needs it', () => {
 test('a new agent takes an Asleep squishy’s slot, in its place, before a Squished one’s', () => {
   const layout = layoutRoster({
     ...TWO_SLOTS,
-    slotCap: 9,
+    slotCap: MAX_SLOTS,
     agents: [agent('agent-1', 'squished'), agent('agent-2', 'asleep'), agent('agent-3')],
     slotted: ['agent-1', 'agent-2'],
   })
@@ -103,7 +109,7 @@ test('a new agent takes an Asleep squishy’s slot, in its place, before a Squis
 test('with no Asleep slot, a new agent takes a Squished squishy’s slot', () => {
   const layout = layoutRoster({
     ...TWO_SLOTS,
-    slotCap: 9,
+    slotCap: MAX_SLOTS,
     agents: [agent('agent-1', 'squished'), agent('agent-2'), agent('agent-3')],
     slotted: ['agent-1', 'agent-2'],
   })
@@ -115,7 +121,7 @@ test('with no Asleep slot, a new agent takes a Squished squishy’s slot', () =>
 test('a running squishy is never displaced: a new agent with no ended slot to take waits in the overflow', () => {
   const layout = layoutRoster({
     ...TWO_SLOTS,
-    slotCap: 9,
+    slotCap: MAX_SLOTS,
     agents: [agent('agent-1'), agent('agent-2', 'thinking'), agent('agent-3')],
     slotted: ['agent-1', 'agent-2'],
   })
@@ -129,7 +135,7 @@ test('an agent that wakes in the overflow does not push out a running squishy se
   // then a message resumed it
   const layout = layoutRoster({
     ...roomFor('dock', 1, 1),
-    slotCap: 9,
+    slotCap: MAX_SLOTS,
     agents: [agent('agent-1'), agent('agent-2')],
     slotted: ['agent-2'],
   })
@@ -141,7 +147,7 @@ test('an agent that wakes in the overflow does not push out a running squishy se
 test('a running agent in the overflow takes the slot of a squishy that fell Asleep', () => {
   const layout = layoutRoster({
     ...TWO_SLOTS,
-    slotCap: 9,
+    slotCap: MAX_SLOTS,
     agents: [agent('agent-1', 'asleep'), agent('agent-2'), agent('agent-3')],
     slotted: ['agent-1', 'agent-2'],
   })
@@ -154,7 +160,7 @@ test('slots that open up go to ended agents in the overflow, unless one shows th
   const twin = { ...agent('agent-3', 'asleep'), squishy: { key: 'squishy-of-agent-1' } }
   const layout = layoutRoster({
     ...roomFor('dock', 3, 1),
-    slotCap: 9,
+    slotCap: MAX_SLOTS,
     agents: [agent('agent-1', 'asleep'), agent('agent-2', 'squished'), twin, agent('agent-4', 'asleep')],
     slotted: ['agent-1'],
   })
@@ -167,10 +173,10 @@ test('when the pane shrinks, ended squishys leave their slots first, Asleep befo
   const known = [agent('agent-1'), agent('agent-2', 'asleep'), agent('agent-3', 'squished'), agent('agent-4')]
   const slotted = ids(known)
 
-  const two = layoutRoster({ ...TWO_SLOTS, slotCap: 9, agents: known, slotted })
+  const two = layoutRoster({ ...TWO_SLOTS, slotCap: MAX_SLOTS, agents: known, slotted })
   expect(ids(two.slots)).toEqual(['agent-1', 'agent-4'])
 
-  const three = layoutRoster({ ...roomFor('dock', 3, 1), slotCap: 9, agents: known, slotted })
+  const three = layoutRoster({ ...roomFor('dock', 3, 1), slotCap: MAX_SLOTS, agents: known, slotted })
   expect(ids(three.slots)).toEqual(['agent-1', 'agent-3', 'agent-4'])
 
   const one = layoutRoster({ ...TWO_SLOTS, slotCap: 1, agents: known, slotted })
@@ -178,21 +184,32 @@ test('when the pane shrinks, ended squishys leave their slots first, Asleep befo
 })
 
 test('slots of agents no longer known are freed', () => {
-  const layout = layoutRoster({ ...TWO_SLOTS, slotCap: 9, agents: [agent('agent-2'), agent('agent-3')], slotted: ['agent-1', 'agent-2'] })
+  const layout = layoutRoster({ ...TWO_SLOTS, slotCap: MAX_SLOTS, agents: [agent('agent-2'), agent('agent-3')], slotted: ['agent-1', 'agent-2'] })
 
   expect(ids(layout.slots)).toEqual(['agent-2', 'agent-3'])
 })
 
-test('the roll pool leaves out every running agent’s squishy and every squishy the roster shows', () => {
-  const known = [agent('agent-1', 'asleep'), agent('agent-2', 'squished'), agent('agent-3'), agent('agent-4', 'asleep')]
+test('the roll pool leaves out every running agent’s squishy and every squishy on screen', () => {
+  const known = [agent('agent-1', 'asleep'), agent('agent-2', 'squished'), agent('agent-3'), agent('agent-4', 'asleep'), agent('agent-5', 'squished')]
 
-  const live = liveSquishys(known, ['agent-3', 'agent-4'])
+  // agent-4 in a slot, agent-5 in the focus view
+  const live = liveSquishys(known, ['agent-3', 'agent-4', 'agent-5'])
 
-  expect(live.map(squishy => squishy.key)).toEqual(['squishy-of-agent-3', 'squishy-of-agent-4'])
+  expect(live.map(squishy => squishy.key)).toEqual(['squishy-of-agent-3', 'squishy-of-agent-4', 'squishy-of-agent-5'])
 })
 
 test('before the roster is first drawn, every agent’s squishy is live', () => {
   const known = [agent('agent-1', 'asleep'), agent('agent-2')]
 
   expect(liveSquishys(known, undefined)).toHaveLength(2)
+})
+
+test('a slot is as wide as a composed squishy picture and as tall as its half-block rows, with three lines under it', () => {
+  const picture = halfBlocks(compose(KIT, roll(KIT, { live: [], rng: seeded(1) }), { state: 'working', frame: 0 }))
+
+  expect({ columns: PICTURE_COLUMNS, rows: PICTURE_ROWS }).toEqual({ columns: picture.columns, rows: picture.rows })
+  expect(picture.columns).toBe(PICTURE_SIZE)
+  expect(SLOT_COLUMNS).toBe(picture.columns)
+  // Its name, its description and the main view's mark
+  expect(SLOT_ROWS).toBe(picture.rows + 3)
 })

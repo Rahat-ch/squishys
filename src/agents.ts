@@ -7,7 +7,7 @@ import type { AgentStatus, EngineInterface, On, Timer } from 'claude-code'
 
 import type { Agent, SquishyState } from '../types'
 import { KIT } from './kit'
-import { rosterSlots } from './pane'
+import { squishysOnScreen } from './pane'
 import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
 import { cryptoRandom, roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
@@ -245,7 +245,7 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   let assigned: Agent | undefined
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
-    const squishy = roll(KIT, { live: liveSquishys(known, rosterSlots()), rng: cryptoRandom })
+    const squishy = roll(KIT, { live: liveSquishys(known, squishysOnScreen()), rng: cryptoRandom })
     assigned = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
     return [...known, assigned]
   })

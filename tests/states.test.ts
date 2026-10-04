@@ -158,9 +158,9 @@ test('an Asleep squishy stays in the roster, so no new agent gets it', async ($,
   stubSpawns(on)
   stubTurns(on)
   // Room for every agent, so the Asleep squishys keep their slots
-  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 3, 3)), surface: 'terminal' })
-  // Rolled at random, nine from the placeholder kit would likely repeat
-  // one if Asleep squishys went back to the pool
+  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 2, 2)), surface: 'terminal' })
+  // Rolled at random, these could repeat one if Asleep squishys went back
+  // to the pool
   const spawnAndRead = async (from: number, to: number) => {
     const squishys = []
     for (let n = from; n <= to; n += 1) {
@@ -169,12 +169,12 @@ test('an Asleep squishy stays in the roster, so no new agent gets it', async ($,
     }
     return squishys
   }
-  const first = await spawnAndRead(1, 4)
-  for (let n = 1; n <= 4; n += 1) await $.turn.complete(finishOf(`agent-${n}`))
+  const first = await spawnAndRead(1, 2)
+  for (let n = 1; n <= 2; n += 1) await $.turn.complete(finishOf(`agent-${n}`))
 
-  const second = await spawnAndRead(5, 9)
+  const second = await spawnAndRead(3, 4)
 
-  expect(new Set([...first, ...second].map(squishy => JSON.stringify(squishy))).size).toBe(9)
+  expect(new Set([...first, ...second].map(squishy => JSON.stringify(squishy))).size).toBe(4)
 })
 
 test('the orchestrator’s own turns leave every squishy as it was', async ($, on) => {

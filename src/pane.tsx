@@ -13,7 +13,17 @@ import { KIT } from './kit'
 import { halfBlocks } from './raster'
 import type { RasterCells } from './raster'
 import { SETTINGS_KEY, settingsFrom } from './settings'
-import { FOOTER_COLUMNS, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP, layoutRoster } from './slots'
+import {
+  FOOTER_BUTTON_GAP,
+  FOOTER_COLUMN_GAP,
+  FOOTER_COLUMNS,
+  FOOTER_ROW_GAP,
+  SLOT_COLUMN_GAP,
+  SLOT_COLUMNS,
+  SLOT_ROWS,
+  SLOT_ROW_GAP,
+  layoutRoster,
+} from './slots'
 import { moves } from './states'
 
 export const PANE_ID = 'squishys'
@@ -41,9 +51,22 @@ const overflowOpen = atom({ plugin: 'squishys', key: 'overflowOpen' } as const, 
  */
 let slotted: string[] | undefined
 
-/** The agents in the roster's slots as last drawn; undefined before the first drawing. */
-export function rosterSlots(): readonly string[] | undefined {
-  return slotted
+/**
+ * Whether the overflow emptied while its list was asked for: the list
+ * stays shut then, even once the overflow fills again, until it's asked
+ * for anew. Kept here, since a drawing can't write $.state.
+ */
+let listOutlived = false
+
+/**
+ * The agents whose squishys are on screen, or will be again when the
+ * roster comes back: those in the roster's slots as last drawn and any
+ * other the pane last drew (the focus view's). Undefined before the
+ * roster is first drawn.
+ */
+export function squishysOnScreen(): readonly string[] | undefined {
+  if (slotted === undefined) return undefined
+  return [...new Set([...slotted, ...[...shown.values()].map(picture => picture.agentId)])]
 }
 
 // The animator. Its frames repaint the pane's pictures with `$.ui.blit`,
@@ -89,6 +112,8 @@ export function registerPane(on: On): void {
     // A hot reload keeps $.state but drops the animator; drawing the roster
     // again starts it.
     if ((await read($, agents)).some(agent => moves(agent.state))) $.ui.invalidate('ui.render')
+    // and starts with the overflow list shut
+    await closeOverflowList($)
     return next(e)
   })
 
@@ -109,10 +134,11 @@ export function registerPane(on: On): void {
     return {}
   })
 
-  // Picking a squishy from the overflow list closes the list; src/focus.tsx
-  // answers the same press with the agent's focus view.
-  on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e, next) => {
-    if (await read($, overflowOpen)) await update($, overflowOpen, () => false)
+  // Any press in the pane but the overflow count's own shuts the overflow
+  // list: a pick from it (src/focus.tsx answers that same press, nested
+  // inside this hook), Settings, or anything else. It picks nothing itself.
+  on('ui.press', { plugin: 'squishys' }, async ($, e, next) => {
+    if (e.element !== 'overflow') await closeOverflowList($)
     return next(e)
   })
 
@@ -135,19 +161,17 @@ export function registerPane(on: On): void {
     const known = await read($, agents)
     const layout = layoutRoster({ placement, bodyColumns, bodyRows: scroll.bodyRows, slotCap: await readSlotCap($), agents: known, slotted })
     slotted = layout.slots.map(agent => agent.id)
-    const open = await read($, overflowOpen)
-    // A list left open when the overflow emptied closes. A drawing can't
-    // write $.state, so the write goes out just after it.
-    if (open && layout.overflow.length === 0) $.clock.after(0, () => void closeOverflow($))
-    const listing = open && layout.overflow.length > 0
+    // The list shows while asked for, until the overflow empties
+    if (layout.overflow.length === 0) listOutlived ||= await read($, overflowOpen)
+    const showsList = layout.overflow.length > 0 && !listOutlived && (await read($, overflowOpen))
     // Drawn at the animation's current frame, so a redraw doesn't jump
     // back. Only the slots' pictures are drawn, so only they animate.
-    const slots = listing ? [] : layout.slots.map(agent => ({ agent, picture: animatedPicture(agent) }))
+    const slots = showsList ? [] : layout.slots.map(agent => ({ agent, picture: animatedPicture(agent) }))
     if (!motionReduced) await animateShown($)
 
     const columns = Math.max(1, layout.columns)
     const rows = Array.from({ length: Math.ceil(slots.length / columns) }, (_, row) => slots.slice(row * columns, (row + 1) * columns))
-    const body = listing ? (
+    const body = showsList ? (
       // The overflow list: one line per agent, in place of the slots. Its
       // presses pick the squishy, as a slot's do: src/focus.tsx answers them.
       <Box key="overflow-list" flexDirection="column">
@@ -197,14 +221,14 @@ export function registerPane(on: On): void {
     )
     const footer = [
       ...(layout.overflow.length > 0
-        ? [<Button key="overflow" hotkey="m" plain label={`+${layout.overflow.length}`} onPress={() => void update($, overflowOpen, was => !was)} />]
+        ? [<Button key="overflow" hotkey="m" plain label={`+${layout.overflow.length}`} onPress={() => void showOverflowList($, !showsList)} />]
         : []),
       <Button key="settings" hotkey="o" plain dimColor label="Settings" onPress={() => void update($, mode, () => 'settings')} />,
     ]
     // Docked, the footer goes under the slots; inline, where rows are
     // scarce, beside them
     return placement === 'inline' ? (
-      <Box flexDirection="row" columnGap={SLOT_COLUMN_GAP}>
+      <Box flexDirection="row" columnGap={FOOTER_COLUMN_GAP}>
         <Box flexDirection="column" flexGrow={1}>
           {body}
         </Box>
@@ -213,9 +237,9 @@ export function registerPane(on: On): void {
         </Box>
       </Box>
     ) : (
-      <Box flexDirection="column" rowGap={1}>
+      <Box flexDirection="column" rowGap={FOOTER_ROW_GAP}>
         {body}
-        <Box key="footer" flexDirection="row" columnGap={2}>
+        <Box key="footer" flexDirection="row" columnGap={FOOTER_BUTTON_GAP}>
           {footer}
         </Box>
       </Box>
@@ -223,8 +247,17 @@ export function registerPane(on: On): void {
   })
 }
 
-async function closeOverflow($: EngineInterface): Promise<void> {
-  if (await read($, overflowOpen)) await update($, overflowOpen, () => false)
+/** Asks for the overflow list, or shuts it. */
+async function showOverflowList($: EngineInterface, show: boolean): Promise<void> {
+  const outlived = listOutlived
+  listOutlived = false
+  if ((await read($, overflowOpen)) !== show) await update($, overflowOpen, () => show)
+  // A list asked for again while still marked open writes nothing to redraw
+  else if (outlived && show) $.ui.invalidate('ui.render')
+}
+
+async function closeOverflowList($: EngineInterface): Promise<void> {
+  await showOverflowList($, false)
 }
 
 /** The slot cap from settings; a store that can't be read leaves the most. */

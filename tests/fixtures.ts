@@ -3,7 +3,8 @@
 import type { AgentStatus, On } from 'claude-code'
 
 import { PANE_ID } from '../src/pane'
-import { FOOTER_COLUMNS, FOOTER_ROWS, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP } from '../src/slots'
+import { FOOTER_COLUMN_GAP, FOOTER_COLUMNS, FOOTER_ROW_GAP, FOOTER_ROWS, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP } from '../src/slots'
+import type { RosterSize } from '../src/slots'
 
 // What Claude Code passes to the pane's ui.render hook, apart from the surface
 export const PANE = {
@@ -22,12 +23,12 @@ export const PANE = {
 } as const
 
 // A pane body with just room for `across` by `down` slots, plus `spare`
-// columns and rows (negative for short of it). Slots sit SLOT_COLUMN_GAP
-// columns and SLOT_ROW_GAP rows apart. The footer (+N, Settings) takes
-// FOOTER_ROWS under them docked, and FOOTER_COLUMNS beside them, a gap
-// apart, inline.
-export function roomFor(placement: 'dock' | 'inline', across: number, down: number, spare = { columns: 0, rows: 0 }) {
-  const footer = placement === 'inline' ? { columns: SLOT_COLUMN_GAP + FOOTER_COLUMNS, rows: 0 } : { columns: 0, rows: FOOTER_ROWS }
+// columns and rows (negative for short of it): slots SLOT_COLUMN_GAP
+// columns and SLOT_ROW_GAP rows apart, and the footer (+N, Settings)
+// FOOTER_ROW_GAP under them docked, or FOOTER_COLUMN_GAP beside them inline.
+export function roomFor(placement: RosterSize['placement'], across: number, down: number, spare = { columns: 0, rows: 0 }): RosterSize {
+  const footer =
+    placement === 'inline' ? { columns: FOOTER_COLUMN_GAP + FOOTER_COLUMNS, rows: 0 } : { columns: 0, rows: FOOTER_ROW_GAP + FOOTER_ROWS }
   return {
     placement,
     bodyColumns: across * SLOT_COLUMNS + (across - 1) * SLOT_COLUMN_GAP + footer.columns + spare.columns,
@@ -37,7 +38,7 @@ export function roomFor(placement: 'dock' | 'inline', across: number, down: numb
 
 // The pane's render input at another size: where Claude Code seated it, and
 // the cells across and the rows down its body has
-export function paneSized({ placement, bodyColumns, bodyRows }: ReturnType<typeof roomFor>) {
+export function paneSized({ placement, bodyColumns, bodyRows }: RosterSize) {
   return { ...PANE, props: { ...PANE.props, placement, bodyColumns, scroll: { offset: 0, bodyRows } } }
 }
 
