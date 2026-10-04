@@ -28,9 +28,19 @@ function grid(fill: string, rows: Readonly<Record<number, string>> = {}): Grid {
 
 const BLANK = grid('.')
 
+/** A grid filled with one key, with other keys at the cells given as [row, column, key]. */
+function withCells(fill: string, cells: readonly (readonly [number, number, string])[]): Grid {
+  return Array.from({ length: PICTURE_SIZE }, (_, row) =>
+    Array.from({ length: PICTURE_SIZE }, (_, column) => cells.find(([r, c]) => r === row && c === column)?.[2] ?? fill).join(''),
+  )
+}
+
+// The test kit's eye: a lone pixel in the middle
+const EYE_AT = PICTURE_SIZE / 2
+
 const TEST_KIT: Kit = {
   bodies: [{ id: 'block', rarity: 'common', syllable: 'mo', grid: grid('b') }],
-  faces: [{ id: 'eye', rarity: 'common', syllable: 'chi', grid: grid('.', { 5: '.....e' }) }],
+  faces: [{ id: 'eye', rarity: 'common', syllable: 'chi', grid: withCells('.', [[EYE_AT, EYE_AT, 'e']]) }],
   palettes: [{ id: 'grey', rarity: 'common', syllable: '', colors: COLORS, shiny: SHINY_COLORS }],
   accessories: [{ id: 'leaf', rarity: 'common', syllable: '', grid: grid('.', { 0: 'h' }) }],
   legendaries: [],
@@ -43,7 +53,7 @@ const SHINY = roll(TEST_KIT, { live: [], rng: seeded(1), odds: { shiny: 1 } })
 test('a squishy is its body, with its face and then its accessory drawn over it, in its palette', () => {
   const pixels = compose(TEST_KIT, PLAIN, { state: 'working', frame: 0 })
 
-  expect(pixels[5]?.[5]).toBe(EYE)
+  expect(pixels[EYE_AT]?.[EYE_AT]).toBe(EYE)
   expect(pixels[0]?.[0]).toBe(LIGHT)
   expect(pixels[PICTURE_SIZE - 1]?.[PICTURE_SIZE - 1]).toBe(GREY)
 })
@@ -61,7 +71,7 @@ test('a shiny squishy is drawn in its palette’s shiny colors', () => {
 
   expect(plain[PICTURE_SIZE - 2]?.[PICTURE_SIZE - 2]).toBe(GREY)
   expect(shiny[PICTURE_SIZE - 2]?.[PICTURE_SIZE - 2]).toBe(SHINY_GREY)
-  expect(shiny[5]?.[5]).toBe(EYE)
+  expect(shiny[EYE_AT]?.[EYE_AT]).toBe(EYE)
 })
 
 test('a glint sparkles only on a shiny, and is plain highlight otherwise', () => {
@@ -79,8 +89,10 @@ test('at 2× every pixel becomes a 2x2 block', () => {
   expect(pixels).toHaveLength(PICTURE_SIZE * 2)
   expect(pixels[0]?.slice(0, 3)).toEqual([LIGHT, LIGHT, GREY])
   expect(pixels[1]?.slice(0, 3)).toEqual([LIGHT, LIGHT, GREY])
-  expect(pixels[10]?.slice(9, 13)).toEqual([GREY, EYE, EYE, GREY])
-  expect(pixels[11]?.slice(9, 13)).toEqual([GREY, EYE, EYE, GREY])
+  // The lone eye becomes the 2x2 block at twice its row and column
+  const eyeBlock = [GREY, EYE, EYE, GREY]
+  expect(pixels[2 * EYE_AT]?.slice(2 * EYE_AT - 1, 2 * EYE_AT + 3)).toEqual(eyeBlock)
+  expect(pixels[2 * EYE_AT + 1]?.slice(2 * EYE_AT - 1, 2 * EYE_AT + 3)).toEqual(eyeBlock)
 })
 
 // The test palette's outline, which its eyes share
@@ -101,19 +113,36 @@ test('the mini at half size draws a pixel wherever at least half its 2x2 block i
 })
 
 test('in the mini an eye survives, while a mouth and a shade give way to the fill', () => {
-  // A one-pixel eye, a two-pixel mouth and a two-pixel shade, each half of a 2x2 block
-  const kit = kitWith(grid('b', { 2: 'bbbbddbbbb' }), grid('.', { 4: '...e', 5: '...e', 6: '....mm' }))
+  // Three of the mini's blocks inside its outline, each half drawn in one key:
+  // a shade above the middle, a one-pixel eye left of it, a mouth below it
+  const middle = Math.floor(SIDES.mini / 2)
+  const shade: Block = [middle - 1, middle]
+  const eye: Block = [middle, middle - 1]
+  const mouth: Block = [middle + 1, middle]
+  const kit = kitWith(
+    withCells('b', topHalf(shade, 'd')),
+    withCells('.', [...rightHalf(eye, 'e'), ...topHalf(mouth, 'm')]),
+  )
 
   const mini = posed(kit, 'working', 0, 'mini')
 
-  expect(mini[1]?.[2]).toBe(GREY)
-  expect(mini[2]?.slice(1, 3)).toEqual([EYE, GREY])
-  expect(mini[3]?.[2]).toBe(GREY)
+  expect(mini[shade[0]]?.[shade[1]]).toBe(GREY)
+  expect(mini[eye[0]]?.[eye[1]]).toBe(EYE)
+  expect(mini[mouth[0]]?.[mouth[1]]).toBe(GREY)
   // Asleep, the shut eye still shows, and a pixel of z sits top right
   const asleep = posed(kit, 'asleep', 0, 'mini')
-  expect(asleep[2]?.[1]).toBe(EYE)
-  expect(asleep[0]?.[PICTURE_SIZE / 2 - 1]).toBe(ZZZ_COLOR)
+  expect(asleep[eye[0]]?.[eye[1]]).toBe(EYE)
+  expect(asleep[0]?.[SIDES.mini - 1]).toBe(ZZZ_COLOR)
 })
+
+/** One of the mini's pixels, by its row and column: the 2x2 block of the full picture it is shrunk from. */
+type Block = readonly [row: number, column: number]
+/** The top row of a block's full-size pixels, in one key. */
+const topHalf = ([row, column]: Block, key: string) =>
+  [[2 * row, 2 * column, key], [2 * row, 2 * column + 1, key]] as const
+/** The right column of a block's full-size pixels, in one key. */
+const rightHalf = ([row, column]: Block, key: string) =>
+  [[2 * row, 2 * column + 1, key], [2 * row + 1, 2 * column + 1, key]] as const
 
 function wellFormed(pixels: ReturnType<typeof compose>, side: number): boolean {
   return (
@@ -222,16 +251,41 @@ test('a Thinking squishy bounces every frame, twice as fast as the wiggle: a pix
   expect(at(3)).toEqual(at(1))
 })
 
-// Two eyes two pixels tall: left of the middle one a pixel wide, right of it one two wide
-const EYES = grid('.', { 5: '..e...ee', 6: '..e...ee' })
+// Two eyes two pixels tall: left of the middle one a pixel wide, with room to
+// widen outward; right of it one wider than a shut eye needs to be
+const EYE_TOP = PICTURE_SIZE / 2 - 1
+const NARROW_EYE = SHUT_EYE_WIDTH
+const WIDE_EYE = { from: PICTURE_SIZE - 2 - SHUT_EYE_WIDTH, to: PICTURE_SIZE - 2 }
+const EYES = withCells(
+  '.',
+  [EYE_TOP, EYE_TOP + 1].flatMap(row => [
+    [row, NARROW_EYE, 'e'] as const,
+    ...Array.from({ length: WIDE_EYE.to - WIDE_EYE.from + 1 }, (_, at) => [row, WIDE_EYE.from + at, 'e'] as const),
+  ]),
+)
+
+/**
+ * The columns a one-pixel eye at `column` shuts across: SHUT_EYE_WIDTH
+ * wide, a pixel at a time outward (away from the middle) first, then inward.
+ */
+function shutSpan(column: number): { from: number; to: number } {
+  const extra = SHUT_EYE_WIDTH - 1
+  const [outward, inward] = [Math.ceil(extra / 2), Math.floor(extra / 2)]
+  return column < (PICTURE_SIZE - 1) / 2 ? { from: column - outward, to: column + inward } : { from: column - inward, to: column + outward }
+}
+
+/** A row of body with eye-colored spans across it. */
+function rowWithSpans(...spans: { from: number; to: number }[]): number[] {
+  return Array.from({ length: PICTURE_SIZE }, (_, column) => (spans.some(({ from, to }) => column >= from && column <= to) ? EYE : GREY))
+}
 
 test('an Asleep squishy shuts its eyes to a line along their bottom, and a z floats up top right', () => {
   const asleep = posed(kitWith(grid('b'), EYES), 'asleep', 0)
 
   // The eyes' upper row is body again
-  expect(asleep[5]).toEqual(Array.from({ length: PICTURE_SIZE }, () => GREY))
-  // A one-pixel eye shuts as a line two wide, widening outward; a wider one stays as wide as it was
-  expect(asleep[6]?.slice(0, 9)).toEqual([GREY, EYE, EYE, GREY, GREY, GREY, EYE, EYE, GREY])
+  expect(asleep[EYE_TOP]).toEqual(Array.from({ length: PICTURE_SIZE }, () => GREY))
+  // A one-pixel eye shuts as a line SHUT_EYE_WIDTH wide, widening outward first; a wider one stays as wide as it was
+  expect(asleep[EYE_TOP + 1]).toEqual(rowWithSpans(shutSpan(NARROW_EYE), WIDE_EYE))
   const z = (row: number) => drawnIn(asleep.map(line => line.map(pixel => (pixel === ZZZ_COLOR ? pixel : null))), row)
   const right = [PICTURE_SIZE - 4, PICTURE_SIZE - 3, PICTURE_SIZE - 2]
   expect([z(0), z(1), z(2)]).toEqual([right, [PICTURE_SIZE - 3], right])
@@ -313,15 +367,21 @@ test('a legendary shuts its eyes too, over its own body color', () => {
   const kit: Kit = {
     ...TEST_KIT,
     legendaries: [
-      { id: 'blob', name: 'Blob', grid: grid('b', { 5: 'bbebbbbbbb', 6: 'bbebbbbbbb' }), colors: COLORS, shiny: SHINY_COLORS },
+      {
+        id: 'blob',
+        name: 'Blob',
+        grid: withCells('b', [[EYE_TOP, NARROW_EYE, 'e'], [EYE_TOP + 1, NARROW_EYE, 'e']]),
+        colors: COLORS,
+        shiny: SHINY_COLORS,
+      },
     ],
   }
   const squishy = roll(kit, { live: [], rng: seeded(1), odds: { legendary: 1, shiny: 0 } })
 
   const asleep = compose(kit, squishy, { state: 'asleep', frame: 0 })
 
-  expect(asleep[5]?.[2]).toBe(GREY)
-  expect(asleep[6]?.slice(1, 4)).toEqual([EYE, EYE, GREY])
+  expect(asleep[EYE_TOP]?.[NARROW_EYE]).toBe(GREY)
+  expect(asleep[EYE_TOP + 1]).toEqual(rowWithSpans(shutSpan(NARROW_EYE)))
 })
 
 // Sparkles: a shiny or legendary squishy's glints, for a while after it appears
