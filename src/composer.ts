@@ -69,10 +69,18 @@ export function compose(kit: Kit, squishy: Squishy, pose: Pose): Pixels {
 
 /**
  * The squishy at rest: frame 0 of Working, at full size. The partner's
- * picture, a starter's, and what the spinner's tiny face is cut from.
+ * picture and a starter's.
  */
 export function stillPixels(kit: Kit, squishy: Squishy): Pixels {
   return compose(kit, squishy, { state: 'working', frame: 0 })
+}
+
+/**
+ * The squishy's mini picture at rest: frame 0 of Working, at the mini size.
+ * The Squishydex's places and the spinner's mini.
+ */
+export function stillMiniPixels(kit: Kit, squishy: Squishy): Pixels {
+  return compose(kit, squishy, { state: 'working', frame: 0, size: 'mini' })
 }
 
 /**

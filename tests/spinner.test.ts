@@ -1,10 +1,12 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 import type { On, RenderPropsOf } from 'claude-code'
 
-import { tinyFace } from '../src/face'
+import { SIDES } from '../src/composer'
 import { KIT } from '../src/kit'
 import { PARTNER_KEY, partnerFrom } from '../src/partner'
-import { PARTNER_FACE } from '../src/spinner'
+import { GLYPH_COLUMNS, PARTNER_MINI, SPINNER_LINE_ROW, STATS_COLUMNS } from '../src/spinner'
+import { miniRows } from '../src/spinner-mini'
 import { SQUISHY_VERBS } from '../src/verbs'
 import { PARTNERED, spawnOf, stubSessionStart, stubSpawns, stubStore } from './fixtures'
 
@@ -14,22 +16,36 @@ const SPINNER: RenderPropsOf['Spinner'] = { word: 'Sauteing', message: null, suf
 // The orchestrator's spinner, by a spinner id no agent has
 const ORCHESTRATOR_SPINNER = 'orchestrator'
 
-// A spinner on a surface, by its spinner id (the engine's requestId)
-function spinnerOn<S extends 'terminal' | 'desktop' | 'vscode' | 'mobile'>(surface: S, spinnerId = ORCHESTRATOR_SPINNER) {
-  return { plugin: 'squishys', surface, component: 'Spinner', requestId: spinnerId, props: SPINNER } as const
+// The terminal's width, wide enough for a spinner line with the mini
+const COLUMNS = 120
+
+// A spinner on a surface, by its spinner id (the engine's requestId), on a
+// terminal `columns` wide
+function spinnerOn<S extends 'terminal' | 'desktop' | 'vscode' | 'mobile'>(surface: S, spinnerId = ORCHESTRATOR_SPINNER, columns = COLUMNS) {
+  return { plugin: 'squishys', surface, component: 'Spinner', requestId: spinnerId, viewport: { columns, rows: 40 }, props: SPINNER } as const
+}
+
+// What Claude Code's stats say after the suffix
+const STATS = ' (4s · ↓ 344 tokens)'
+
+// The spinner line Claude Code draws for these props: its glyph, the word
+// (or message) and suffix, then the stats
+function spinnerLineOf(props: RenderPropsOf['Spinner']): string {
+  return `${'✶'.padEnd(GLYPH_COLUMNS)}${props.message ?? props.word}${props.suffix}${STATS}`
 }
 
 // What Claude Code draws for its spinner, given these props
 function spinnerOf(props: RenderPropsOf['Spinner']) {
-  return { type: 'Text' as const, props: {}, children: [`${props.message ?? props.word}${props.suffix}`] }
+  return { type: 'Text' as const, props: {}, children: [spinnerLineOf(props)] }
 }
 
 // Stands in for Claude Code drawing its spinner beneath the mod, keeping
 // the word it was asked to draw each time
-function stubSpinner(on: On): string[] {
+function stubSpinner(on: On, asked: RenderPropsOf['Spinner'][] = []): string[] {
   const words: string[] = []
   on('ui.render', { component: 'Spinner' }, ($, e) => {
     words.push(e.props.word)
+    asked.push(e.props)
     return spinnerOf(e.props)
   })
   return words
@@ -42,36 +58,96 @@ function turnWords(turns: number): string[] {
 
 const VERBS: readonly string[] = SQUISHY_VERBS
 
-// The cells of a drawn tiny face: each row's Texts, glyph and colors
-function cellsIn(face: { children: unknown[] } | undefined): unknown[] {
-  const rows = (face?.children ?? []) as { children: { props: object; children: string[] }[] }[]
-  return rows.flatMap(row => row.children.map(cell => ({ glyph: cell.children.join(''), ...cell.props })))
+// The cells of the drawn mini, row by row: each row's Texts, glyph and colors
+function rowsIn(mini: { children?: unknown[] } | undefined): unknown[][] {
+  const rows = (mini?.children ?? []) as { children: { props: object; children: string[] }[] }[]
+  return rows.map(row => row.children.map(cell => ({ glyph: cell.children.join(''), ...cell.props })))
 }
 
 const PARTNER = partnerFrom(PARTNERED[PARTNER_KEY])
 
-test('the partner’s tiny face is drawn beside the orchestrator’s spinner, which is otherwise Claude Code’s', async ($, on) => {
+// The mini's rows and columns: the partner's mini picture, a row of text to two pixels
+const MINI_ROWS = Math.ceil(SIDES.mini / 2)
+const MINI_COLUMNS = SIDES.mini
+
+// Mounts the orchestrator's spinner with a partner saved, and takes apart
+// what the mod drew: the rows above Claude Code's drawing, the drawing, the
+// mini's Box over them, and the spinner line Claude Code was asked to draw
+async function drawnWithMini($: Parameters<TestBody>[0], on: On, props = SPINNER) {
+  stubStore(on, PARTNERED)
+  const asked: RenderPropsOf['Spinner'][] = []
+  stubSpinner(on, asked)
+  const ui = await $.ui.mount({ ...spinnerOn('terminal'), props })
+  const drawn = (await ui.drawn()) as { type: string; props: Record<string, unknown>; children: { type: string; props: Record<string, unknown>; children: unknown[] }[] }
+  const claudeProps = asked.at(-1)
+  if (claudeProps === undefined) throw new Error('Claude Code was never asked to draw')
+  const mini = drawn.children.at(-1)
+  return {
+    ui,
+    drawn,
+    above: drawn.children.slice(0, -2),
+    claudeSpinner: drawn.children.at(-2),
+    claudeProps,
+    mini,
+    left: Number(mini?.props.left),
+    line: spinnerLineOf(claudeProps),
+  }
+}
+
+test('the partner’s mini stands on the orchestrator’s spinner line, right after the verb and before Claude Code’s stats', async ($, on) => {
+  const { ui, drawn, above, claudeSpinner, claudeProps, mini, left, line } = await drawnWithMini($, on)
+
+  if (PARTNER === undefined) throw new Error('PARTNERED names no partner the kit can make')
+  expect(drawn).toMatchObject({ type: 'Box', props: { flexDirection: 'column' } })
+  // The mini is the band's picture, as colored half-block Text
+  const rows = miniRows(KIT, PARTNER)
+  expect(rows).toHaveLength(MINI_ROWS)
+  expect(rowsIn(await ui.find({ key: PARTNER_MINI }))).toEqual(rows)
+  expect(mini).toMatchObject({ type: 'Box', props: { key: PARTNER_MINI, position: 'absolute', top: 0 } })
+  // Its last row is the spinner line's, so it covers no row below the line (the tip)
+  expect(above.length + SPINNER_LINE_ROW).toBe(MINI_ROWS - 1)
+  above.forEach(row => expect(row).toMatchObject({ type: 'Text', children: [' '] }))
+  // On the line: the glyph and the verb, the mini over blank columns, then the stats
+  expect(claudeSpinner).toEqual(spinnerOf(claudeProps))
+  expect(line.slice(0, left)).toBe(`${'✶'.padEnd(GLYPH_COLUMNS)}${claudeProps.word}… `)
+  expect(line.slice(left, left + MINI_COLUMNS)).toBe(' '.repeat(MINI_COLUMNS))
+  expect(line.slice(left + MINI_COLUMNS)).toBe(STATS)
+})
+
+test('a message that ends in an ellipsis gets no second one before the mini', async ($, on) => {
+  const message = 'Compacting conversation…'
+  const { left, line } = await drawnWithMini($, on, { ...SPINNER, message })
+
+  expect(line.slice(0, left)).toBe(`${'✶'.padEnd(GLYPH_COLUMNS)}${message} `)
+  expect(line.slice(left).trimStart()).toBe(STATS.trimStart())
+})
+
+test('on a terminal too narrow for the line, the mini and the stats, the spinner is Claude Code’s, squishy verb aside', async ($, on) => {
   stubStore(on, PARTNERED)
   const words = stubSpinner(on)
 
-  const ui = await $.ui.mount(spinnerOn('terminal'))
-
-  if (PARTNER === undefined) throw new Error('PARTNERED names no partner the kit can make')
-  const face = tinyFace(KIT, PARTNER)
-  expect(face.length).toBeGreaterThan(0)
-  expect(cellsIn(await ui.find({ key: PARTNER_FACE }))).toEqual(face.flat())
-  const drawn = await ui.drawn()
-  expect(drawn).toMatchObject({ type: 'Box', props: { flexDirection: 'row' } })
-  expect('children' in drawn ? drawn.children?.[1] : undefined).toEqual(spinnerOf({ ...SPINNER, word: words.at(-1) ?? '' }))
+  // One column short of the glyph, the shortest word or verb with its
+  // ellipsis and a space, the mini and the stats
+  const shortest = Math.min(SPINNER.word.length, ...VERBS.map(verb => verb.length))
+  const narrow = GLYPH_COLUMNS + shortest + 2 + MINI_COLUMNS + STATS_COLUMNS - 1
+  const ui = await $.ui.mount(spinnerOn('terminal', ORCHESTRATOR_SPINNER, narrow))
+  for (const word of turnWords(10)) {
+    await ui.redraw({ ...SPINNER, word })
+    expect(await ui.find({ key: PARTNER_MINI })).toBeUndefined()
+    expect(await ui.drawn()).toEqual(spinnerOf({ ...SPINNER, word: words.at(-1) ?? '' }))
+  }
+  // A terminal without its width measured gets no mini either
+  const unmeasured = await $.ui.mount({ plugin: 'squishys', surface: 'terminal', component: 'Spinner', requestId: 'orchestrator-unmeasured', props: SPINNER })
+  expect(await unmeasured.find({ key: PARTNER_MINI })).toBeUndefined()
 })
 
-test('with no partner saved, no face is drawn', async ($, on) => {
+test('with no partner saved, no mini is drawn and Claude Code’s line is left as it was', async ($, on) => {
   mock.store(on)
   const words = stubSpinner(on)
 
   const ui = await $.ui.mount(spinnerOn('terminal'))
 
-  expect(await ui.find({ key: PARTNER_FACE })).toBeUndefined()
+  expect(await ui.find({ key: PARTNER_MINI })).toBeUndefined()
   expect(await ui.drawn()).toEqual(spinnerOf({ ...SPINNER, word: words.at(-1) ?? '' }))
 })
 
@@ -121,7 +197,7 @@ test('a turn keeps its word, or its squishy verb, however often the spinner draw
   }
 })
 
-test('an agent’s spinner gets squishy verbs too, but no face: the partner stands for the orchestrator', async ($, on) => {
+test('an agent’s spinner gets squishy verbs too, but no mini: the partner stands for the orchestrator', async ($, on) => {
   stubStore(on, PARTNERED)
   stubSpawns(on)
   const words = stubSpinner(on)
@@ -131,16 +207,16 @@ test('an agent’s spinner gets squishy verbs too, but no face: the partner stan
   const ui = await $.ui.mount(spinnerOn('terminal', 'agent-1'))
   for (const word of turns) await ui.redraw({ ...SPINNER, word })
 
-  expect(await ui.find({ key: PARTNER_FACE })).toBeUndefined()
+  expect(await ui.find({ key: PARTNER_MINI })).toBeUndefined()
   expect(await ui.drawn()).toEqual(spinnerOf({ ...SPINNER, word: words.at(-1) ?? '' }))
   expect(words.slice(-turns.length).some(word => VERBS.includes(word))).toBe(true)
-  // The orchestrator's spinner still carries the face
+  // The orchestrator's spinner still carries the mini
   const orchestrator = await $.ui.mount(spinnerOn('terminal'))
-  expect(await orchestrator.find({ key: PARTNER_FACE })).toBeDefined()
+  expect(await orchestrator.find({ key: PARTNER_MINI })).toBeDefined()
 })
 
 for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
-  test(`on ${surface}, the spinner is Claude Code’s alone: no squishy verbs and no face`, async ($, on) => {
+  test(`on ${surface}, the spinner is Claude Code’s alone: no squishy verbs and no mini`, async ($, on) => {
     stubStore(on, PARTNERED)
     const words = stubSpinner(on)
 

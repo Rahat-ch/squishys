@@ -1,19 +1,39 @@
 // The spinner: squishys in Claude Code's own spinner line. Some turns, the
 // word Claude Code sampled for the turn gives way to a squishy verb
-// (src/verbs.ts), and the orchestrator's spinner carries the partner's tiny
-// face (src/face.ts) beside it.
+// (src/verbs.ts), and the orchestrator's spinner carries the partner's mini
+// (src/spinner-mini.ts) right after the verb, standing on the spinner line.
 
 import { atom, read } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, RenderPropsOf } from 'claude-code'
 
-import { tinyFace } from './face'
 import { KIT } from './kit'
 import { PARTNER_KEY, partnerFrom } from './partner'
 import { cryptoRandom } from './roller'
+import { textColumns } from './slots'
+import { miniRows } from './spinner-mini'
+import type { MiniRow } from './spinner-mini'
 import { pickVerb } from './verbs'
 
-/** What the Box holding the partner's tiny face is keyed. */
-export const PARTNER_FACE = 'partner-face'
+/** What the Box holding the partner's mini is keyed. */
+export const PARTNER_MINI = 'partner-mini'
+
+/**
+ * Which row of Claude Code's drawing of the Spinner the spinner line is,
+ * counting from 0: its first row is blank, and the tip, when there is one,
+ * comes right after the line (as a real session draws it).
+ */
+export const SPINNER_LINE_ROW = 1
+
+/** The columns of the spinner line before the word: Claude Code's spinner glyph and a space. */
+export const GLYPH_COLUMNS = 2
+
+/**
+ * The columns kept for Claude Code's stats after the suffix, which no prop
+ * carries: a space and as long as they run in a long turn,
+ * ` (12m 34s · ↓ 123.4k tokens · still thinking with high effort)`
+ * (Claude Code 2.1.289 says "still thinking" after a while).
+ */
+export const STATS_COLUMNS = 62
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -37,42 +57,78 @@ function verbFor(spinnerId: string, word: string): string | undefined {
   return verb
 }
 
+/**
+ * Room on the spinner line for a mini `columns` wide: the suffix that makes
+ * it (Claude Code's ellipsis, then a space and as many blank columns as the
+ * mini takes, which Claude Code's stats follow after a space of their own),
+ * the column the mini starts at, and the columns the whole line then needs
+ * (STATS_COLUMNS kept for the stats).
+ *
+ * Claude Code's drawing of the Spinner is one engine node: the glyph, the
+ * word, the suffix, the stats and the tip can't be taken apart, and no Box
+ * may clip or size it. So the stats are moved over by the suffix, and the
+ * mini is drawn over the blank columns.
+ */
+function roomForMini({ word, message, suffix }: RenderPropsOf['Spinner'], columns: number) {
+  const text = message ?? word
+  // Claude Code leaves its ellipsis off a text that already ends in one
+  const ellipsis = text.endsWith('…') ? '' : suffix
+  const left = GLYPH_COLUMNS + textColumns(text) + textColumns(ellipsis) + 1
+  return { suffix: `${ellipsis} ${' '.repeat(columns)}`, left, lineColumns: left + columns + STATS_COLUMNS }
+}
+
 export function registerSpinner(on: On): void {
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     const verb = verbFor(e.requestId, e.props.word)
-    const claudeSpinner = await next(verb === undefined ? e : { ...e, props: { ...e.props, word: verb } })
-    // The face is the orchestrator's: an agent's spinner goes without. Any
-    // failure here leaves Claude Code's spinner as it drew it.
+    const asked = verb === undefined ? e : { ...e, props: { ...e.props, word: verb } }
+    // Everything that can fail comes before `next`, so a failure leaves
+    // Claude Code's spinner as it draws it, squishy verb and all.
+    let mini: MiniRow[]
     try {
-      if ((await read($, agents)).some(agent => agent.id === e.requestId)) return claudeSpinner
-      const partner = await savedPartner($)
-      const face = partner === undefined ? [] : tinyFace(KIT, partner)
-      if (face.length === 0) return claudeSpinner
-      const { Box, Text } = $.ui.resolve(e)
-      return (
-        <Box flexDirection="row" columnGap={1}>
-          <Box key={PARTNER_FACE} flexDirection="column">
-            {face.map((row, index) => (
-              <Text key={`face-row-${index}`}>
-                {row.map(({ glyph, color, backgroundColor }) => (
-                  <Text color={color} backgroundColor={backgroundColor}>
-                    {glyph}
-                  </Text>
-                ))}
-              </Text>
-            ))}
-          </Box>
-          {claudeSpinner}
-        </Box>
-      )
+      mini = await partnerMini($, e.requestId)
     } catch {
-      return claudeSpinner
+      return next(asked)
     }
+    if (mini.length === 0) return next(asked)
+    const { Box, Text } = $.ui.resolve(e)
+    const room = roomForMini(asked.props, mini[0]?.length ?? 0)
+    // Only where the line, mini and stats fit across, so it never wraps;
+    // nowhere the terminal hasn't measured
+    if (room.lineColumns > (e.viewport?.columns ?? 0)) return next(asked)
+    // The mini stands on the spinner line: its last row is the line's, and
+    // the rows above it are the drawing's blank first row and as many more
+    // as it needs, so it never covers the tip below the line.
+    const above = Math.max(0, mini.length - 1 - SPINNER_LINE_ROW)
+    const claudeSpinner = await next({ ...asked, props: { ...asked.props, suffix: room.suffix } })
+    return (
+      <Box flexDirection="column">
+        {Array.from({ length: above }, (_, index) => (
+          <Text key={`above-${index}`}> </Text>
+        ))}
+        {claudeSpinner}
+        <Box key={PARTNER_MINI} position="absolute" top={0} left={room.left} flexDirection="column">
+          {mini.map((row, index) => (
+            <Text key={`mini-row-${index}`}>
+              {row.map(({ glyph, color, backgroundColor }) => (
+                <Text color={color} backgroundColor={backgroundColor}>
+                  {glyph}
+                </Text>
+              ))}
+            </Text>
+          ))}
+        </Box>
+      </Box>
+    )
   })
 }
 
-/** The partner the store keeps; undefined for none. */
-async function savedPartner($: EngineInterface) {
-  return partnerFrom(await $.store.get(PARTNER_KEY))
+/**
+ * The partner's mini for this spinner: none on an agent's spinner (the
+ * partner stands for the orchestrator), or while no partner is saved.
+ */
+async function partnerMini($: EngineInterface, spinnerId: string): Promise<MiniRow[]> {
+  if ((await read($, agents)).some(agent => agent.id === spinnerId)) return []
+  const partner = partnerFrom(await $.store.get(PARTNER_KEY))
+  return partner === undefined ? [] : miniRows(KIT, partner)
 }
