@@ -44,6 +44,18 @@ export const PANE_ID = 'squishys'
 export const PICK_PREFIX = 'squishy-'
 
 /**
+ * How a squishy's slot lights while the pointer is anywhere over it (the
+ * roster's, the band's and a met Squishydex place's keyed Box), so a
+ * squishy feels clickable; its Name stays the press. A background alone,
+ * which takes no cells, so nothing moves, in the theme's selection color:
+ * the one theme key that stands out from both the docked pane's background
+ * and the terminal's on every theme (AGENTS.md says how that was checked).
+ * Only fullscreen rendering has the pointer; on the main screen nothing
+ * changes.
+ */
+export const SLOT_HOVER = { backgroundColor: 'selectionBg' } as const
+
+/**
  * How the pane is opened unasked, at the first spawn, with no `focus`, so it
  * never asks for the keyboard while the user may be typing. Inline, rows
  * are scarce: it asks for one row of slots.
@@ -369,7 +381,7 @@ export function registerPane(on: On): void {
               const index = rowIndex * columns + column
               const hotkey = pickHotkeys[index]
               return (
-                <Box key={`slot-${slot.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS}>
+                <Box key={`slot-${slot.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS} hover={SLOT_HOVER}>
                   <Raster key={slot.pictureKey} {...slot.picture} />
                   {/* An agent's press picks its squishy: src/focus.tsx answers it. The partner's leaves the roster be. */}
                   <Button

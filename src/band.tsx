@@ -6,7 +6,7 @@
 import { atom, read } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import { PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
+import { PANE_ID, PICK_PREFIX, SLOT_HOVER, animatedPicture, pictureKey } from './pane'
 import { BAND_GAP, layoutBand, nameCut } from './slots'
 
 /** What the band says about opening the pane. */
@@ -32,7 +32,7 @@ export function registerBand(on: On): void {
     return (
       <Box flexDirection="row" columnGap={BAND_GAP}>
         {band.shown.map(agent => (
-          <Box key={`band-${agent.id}`} flexDirection="column" alignItems="center" width={band.placeColumns}>
+          <Box key={`band-${agent.id}`} flexDirection="column" alignItems="center" width={band.placeColumns} hover={SLOT_HOVER}>
             {band.pictured ? <Raster key={pictureKey(agent.id, 'mini')} {...animatedPicture(agent, 'mini', e.requestId)} /> : null}
             <Button key={`${PICK_PREFIX}${agent.id}`} plain label={nameCut(agent.squishy.name)} onPress={() => {}} />
           </Box>

@@ -6,10 +6,11 @@ import { KIT } from '../src/kit'
 import { FRAME_MS, PANE_ID, pictureKey } from '../src/pane'
 import { PARTNER_BUTTON, PARTNER_PICTURE } from '../src/partner'
 import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
-import { squishyOf } from '../src/roller'
+import { roll, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
+import { seeded } from '../src/seeded'
 import { BAND_GAP, BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, nameCut } from '../src/slots'
-import { PANE, PARTNERED, SQUISHYS_COMMAND, readFrom, spawnOf, stubBlits, stubPanes, stubSpawns, stubStore } from './fixtures'
+import { PANE, PARTNERED, SQUISHYS_COMMAND, THEME_KEY, hoverOf, readFrom, slotLight, spawnOf, stubAgentList, stubBlits, stubPanes, stubSessionStart, stubSpawns, stubStore } from './fixtures'
 import { cellsOf } from './pictures'
 
 // The band's render input, as Claude Code passes it, with room for `across`
@@ -108,6 +109,20 @@ test('while the opened pane is unplaced, the band shows a mini squishy for each 
     expect((await band.find({ type: 'Raster', key: pictureKey(agentId, 'mini') }))?.props.cells).toBe(cellsOf(squishy, 'working', 0, 'mini'))
   }
   expect(await band.find({ type: 'Text', text: OPEN_HINT })).toBeDefined()
+})
+
+test('the pointer anywhere over a mini squishy’s place in the band lights the whole place, its Name with it', async ($, on) => {
+  mock.store(on)
+  stubSpawns(on)
+  stubPanes(on, { wide: false })
+
+  await $.agent.spawn(spawnOf('toolu_1'))
+  await $.agent.spawn(spawnOf('toolu_2'))
+  const band = await $.ui.mount(bandSized(2))
+
+  for (const agentId of ['agent-1', 'agent-2']) expect(await slotLight(band, `band-${agentId}`)).toMatch(THEME_KEY)
+  // The hint isn't a squishy, so it stays as it is
+  expect(await hoverOf(band, 'band-hint')).toBeUndefined()
 })
 
 test('the band shows the agents alone, never the partner', async ($, on) => {
@@ -280,13 +295,19 @@ test('a /squishys whose open is refused says why in a toast', async ($, on) => {
 
 test('a Working mini squishy in the band wiggles, repainted by blits to the band', async ($, on) => {
   const clock = mock.clock(on)
-  const stored = stubStore(on)
-  stubSpawns(on)
-  stubPanes(on, { wide: false })
+  // Not every mini moves while Working (one in a flower crown can hold
+  // still), so the agent's squishy is one whose does, restored after /clear
+  const rng = seeded(1)
+  let squishy = roll(KIT, { live: [], rng })
+  while (cellsOf(squishy, 'working', 2, 'mini') === cellsOf(squishy, 'working', 0, 'mini')) squishy = roll(KIT, { live: [], rng })
+  stubStore(on, { ...PARTNERED, [REMEMBERED_KEY]: [['agent-1', squishy.key]] })
+  stubSessionStart(on)
+  stubAgentList(on, [{ id: 'agent-1', description: 'Find config parser', status: 'running' }])
+  // The pane its spawn opened before the /clear, still unplaced
+  stubPanes(on, { wide: false, unplaced: true })
   const blits = stubBlits(on)
-  await $.agent.spawn(spawnOf('toolu_1'))
+  await $.classic.SessionStart({ source: 'clear' })
   await $.ui.mount(bandSized(1))
-  const squishy = squishyOfAgent(stored, 'agent-1')
 
   await clock.advance(FRAME_MS * 2)
 

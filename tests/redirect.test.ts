@@ -5,7 +5,7 @@ import type { AgentStatus, On, SessionSendResult } from 'claude-code'
 import { focusHint } from '../src/focus'
 import { OPEN_PANE_ASKED, PANE_ID } from '../src/pane'
 import { PARTNER_BUTTON } from '../src/partner'
-import { PANE, PARTNERED, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubPanes, stubSpawns, stubTurns } from './fixtures'
+import { PANE, PARTNERED, finishOf, nameOfAgent, readFrom, spawnOf, stepOf, stubAgentList, stubPanes, stubSpawns, stubStore, stubTurns } from './fixtures'
 
 // The kit can't append to a running agent's conversation, so its redirects
 // are refused here: AGENTS.md, "A redirect goes". Most tests redirect an
@@ -29,14 +29,15 @@ function stubSends(on: On, result: SessionSendResult = { isDelivered: true }): {
 // call and turn answered, and the store holding `stored`. Reads back
 // agent-1's squishy's Name.
 async function focusOnAgent($: Engine, on: On, stored: Readonly<Record<string, unknown>> = {}) {
-  mock.store(on, stored)
+  const store = stubStore(on, { ...stored })
   stubSpawns(on)
   stubTurns(on)
   on('tool.call', () => ({ result: 'ok' }))
   await $.agent.spawn(spawnOf('toolu_1'))
   await $.agent.spawn(spawnOf('toolu_2'))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const name = String((await ui.find({ key: 'squishy-agent-1' }))?.props.label)
+  // Whole, as the focus view's notes say it: the slot's Button may cut it
+  const name = nameOfAgent(store, 'agent-1')
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
   return { ui, name }
 }
@@ -204,7 +205,7 @@ test('the letters of the focus view’s hotkeys, typed through the redirect inpu
 // has it, and model requests counted. Spawns agent-1 and opens its focus view.
 async function focusWithStop($: Engine, on: On) {
   mock.clock(on)
-  mock.store(on)
+  const stored = stubStore(on)
   stubSpawns(on)
   const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
   stubAgentList(on, statuses)
@@ -223,7 +224,7 @@ async function focusWithStop($: Engine, on: On) {
   on('turn.complete', ($, e) => ({ text: e.answer }))
   await $.agent.spawn(spawnOf('toolu_1'))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const name = String((await ui.find({ key: 'squishy-agent-1' }))?.props.label)
+  const name = nameOfAgent(stored, 'agent-1')
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
   return { ui, name, statuses, taskStops, requests: () => requests }
 }

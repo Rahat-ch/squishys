@@ -11,7 +11,7 @@ import type { Squishy } from '../types'
 import { stillMiniPixels } from './composer'
 import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
-import { OPEN_PANE_ASKED, PANE_ID, notePaneOpened, openRefused } from './pane'
+import { OPEN_PANE_ASKED, PANE_ID, SLOT_HOVER, notePaneOpened, openRefused } from './pane'
 import { PARTNER_KEY, partnerFrom, stillPicture } from './partner'
 import { cycleLabel, nextOf, pickKeys } from './keys'
 import { halfBlocks } from './raster'
@@ -272,11 +272,13 @@ export function registerSquishydex(on: On): void {
           </Text>
         </Box>
       ) : null
+    // A met place lights under the pointer, as a roster slot does; an unmet one has nothing to open
+    const lit = (met: boolean) => (met ? { hover: SLOT_HOVER } : {})
     const placeOf = (place: Place) => {
       if (place.kind === 'legendary') {
         const met = dex.legendaries[place.legendary.legendary] !== undefined
         return (
-          <Box key={`squishydex-place-${place.number}`} flexDirection="column" alignItems="center" width={DEX_PLACE_COLUMNS}>
+          <Box key={`squishydex-place-${place.number}`} flexDirection="column" alignItems="center" width={DEX_PLACE_COLUMNS} {...lit(met)}>
             {met ? (
               <Raster key={`squishydex-picture-${place.key}`} {...halfBlocks(miniPixels(place.legendary))} />
             ) : (
@@ -294,7 +296,7 @@ export function registerSquishydex(on: On): void {
       if (squishy === undefined) return null
       const pixels = miniPixels(squishy)
       return (
-        <Box key={`squishydex-place-${place.number}`} flexDirection="column" alignItems="center" width={DEX_PLACE_COLUMNS}>
+        <Box key={`squishydex-place-${place.number}`} flexDirection="column" alignItems="center" width={DEX_PLACE_COLUMNS} {...lit(met !== undefined)}>
           <Raster key={`squishydex-picture-${place.key}`} {...halfBlocks(met !== undefined ? pixels : silhouette(pixels))} />
           {met !== undefined ? pick(place, squishy.name) : <Text dimColor>{numbered(place.number)}</Text>}
           {newMark(place)}
