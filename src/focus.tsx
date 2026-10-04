@@ -6,7 +6,17 @@ import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
 import type { ActivityRow, Agent, Delivery, Model, RedirectOutcome, Squishy, SquishyState } from '../types'
-import { MODEL_SWITCH_PREFIX, allowedModels, modelControlLabel, modelStep, noteModelStep } from './model-switch'
+import {
+  EFFORT_SWITCH_PREFIX,
+  MODEL_SWITCH_PREFIX,
+  allowedModels,
+  effortControlLabel,
+  effortStep,
+  modelControlLabel,
+  modelStep,
+  noteEffortStep,
+  noteModelStep,
+} from './model-switch'
 import { OPEN_PANE_ASKED, PANE_ID, PICK_PREFIX, animatedPicture, notePaneOpened, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, settingsFrom } from './settings'
@@ -35,6 +45,8 @@ const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 const focusedAgentId = atom({ plugin: 'squishys', key: 'focusedAgentId' } as const, null)
 const fedAgentIds = atom({ plugin: 'squishys', key: 'fedAgentIds' } as const, [])
 const switchedModels = atom({ plugin: 'squishys', key: 'switchedModels' } as const, {})
+const switchedEfforts = atom({ plugin: 'squishys', key: 'switchedEfforts' } as const, {})
+const effortTaken = atom({ plugin: 'squishys', key: 'effortTaken' } as const, {})
 const stopControl = atom({ plugin: 'squishys', key: 'stopControl' } as const, null)
 const delivery = atom({ plugin: 'squishys', key: 'delivery' } as const, null)
 /** The feeds, one member per agent id, each read as `atom({ ...activity, id }, [])`. */
@@ -90,6 +102,9 @@ const REDIRECT_HOTKEY = 'i'
 
 /** The model control's hotkey, which steps a switched agent to its next model. */
 const MODEL_HOTKEY = 'm'
+
+/** The effort control's hotkey, which steps a running agent to its next effort. */
+const EFFORT_HOTKEY = 'e'
 
 /** What the Redirect box says while the pane has the keyboard but the box hasn't. */
 export const REDIRECT_HINT = 'Press i to redirect'
@@ -314,6 +329,17 @@ export function registerFocus(on: On): void {
     // answers its press with the step it was drawn with
     const step = switchable === undefined ? undefined : modelStep(switchable, switched?.model)
     if (step !== undefined) noteModelStep(agent.id, step)
+    // The effort control steps through the efforts while the model the agent
+    // is on takes one; src/model-switch.ts answers its press
+    const effort =
+      switchable === undefined
+        ? undefined
+        : effortStep(agent.id, {
+            switchedModels: await read($, switchedModels),
+            switchedEfforts: await read($, switchedEfforts),
+            effortTaken: await read($, effortTaken),
+          })
+    if (effort !== undefined) noteEffortStep(agent.id, effort)
     const control = await read($, stopControl)
     // The compose page of a Share the browser didn't open
     const shareLink = unopenedShare(agentShareKey(agent.id))
@@ -353,6 +379,9 @@ export function registerFocus(on: On): void {
                 label={modelControlLabel(step)}
                 onPress={() => {}}
               />
+            )}
+            {effort === undefined || isEnded(agent.state) ? null : (
+              <Button key={`${EFFORT_SWITCH_PREFIX}${agent.id}`} hotkey={EFFORT_HOTKEY} plain label={effortControlLabel(effort)} onPress={() => {}} />
             )}
             <Text>{agent.description}</Text>
             {/* Beside the 2× picture, which is taller than this column, and cut short: it never adds a row */}

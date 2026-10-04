@@ -81,6 +81,12 @@ export type ModelSwitch = {
   sent: boolean
 }
 
+/**
+ * How hard a request asks the model to think, a level `turn.step` names.
+ * Mirrors `ModelEffort` in the engine types.
+ */
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 /** One row of an agent's activity feed in its focus view. */
 export type ActivityRow =
   | {
@@ -174,6 +180,20 @@ declare module 'claude-code' {
        * ends with its run; all end when the live model switch is turned off.
        */
       switchedModels: Record<string, ModelSwitch>
+      /**
+       * Experimental: the effort each agent was switched to in its focus view,
+       * by agent id, which its requests carry from then on while its model
+       * takes one. Ends like a model switch.
+       */
+      switchedEfforts: Record<string, Effort>
+      /**
+       * Experimental: whether each agent's latest request, as the engine made
+       * it, carried an effort, by agent id: the engine leaves it out for a
+       * model that takes none. Absent until the agent's first request, and
+       * cleared with the effort switches: as the agent's run ends, as the
+       * setting is turned off, and on /clear, /resume and a branch.
+       */
+      effortTaken: Record<string, boolean>
       /**
        * Claude Code's `prefersReducedMotion` setting, read at session start
        * and after each /config change: while it's on, nothing animates.
