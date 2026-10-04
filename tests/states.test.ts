@@ -1,20 +1,9 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
 import type { AgentStatus } from 'claude-code'
 
 import { AGENT_CHECK_MS } from '../src/agents'
 import { PANE, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
-import { everySquishy, squishyIn, stateIn } from './pictures'
-
-// Spawns agent-1 and opens the roster. `state()` reads which state its
-// squishy shows right now.
-async function spawnAndWatch($: Engine) {
-  await $.agent.spawn(spawnOf('toolu_1'))
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const picture = async () => (await ui.find({ key: 'picture-agent-1' }))?.props.cells
-  const squishy = squishyIn(await picture())
-  return { state: async () => stateIn(await picture(), squishy) }
-}
+import { spawnAndWatch, watch } from './pictures'
 
 // Reads a stream to its end, as Claude Code does a model response
 async function drain(stream: AsyncIterable<unknown>): Promise<void> {
@@ -46,6 +35,24 @@ test('while its agent streams a model response, a squishy is Thinking, and Worki
   expect(await state()).toBe('working')
 })
 
+test('an agent that ends while its response streams stays ended once the stream closes', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  stubSpawns(on)
+  stubTurns(on)
+  const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
+  stubAgentList(on, statuses)
+  const { state } = await spawnAndWatch($)
+
+  const response = $.turn.step(stepOf('agent-1'))
+  await response.next()
+  statuses.set('agent-1', 'failed')
+  await clock.advance(AGENT_CHECK_MS)
+  await drain(response)
+
+  expect(await state()).toBe('squished')
+})
+
 test('when its agent finishes, a squishy falls Asleep', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
@@ -73,8 +80,14 @@ for (const [reason, how] of [['error', 'ends on an error'], ['aborted', 'is inte
 // SubagentStop, as Claude Code raises it when agent-1 stops
 const SUBAGENT_STOP = { stop_hook_active: false, agent_id: 'agent-1', agent_transcript_path: '', agent_type: 'general-purpose' }
 
-for (const [status, expected] of [['completed', 'asleep'], ['failed', 'squished'], ['killed', 'squished']] as const) {
-  test(`when its agent stops as ${status}, a squishy is ${expected === 'asleep' ? 'Asleep' : 'Squished'}`, async ($, on) => {
+const ENDINGS = [
+  ['completed', 'finished', 'asleep'],
+  ['failed', 'failed', 'squished'],
+  ['killed', 'was stopped', 'squished'],
+] as const
+
+for (const [status, how, expected] of ENDINGS) {
+  test(`when its agent stops and the agent list says it ${how}, a squishy is ${expected === 'asleep' ? 'Asleep' : 'Squished'}`, async ($, on) => {
     mock.store(on)
     stubSpawns(on)
     stubAgentList(on, new Map([['agent-1', status]]))
@@ -87,8 +100,8 @@ for (const [status, expected] of [['completed', 'asleep'], ['failed', 'squished'
   })
 }
 
-for (const status of ['failed', 'killed'] as const) {
-  test(`an agent that ${status === 'failed' ? 'failed' : 'was stopped'} is caught by checking the agent list, with no stop event`, async ($, on) => {
+for (const [status, how] of [['failed', 'failed'], ['killed', 'was stopped']] as const) {
+  test(`an agent that ${how} is caught by checking the agent list, with no stop event`, async ($, on) => {
     const clock = mock.clock(on)
     mock.store(on)
     stubSpawns(on)
@@ -105,6 +118,33 @@ for (const status of ['failed', 'killed'] as const) {
   })
 }
 
+test('after a hot reload, which keeps the agents but drops the timers, the agent list is checked again', async ($, on) => {
+  mock.store(on)
+  stubSpawns(on)
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
+  stubAgentList(on, statuses)
+  // A clock of the test's own. It refuses each timer's period, which ends
+  // the timer, until told to hold the next one for the test to let pass.
+  let holding = false
+  let pass = () => {}
+  on('clock.every', () => {
+    if (!holding) return { deny: 'no clock' }
+    holding = false
+    return new Promise(resolve => (pass = () => resolve({ value: undefined })))
+  })
+  // The timers the spawn started end at once, as a reload drops them
+  const { state } = await spawnAndWatch($)
+
+  holding = true
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  statuses.set('agent-1', 'failed')
+  pass()
+
+  expect(await state()).toBe('squished')
+})
+
 test('a tool call from an agent that had ended, resumed by a message, wakes its squishy to Working', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
@@ -118,22 +158,27 @@ test('a tool call from an agent that had ended, resumed by a message, wakes its 
   expect(await state()).toBe('working')
 })
 
-test('a finished agent’s squishy goes back to the pool: a new agent can get it while no running agent has it', async ($, on) => {
+test('an Asleep squishy stays in the roster, so no new agent gets it', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
   stubTurns(on)
-  // Spawning one agent per squishy the kit makes leaves none free, so a
-  // squishy freed by a finished agent is the only one the next roll can give
-  const everyOne = everySquishy().length
-  for (let n = 1; n <= everyOne; n += 1) await $.agent.spawn(spawnOf(`toolu_${n}`))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const squishyOf = async (agentId: string) => squishyIn((await ui.find({ key: `picture-${agentId}` }))?.props.cells)
-  const freed = await squishyOf('agent-1')
+  // Rolled at random, sixteen from the placeholder kit would very likely
+  // repeat one if Asleep squishys went back to the pool
+  const spawnAndRead = async (from: number, to: number) => {
+    const squishys = []
+    for (let n = from; n <= to; n += 1) {
+      await $.agent.spawn(spawnOf(`toolu_${n}`))
+      squishys.push((await watch(ui, `agent-${n}`)).squishy)
+    }
+    return squishys
+  }
+  const first = await spawnAndRead(1, 8)
+  for (let n = 1; n <= 8; n += 1) await $.turn.complete(finishOf(`agent-${n}`))
 
-  await $.turn.complete(finishOf('agent-1'))
-  await $.agent.spawn(spawnOf('toolu_next'))
+  const second = await spawnAndRead(9, 16)
 
-  expect(await squishyOf(`agent-${everyOne + 1}`)).toEqual(freed)
+  expect(new Set([...first, ...second].map(squishy => JSON.stringify(squishy))).size).toBe(16)
 })
 
 test('the orchestrator’s own turns leave every squishy as it was', async ($, on) => {

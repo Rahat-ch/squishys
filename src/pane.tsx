@@ -5,10 +5,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
 
-import type { SquishyState } from '../types'
+import type { Agent } from '../types'
 import { compose } from './composer'
 import { KIT } from './kit'
 import { halfBlocks } from './raster'
+import type { RasterCells } from './raster'
+import { moves } from './states'
 
 export const PANE_ID = 'squishys'
 
@@ -29,7 +31,12 @@ const reducedMotion = atom({ plugin: 'squishys', key: 'reducedMotion' } as const
 let frame = 0
 /** The animator's timer, while it runs. */
 let animator: Timer | undefined
-/** The cells each slot's picture shows now, by agent id: the pictures the animator may repaint. */
+/** Whether a frame's repaints are still going out. */
+let painting = false
+/**
+ * The cells each slot's picture shows now, by agent id: the pictures the
+ * animator may repaint. Each drawing of the roster fills it again.
+ */
 const shown = new Map<string, string>()
 
 export function registerPane(on: On): void {
@@ -38,6 +45,9 @@ export function registerPane(on: On): void {
     // immediate: the orchestrator is usually mid-turn while its agents run,
     // which is exactly when the user wants the pane.
     await $.command.register({ name: 'squishys', description: 'Open or close the squishys pane', immediate: true })
+    // A hot reload keeps $.state but drops the animator; drawing the roster
+    // again starts it.
+    if ((await read($, agents)).some(agent => moves(agent.state))) $.ui.invalidate('ui.render')
     return next(e)
   })
 
@@ -66,16 +76,13 @@ export function registerPane(on: On): void {
       return next(e)
     }
     const { Box, Button, Raster, Text } = $.ui.resolve(e)
-    const still = await read($, reducedMotion)
-    if (still) stopAnimating()
+    const motionReduced = await read($, reducedMotion)
+    if (motionReduced) stopAnimating()
     // Drawn at the animation's current frame, so a redraw doesn't jump back
-    const slots = (await read($, agents)).map(agent => ({
-      agent,
-      picture: halfBlocks(compose(KIT, agent.squishy, { state: agent.state, frame })),
-    }))
+    const slots = (await read($, agents)).map(agent => ({ agent, picture: pictureOf(agent) }))
     shown.clear()
     for (const { agent, picture } of slots) shown.set(agent.id, picture.cells)
-    if (!still && slots.some(({ agent }) => moves(agent.state))) startAnimating($)
+    if (!motionReduced && slots.some(({ agent }) => moves(agent.state))) startAnimating($)
     return (
       <Box flexDirection="column" rowGap={1}>
         {slots.length === 0 ? (
@@ -100,9 +107,9 @@ export function registerPane(on: On): void {
   })
 }
 
-/** Whether a squishy in this state animates. */
-function moves(state: SquishyState): boolean {
-  return state === 'working' || state === 'thinking'
+/** An agent's squishy in its state's pose, at the animation's current frame. */
+function pictureOf(agent: Agent): RasterCells {
+  return halfBlocks(compose(KIT, agent.squishy, { state: agent.state, frame }))
 }
 
 /** Keeps `reducedMotion` in step with Claude Code's `prefersReducedMotion` setting. */
@@ -128,22 +135,30 @@ function stopAnimating(): void {
 
 /**
  * Moves the animation on a frame, blitting each shown squishy whose
- * picture changed. It stops once no shown squishy is Working or Thinking,
- * Reduce motion is on, or the roster isn't on screen; the next drawing of
- * the roster starts it again.
+ * picture changed. A tick that comes while the last frame's repaints are
+ * still going out is skipped. A squishy whose repaint is refused is left
+ * alone until the roster is drawn again. The animation stops once no shown
+ * squishy is Working or Thinking, or Reduce motion is on; the next drawing
+ * of the roster starts it again.
  */
 async function nextFrame($: EngineInterface): Promise<void> {
-  const moving = (await read($, agents)).filter(agent => shown.has(agent.id) && moves(agent.state))
-  if (moving.length === 0 || (await read($, reducedMotion))) return stopAnimating()
-  frame += 1
-  for (const agent of moving) {
-    const picture = halfBlocks(compose(KIT, agent.squishy, { state: agent.state, frame }))
-    if (shown.get(agent.id) === picture.cells) continue
-    let refused = true
-    try {
-      refused = (await $.ui.blit({ requestId: PANE_ID, key: `picture-${agent.id}`, ...picture })).deny !== undefined
-    } catch {}
-    if (refused) return stopAnimating()
-    shown.set(agent.id, picture.cells)
+  if (painting) return
+  painting = true
+  try {
+    const moving = (await read($, agents)).filter(agent => shown.has(agent.id) && moves(agent.state))
+    if (moving.length === 0 || (await read($, reducedMotion))) return stopAnimating()
+    frame += 1
+    for (const agent of moving) {
+      const picture = pictureOf(agent)
+      if (shown.get(agent.id) === picture.cells) continue
+      let refused = true
+      try {
+        refused = (await $.ui.blit({ requestId: PANE_ID, key: `picture-${agent.id}`, ...picture })).deny !== undefined
+      } catch {}
+      if (refused) shown.delete(agent.id)
+      else shown.set(agent.id, picture.cells)
+    }
+  } finally {
+    painting = false
   }
 }

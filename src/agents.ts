@@ -1,14 +1,16 @@
 // The agent tracker: turns Claude Code's events into the session's agents,
 // each with the squishy that stands for it and the state its squishy shows
-// (Needs you comes later, with the permission prompts).
+// (Needs you comes later, with the permission prompts). The state rules
+// themselves live in states.ts.
 
 import { atom, read, update } from 'claude-code'
-import type { AgentInfo, AgentStatus, EngineInterface, On, Timer } from 'claude-code'
+import type { AgentStatus, EngineInterface, On, Timer } from 'claude-code'
 
 import type { Agent, SquishyState } from '../types'
 import { KIT } from './kit'
 import { roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
+import { endedState, isEnded, stateAfterRun } from './states'
 
 /**
  * How often, in milliseconds, the agent list is checked for agents that
@@ -26,6 +28,17 @@ const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
 const notAgents = new Set<string>()
 
 export function registerAgentTracking(on: On): void {
+  // A hot reload keeps $.state but drops this module's timers, and starts
+  // the session again. The pane's hook on session.start is the unmatched
+  // one, and `$` can't be handed across files, so the agent tracker's hook
+  // matches every session instead.
+  on('session.start', { isInteractive: [true, false] }, async ($, e, next) => {
+    agentCheck?.cancel()
+    agentCheck = undefined
+    if ((await read($, agents)).some(agent => !isEnded(agent.state))) keepChecking($)
+    return next(e)
+  })
+
   // Subagents, forks and background agents all start through agent.spawn,
   // on the user's default model when one is set.
   on('agent.spawn', async ($, e, next) => {
@@ -72,19 +85,18 @@ export function registerAgentTracking(on: On): void {
         yield chunk
       }
     } finally {
-      if (streaming) await setState($, agentId, 'working')
+      // Only a squishy still Thinking goes back to Working: an agent that
+      // ended while its response streamed stays ended
+      if (streaming) await setState($, agentId, 'working', { from: 'thinking' })
     }
     return await response.result
   })
 
-  // Each run of an agent's loop is one turn. One that answered (or refused)
-  // finished normally; one that died on an error, or that the user
-  // interrupted, failed or was stopped.
+  // Each run of an agent's loop is one turn, and how it ended says whether
+  // the agent finished, failed or was stopped.
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
-    if (e.agentId !== undefined) {
-      await setState($, e.agentId, e.reason === 'error' || e.reason === 'aborted' ? 'squished' : 'asleep')
-    }
+    if (e.agentId !== undefined) await setState($, e.agentId, stateAfterRun(e.reason))
     return completed
   })
 
@@ -96,51 +108,47 @@ export function registerAgentTracking(on: On): void {
     try {
       status = (await $.agent.list()).find(agent => agent.id === e.agent_id)?.status
     } catch {}
-    await setState($, e.agent_id, status !== undefined && endedBadly(status) ? 'squished' : 'asleep')
+    await setState($, e.agent_id, (status !== undefined ? endedState(status) : undefined) ?? 'asleep')
     return stopped
   })
 }
 
-/** Whether an agent list status says the agent failed or was stopped. */
-function endedBadly(status: AgentStatus): boolean {
-  return status === 'failed' || status === 'killed'
-}
-
 /**
- * Whether an agent is still running: not Asleep or Squished. A message can
- * resume an agent that ended, and its activity makes it running again.
+ * Puts an agent's squishy in a state; agents without a squishy are left
+ * out, and with `from`, so is a squishy in any other state than that.
  */
-function isRunning(agent: { state: SquishyState }): boolean {
-  return agent.state !== 'asleep' && agent.state !== 'squished'
-}
-
-/** Puts an agent's squishy in a state; agents without a squishy are left out. */
-async function setState($: EngineInterface, agentId: string, state: SquishyState): Promise<void> {
+async function setState(
+  $: EngineInterface,
+  agentId: string,
+  state: SquishyState,
+  { from }: { from?: SquishyState } = {},
+): Promise<void> {
+  const changes = (agent: Agent) => agent.id === agentId && agent.state !== state && (from === undefined || agent.state === from)
   // Read first, so a state that doesn't change redraws nothing
-  if (!(await read($, agents)).some(agent => agent.id === agentId && agent.state !== state)) return
-  await update($, agents, known => known.map(agent => (agent.id === agentId ? { ...agent, state } : agent)))
-  if (isRunning({ state })) keepChecking($)
+  if (!(await read($, agents)).some(changes)) return
+  await update($, agents, known => known.map(agent => (changes(agent) ? { ...agent, state } : agent)))
+  if (!isEnded(state)) keepChecking($)
 }
 
 /** The agent list check's timer, set while any agent is running. */
-let checking: Timer | undefined
+let agentCheck: Timer | undefined
 
 /**
  * Checks the agent list every AGENT_CHECK_MS while any agent is running,
  * for agents that ended without a stop event or a turn of their own ending.
  */
 function keepChecking($: EngineInterface): void {
-  checking ??= $.clock.every(AGENT_CHECK_MS, () => void checkAgentList($))
+  agentCheck ??= $.clock.every(AGENT_CHECK_MS, () => void checkAgentList($))
 }
 
 async function checkAgentList($: EngineInterface): Promise<void> {
-  const running = (await read($, agents)).filter(isRunning)
+  const running = (await read($, agents)).filter(agent => !isEnded(agent.state))
   if (running.length === 0) {
-    checking?.cancel()
-    checking = undefined
+    agentCheck?.cancel()
+    agentCheck = undefined
     return
   }
-  let listed: AgentInfo[]
+  let listed: { id: string; status: AgentStatus }[]
   try {
     listed = await $.agent.list()
   } catch {
@@ -148,9 +156,8 @@ async function checkAgentList($: EngineInterface): Promise<void> {
   }
   for (const agent of running) {
     const status = listed.find(each => each.id === agent.id)?.status
-    if (status === undefined) continue
-    if (endedBadly(status)) await setState($, agent.id, 'squished')
-    else if (status === 'completed') await setState($, agent.id, 'asleep')
+    const ended = status !== undefined ? endedState(status) : undefined
+    if (ended !== undefined) await setState($, agent.id, ended)
   }
 }
 
@@ -160,14 +167,16 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
 
 /**
  * Gives an agent a freshly rolled squishy, unless it already has one. The
- * roll leaves out the squishys running agents have; those of agents that
- * are Asleep or Squished are back in the pool.
+ * roll leaves out every squishy in the roster, running or ended: an Asleep
+ * squishy stays on screen in its slot. (Once slots are reused, an agent
+ * whose slot went to another leaves the pool.) An ended agent that wakes
+ * keeps its own squishy, even if another agent has rolled it since: an
+ * agent's identity wins over keeping squishys apart.
  */
 async function assignSquishy($: EngineInterface, agentId: string, description: string): Promise<void> {
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
-    const live = known.filter(isRunning).map(agent => agent.squishy)
-    const squishy = roll(KIT, { live, rng: cryptoRandom })
+    const squishy = roll(KIT, { live: known.map(agent => agent.squishy), rng: cryptoRandom })
     const agent: Agent = { id: agentId, description, squishy, state: 'working' }
     return [...known, agent]
   })

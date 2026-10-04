@@ -93,18 +93,26 @@ export function stubTurns(on: On): void {
   on('turn.complete', ($, e) => ({ text: e.answer }))
 }
 
-// Stands in for `$.agent.list()`: each agent's status, as the test sets it
-export function stubAgentList(on: On, statuses: Map<string, AgentStatus>): void {
-  on('agent.list', () => ({
-    value: [...statuses].map(([id, status]) => ({ id, description: 'Find config parser', type: 'general-purpose', status })),
-  }))
+// Stands in for `$.agent.list()`: each agent's status, as the test sets it.
+// Reads back how many times the list was asked for.
+export function stubAgentList(on: On, statuses: Map<string, AgentStatus>): () => number {
+  let lookups = 0
+  on('agent.list', () => {
+    lookups += 1
+    return {
+      value: [...statuses].map(([id, status]) => ({ id, description: 'Find config parser', type: 'general-purpose', status })),
+    }
+  })
+  return () => lookups
 }
 
 // Stands in for the terminal taking each `$.ui.blit`, keeping each one's
-// Raster key and cells
-export function stubBlits(on: On): { key: string; cells: string }[] {
+// Raster key and cells. It refuses those to the keys in `refused`, as for a
+// Raster no longer mounted, and keeps nothing of them.
+export function stubBlits(on: On, refused: readonly string[] = []): { key: string; cells: string }[] {
   const blits: { key: string; cells: string }[] = []
   on('ui.blit', ($, e) => {
+    if (refused.includes(e.key)) return { value: { deny: `${e.key} is not mounted` } }
     if ('cells' in e) blits.push({ key: e.key, cells: e.cells })
     return { value: {} }
   })

@@ -1,12 +1,14 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ZZZ, compose } from '../src/composer'
-import type { Size, SquishyState } from '../src/composer'
+import { ZZZ_COLOR, compose } from '../src/composer'
+import type { Size } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Grid, Kit } from '../src/kit'
 import { roll } from '../src/roller'
 import { seeded } from '../src/seeded'
-import { everySquishy } from './pictures'
+import { SQUISHY_STATES } from '../src/states'
+import type { SquishyState } from '../src/states'
+import { eachPart } from './pictures'
 
 const BLANK: Grid = Array.from({ length: 16 }, () => '................')
 const GREY = 0x808080
@@ -79,7 +81,6 @@ test('the 8x8 mini keeps a pixel wherever most of its 2x2 block is drawn', () =>
   expect(mini).toEqual(Array.from({ length: 8 }, () => row))
 })
 
-const STATES: readonly SquishyState[] = ['working', 'thinking', 'needsYou', 'asleep', 'squished']
 const SIDES: Readonly<Record<Size, number>> = { full: 16, double: 32, mini: 8 }
 
 function wellFormed(pixels: ReturnType<typeof compose>, side: number): boolean {
@@ -93,9 +94,9 @@ function wellFormed(pixels: ReturnType<typeof compose>, side: number): boolean {
   )
 }
 
-test('every squishy the kit makes composes to a well-formed grid at every size, state and frame', () => {
-  for (const squishy of everySquishy(KIT)) {
-    for (const state of STATES) {
+test('every part and legendary composes to a well-formed grid at every size, state and frame', () => {
+  for (const squishy of eachPart(KIT)) {
+    for (const state of SQUISHY_STATES) {
       for (const frame of [0, 1, 2, 3]) {
         for (const [size, side] of Object.entries(SIDES) as [Size, number][]) {
           const pixels = compose(KIT, squishy, { state, frame, size })
@@ -108,8 +109,8 @@ test('every squishy the kit makes composes to a well-formed grid at every size, 
   }
 })
 
-test('every squishy the kit makes, legendaries too, moves when Working or Thinking, sleeps with a z and lies flat when Squished', () => {
-  for (const squishy of everySquishy(KIT)) {
+test('with every part and legendary, a squishy moves when Working or Thinking, sleeps with a z and lies flat when Squished', () => {
+  for (const squishy of eachPart(KIT)) {
     const at = (state: SquishyState, frame: number) => compose(KIT, squishy, { state, frame })
     const still = at('working', 0)
     const what = JSON.stringify(squishy)
@@ -117,7 +118,7 @@ test('every squishy the kit makes, legendaries too, moves when Working or Thinki
     if (JSON.stringify(at('thinking', 0)) === JSON.stringify(at('thinking', 1))) throw new Error(`${what} does not bounce`)
     if (JSON.stringify(at('thinking', 0)) === JSON.stringify(still)) throw new Error(`${what} looks Working when Thinking`)
     const asleep = at('asleep', 0)
-    if (!(asleep[0]?.[12] === ZZZ && asleep[1]?.[13] === ZZZ)) throw new Error(`${what} has no z asleep`)
+    if (!(asleep[0]?.[12] === ZZZ_COLOR && asleep[1]?.[13] === ZZZ_COLOR)) throw new Error(`${what} has no z asleep`)
     const squished = at('squished', 0)
     if (rowsDrawn(squished).some(row => row < 7)) throw new Error(`${what} is not flat when Squished`)
     const bottom = Math.max(...rowsDrawn(still))
@@ -197,7 +198,7 @@ test('an Asleep squishy shuts its eyes to a line along their bottom, and a z flo
   expect(asleep[5]?.slice(3, 12)).toEqual([GREY, GREY, GREY, GREY, GREY, GREY, GREY, GREY, GREY])
   // A one-pixel eye shuts as a line three wide, a wider one as wide as it was
   expect(asleep[6]?.slice(3, 12)).toEqual([GREY, EYE, EYE, EYE, GREY, GREY, EYE, EYE, GREY])
-  const z = (row: number) => drawnIn(asleep.map(line => line.map(pixel => (pixel === ZZZ ? pixel : null))), row)
+  const z = (row: number) => drawnIn(asleep.map(line => line.map(pixel => (pixel === ZZZ_COLOR ? pixel : null))), row)
   expect([z(0), z(1), z(2)]).toEqual([[12, 13, 14], [13], [12, 13, 14]])
   // Asleep holds still
   expect(posed(kitWith(grid('b'), EYES), 'asleep', 1)).toEqual(asleep)

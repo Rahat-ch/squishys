@@ -43,7 +43,7 @@ export type Squishy =
 
 /**
  * What a squishy shows about its agent. Mirrors `SquishyState` in
- * src/composer.ts.
+ * src/states.ts.
  */
 export type SquishyState = 'working' | 'thinking' | 'needsYou' | 'asleep' | 'squished'
 

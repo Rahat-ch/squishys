@@ -6,9 +6,10 @@
 import type { Colors, Grid, Kit } from './kit'
 import type { Pixel, Pixels } from './raster'
 import type { Squishy } from './roller'
+import type { SquishyState } from './states'
 
-/** What a squishy shows about its agent. */
-export type SquishyState = 'working' | 'thinking' | 'needsYou' | 'asleep' | 'squished'
+// What a squishy shows about its agent: see states.ts
+export type { SquishyState } from './states'
 
 /**
  * How big to draw: `full` is the 16x16 roster picture, `double` the 32x32
@@ -56,7 +57,7 @@ function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: nu
       // its bottom row clear more often than its top one, so down loses less.
       return frame % 2 === 0 ? lowered(still, 1) : still
     case 'asleep':
-      return overlaid(shutEyes(grids, colors), Z_GLYPH, ZZZ)
+      return overlaid(shutEyes(grids, colors), Z_GLYPH, ZZZ_COLOR)
     case 'squished':
       return flattened(still)
     default:
@@ -76,7 +77,7 @@ function flattened(pixels: Pixels): Pixels {
 }
 
 /** The color of an Asleep squishy's z, the same for every palette. */
-export const ZZZ = 0x88aaee
+export const ZZZ_COLOR = 0x88aaee
 
 /** The z an Asleep squishy shows, top right: `#` is drawn. */
 const Z_GLYPH: Grid = [
@@ -118,21 +119,22 @@ type Cell = readonly [row: number, column: number]
 /** Each eye: the pixels where an eye shows, grouped into touching sets (corners count). */
 function eyesOf(grids: readonly Grid[]): Cell[][] {
   const showing = (row: number, column: number) => topKey(grids, row, column) === 'e'
-  const seen = new Set<string>()
+  // Which pixels are in an eye found so far, by row * SIDE + column
+  const seen: boolean[] = []
   const eyes: Cell[][] = []
   for (let row = 0; row < SIDE; row += 1) {
     for (let column = 0; column < SIDE; column += 1) {
-      if (!showing(row, column) || seen.has(`${row},${column}`)) continue
+      if (!showing(row, column) || seen[row * SIDE + column]) continue
       const eye: Cell[] = []
       const queue: Cell[] = [[row, column]]
-      seen.add(`${row},${column}`)
+      seen[row * SIDE + column] = true
       for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
         eye.push(next)
         const [at, across] = next
         for (const [down, right] of NEIGHBORS) {
           const [r, c] = [at + down, across + right]
-          if (r < 0 || r >= SIDE || c < 0 || c >= SIDE || seen.has(`${r},${c}`) || !showing(r, c)) continue
-          seen.add(`${r},${c}`)
+          if (r < 0 || r >= SIDE || c < 0 || c >= SIDE || seen[r * SIDE + c] || !showing(r, c)) continue
+          seen[r * SIDE + c] = true
           queue.push([r, c])
         }
       }

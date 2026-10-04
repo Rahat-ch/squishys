@@ -1,20 +1,10 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { AGENT_CHECK_MS } from '../src/agents'
 import { FRAME_MS } from '../src/pane'
-import { PANE, finishOf, spawnOf, stepOf, stubBlits, stubSpawns, stubTurns } from './fixtures'
-import { cellsOf, squishyIn } from './pictures'
-
-// Spawns agent-1 and opens the roster. `picture()` reads the cells its slot
-// was last drawn with, which blits don't change.
-async function spawnAndWatch($: Engine) {
-  await $.agent.spawn(spawnOf('toolu_1'))
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const picture = async () => (await ui.find({ key: 'picture-agent-1' }))?.props.cells
-  return { picture, squishy: squishyIn(await picture()) }
-}
+import { PANE, finishOf, spawnOf, stepOf, stubAgentList, stubBlits, stubSpawns, stubTurns } from './fixtures'
+import { cellsOf, spawnAndWatch, watch } from './pictures'
 
 test('a Working squishy wiggles on a timer, repainted by blits and never redrawn for a frame', async ($, on) => {
   const clock = mock.clock(on)
@@ -125,21 +115,35 @@ test('once no squishy is Working or Thinking, nothing repaints and the agent lis
   mock.store(on)
   stubSpawns(on)
   stubTurns(on)
-  let checks = 0
-  on('agent.list', () => {
-    checks += 1
-    return { value: [{ id: 'agent-1', description: 'Find config parser', type: 'general-purpose', status: 'running' }] }
-  })
+  const checks = stubAgentList(on, new Map([['agent-1', 'running']]))
   const blits = stubBlits(on)
   await spawnAndWatch($)
   await clock.advance(AGENT_CHECK_MS)
   expect(blits.length).toBeGreaterThan(0)
-  expect(checks).toBe(1)
+  expect(checks()).toBe(1)
 
   await $.turn.complete(finishOf('agent-1'))
-  const [blitsBefore, checksBefore] = [blits.length, checks]
+  const [blitsBefore, checksBefore] = [blits.length, checks()]
   await clock.advance(AGENT_CHECK_MS * 10)
 
   expect(blits).toHaveLength(blitsBefore)
-  expect(checks).toBe(checksBefore)
+  expect(checks()).toBe(checksBefore)
+})
+
+test('a squishy whose repaint is refused is left alone, and the others keep moving', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  stubSpawns(on)
+  const blits = stubBlits(on, ['picture-agent-1'])
+  await $.agent.spawn(spawnOf('toolu_1'))
+  await $.agent.spawn(spawnOf('toolu_2'))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const { squishy } = await watch(ui, 'agent-2')
+
+  await clock.advance(FRAME_MS * 4)
+
+  expect(blits).toEqual([
+    { key: 'picture-agent-2', cells: cellsOf(squishy, 'working', 2) },
+    { key: 'picture-agent-2', cells: cellsOf(squishy, 'working', 0) },
+  ])
 })
