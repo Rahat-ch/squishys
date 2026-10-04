@@ -4,6 +4,7 @@
 import type { Register } from 'claude-code'
 
 import { registerAgentTracking } from '../src/agents'
+import { registerFocus } from '../src/focus'
 import { registerPane } from '../src/pane'
 import { registerSettings } from '../src/settings'
 
@@ -11,4 +12,5 @@ export const register: Register = on => {
   registerAgentTracking(on)
   registerPane(on)
   registerSettings(on)
+  registerFocus(on)
 }

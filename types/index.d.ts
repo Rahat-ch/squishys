@@ -59,13 +59,33 @@ export type Agent = {
   squishy: Squishy
   /** What the agent is doing now, which its squishy's pose shows. */
   state: SquishyState
+  /**
+   * The model the agent runs on, as agent.spawn's result names it; absent
+   * for an agent first seen through its tool call.
+   */
+  model?: string
 }
 
+/** One row of an agent's activity feed in its focus view. */
+export type ActivityRow =
+  | {
+      kind: 'tool'
+      /** The tool the agent called. */
+      tool: string
+      /** A short line of the call's arguments: the command, path or pattern. */
+      summary: string
+    }
+  | {
+      kind: 'answer'
+      /** The agent's final answer, as markdown, cut to what a Markdown draws. */
+      text: string
+    }
+
 /**
- * What the pane is showing. Later modes (starter pick, focus view,
- * Squishydex) join this union.
+ * What the pane is showing. Later modes (starter pick, Squishydex) join
+ * this union.
  */
-export type PaneMode = 'roster' | 'settings'
+export type PaneMode = 'roster' | 'settings' | 'focus'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -74,6 +94,13 @@ declare module 'claude-code' {
       agents: Agent[]
       /** What the pane is showing; the roster until the user picks another. */
       mode: PaneMode
+      /** The agent whose focus view the pane shows, once one is picked. */
+      focusedAgentId: string | null
+      /**
+       * Each agent's latest activity, oldest first and newest last, by agent
+       * id; kept after the agent ends.
+       */
+      activity: Record<string, ActivityRow[]>
       /**
        * Claude Code's `prefersReducedMotion` setting, read at session start
        * and after each /config change: while it's on, nothing animates.
