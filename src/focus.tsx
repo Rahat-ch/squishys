@@ -5,8 +5,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { ActivityRow, SquishyState } from '../types'
+import type { ActivityRow, Model, SquishyState } from '../types'
+import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
 import { PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
+import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
+import { isEnded } from './states'
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -14,6 +17,7 @@ const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
 const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 const focusedAgentId = atom({ plugin: 'squishys', key: 'focusedAgentId' } as const, null)
 const fedAgentIds = atom({ plugin: 'squishys', key: 'fedAgentIds' } as const, [])
+const switchedModels = atom({ plugin: 'squishys', key: 'switchedModels' } as const, {})
 /** The feeds, one member per agent id, each read as `atom({ ...activity, id }, [])`. */
 const activity = { plugin: 'squishys', key: 'activity' } as const
 
@@ -135,7 +139,7 @@ export function registerFocus(on: On): void {
   // since the engine reads a matcher off this file alone.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'focus') return next(e)
-    const { Box, Button, Markdown, Raster, Text } = $.ui.resolve(e)
+    const { Box, Button, Markdown, Raster, Select, Text } = $.ui.resolve(e)
     const id = await read($, focusedAgentId)
     const agent = (await read($, agents)).find(each => each.id === id)
     const back = <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
@@ -149,6 +153,17 @@ export function registerFocus(on: On): void {
     }
     // Only this agent's feed: another agent's activity doesn't redraw it
     const feed = await read($, atom({ ...activity, id: agent.id }, []))
+    // Experimental: the models the live model switch may name, while it's on
+    // (src/model-switch.ts keeps the switches and answers the picker)
+    let switchable: Model[] | undefined
+    try {
+      if (settingsFrom(await $.store.get(SETTINGS_KEY)).liveModelSwitch === true) {
+        switchable = []
+        switchable = allowedModels((await $.settings.read()).availableModels)
+      }
+    } catch {}
+    const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
+    const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
     return (
       <Box key="focus" flexDirection="column" rowGap={1}>
         <Box flexDirection="row" columnGap={2}>
@@ -156,7 +171,19 @@ export function registerFocus(on: On): void {
           <Box flexDirection="column">
             <Text bold>{agent.squishy.name}</Text>
             <Text>{STATE_NAMES[agent.state]}</Text>
-            {agent.model !== undefined ? <Text dimColor>{agent.model}</Text> : null}
+            {shownModel !== undefined ? <Text dimColor>{shownModel}</Text> : null}
+            {switchable === undefined || isEnded(agent.state) ? null : switchable.length === 0 ? (
+              <Text dimColor>Experimental: no model can be switched to, by your availableModels setting.</Text>
+            ) : (
+              // Its pick is answered by the ui.select hook in model-switch.ts
+              <Select
+                key={`${MODEL_SWITCH_PREFIX}${agent.id}`}
+                label="Experimental: switch model: "
+                options={[{ value: AS_STARTED, label: 'As started' }, ...modelOptions(switchable)]}
+                value={switched !== undefined && switchable.includes(switched.model) ? switched.model : AS_STARTED}
+                onSelect={() => {}}
+              />
+            )}
             <Text>{agent.description}</Text>
           </Box>
         </Box>

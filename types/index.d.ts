@@ -66,6 +66,16 @@ export type Agent = {
   model?: string
 }
 
+/** A model alias the Agent tool takes. Mirrors `Model` in src/settings.tsx. */
+export type Model = 'haiku' | 'sonnet' | 'opus' | 'fable'
+
+/** Experimental: the model an agent was switched to in its focus view. */
+export type ModelSwitch = {
+  model: Model
+  /** Whether a request has gone out on it yet; until then it's still switching. */
+  sent: boolean
+}
+
 /** One row of an agent's activity feed in its focus view. */
 export type ActivityRow =
   | {
@@ -110,6 +120,12 @@ declare module 'claude-code' {
       activity: StateFamily<ActivityRow[]>
       /** The agents that have a feed, so feeds of agents no longer known can be emptied. */
       fedAgentIds: string[]
+      /**
+       * Experimental: the model each agent was switched to in its focus view,
+       * by agent id, which its requests use from then on. An agent's switch
+       * ends with its run; all end when the live model switch is turned off.
+       */
+      switchedModels: Record<string, ModelSwitch>
       /**
        * Claude Code's `prefersReducedMotion` setting, read at session start
        * and after each /config change: while it's on, nothing animates.

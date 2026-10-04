@@ -3,7 +3,7 @@
 // changes them.
 
 import { atom, read, update } from 'claude-code'
-import type { AgentSpawnInput, EngineInterface, On } from 'claude-code'
+import type { AgentSpawnInput, EngineInterface, On, SelectOption } from 'claude-code'
 
 /** The Agent tool's model aliases a default can name. */
 export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const
@@ -17,6 +17,11 @@ export type Settings = {
   model?: Model
   /** The most slots the roster shows. */
   slotCap: number
+  /**
+   * Experimental: the focus view can switch a running agent's model from
+   * its next request. Off when absent.
+   */
+  liveModelSwitch?: true
 }
 
 /** Where the settings live in the mod's store. */
@@ -31,10 +36,11 @@ const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 
 /** The settings a stored value holds, with defaults for anything missing or no longer valid. */
 export function settingsFrom(stored: unknown): Settings {
-  const { model, slotCap } = (typeof stored === 'object' && stored !== null ? stored : {}) as Record<string, unknown>
+  const { model, slotCap, liveModelSwitch } = (typeof stored === 'object' && stored !== null ? stored : {}) as Record<string, unknown>
   return {
     ...(isModel(model) ? { model } : {}),
     slotCap: isSlotCap(slotCap) ? slotCap : MAX_SLOTS,
+    ...(liveModelSwitch === true ? { liveModelSwitch } : {}),
   }
 }
 
@@ -48,8 +54,13 @@ export function withModelDefault(spawn: AgentSpawnInput, settings: Settings): Ag
   return { ...spawn, model: settings.model }
 }
 
-function isModel(value: unknown): value is Model {
+export function isModel(value: unknown): value is Model {
   return MODELS.includes(value as Model)
+}
+
+/** The options for picking among `models`, labeled and ordered the same in every model picker. */
+export function modelOptions(models: readonly Model[] = MODELS): SelectOption[] {
+  return MODELS.filter(model => models.includes(model)).map(model => ({ value: model, label: model }))
 }
 
 function isSlotCap(value: unknown): value is number {
@@ -72,7 +83,7 @@ export function registerSettings(on: On): void {
           label="Model for new agents: "
           options={[
             { value: LET_CLAUDE_CHOOSE, label: 'Let Claude choose' },
-            ...MODELS.map(model => ({ value: model, label: model })),
+            ...modelOptions(),
           ]}
           value={settings.model ?? LET_CLAUDE_CHOOSE}
           onSelect={value => void saveSettings($, ({ model: _, ...rest }) => (isModel(value) ? { ...rest, model: value } : rest))}
@@ -83,6 +94,18 @@ export function registerSettings(on: On): void {
           options={Array.from({ length: MAX_SLOTS }, (_, index) => ({ value: String(index + 1) }))}
           value={String(settings.slotCap)}
           onSelect={value => void saveSettings($, current => ({ ...current, slotCap: Number(value) }))}
+        />
+        <Select
+          key="liveModelSwitch"
+          label="Experimental: switch a running agent's model from its focus view: "
+          options={[
+            { value: String(false), label: 'Off' },
+            { value: String(true), label: 'On' },
+          ]}
+          value={String(settings.liveModelSwitch === true)}
+          onSelect={value =>
+            void saveSettings($, ({ liveModelSwitch: _, ...rest }) => (value === String(true) ? { ...rest, liveModelSwitch: true } : rest))
+          }
         />
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>
