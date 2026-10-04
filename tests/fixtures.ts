@@ -1,6 +1,6 @@
 // Inputs Claude Code would hand the mod, shared by the test files.
 
-import type { On } from 'claude-code'
+import type { AgentStatus, On } from 'claude-code'
 
 import { PANE_ID } from '../src/pane'
 
@@ -70,6 +70,45 @@ export function spawnOf(toolUseId: string) {
 // sets it), but the engine carries it to the hooks as a subagent's call does.
 export function readFrom(agentId: string, filePath: string) {
   return { tool: 'Read', file_path: filePath, agentId } as const
+}
+
+// One model request inside the agent's loop, as the engine raises turn.step
+export function stepOf(agentId: string) {
+  return { turnId: `turn-${agentId}`, index: 0, model: 'claude-opus-5-5', messageCount: 3, agentId } as const
+}
+
+// The end of the agent's run, as the engine raises turn.complete
+export function finishOf(agentId: string, reason: 'answer' | 'error' | 'aborted' = 'answer') {
+  const answer = 'Found it in src/config.ts'
+  return { answer, durationMs: 4000, isAborted: reason === 'aborted', turnId: `turn-${agentId}`, agentId, reason } as const
+}
+
+// Stands in for Claude Code streaming each model response (a piece of text,
+// then the stop) and ending each turn
+export function stubTurns(on: On): void {
+  on('turn.step', async function* ($, e) {
+    yield { kind: 'text', index: 0, text: 'Looking' } as const
+    return { turnId: e.turnId, index: e.index, answer: 'Looking', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+}
+
+// Stands in for `$.agent.list()`: each agent's status, as the test sets it
+export function stubAgentList(on: On, statuses: Map<string, AgentStatus>): void {
+  on('agent.list', () => ({
+    value: [...statuses].map(([id, status]) => ({ id, description: 'Find config parser', type: 'general-purpose', status })),
+  }))
+}
+
+// Stands in for the terminal taking each `$.ui.blit`, keeping each one's
+// Raster key and cells
+export function stubBlits(on: On): { key: string; cells: string }[] {
+  const blits: { key: string; cells: string }[] = []
+  on('ui.blit', ($, e) => {
+    if ('cells' in e) blits.push({ key: e.key, cells: e.cells })
+    return { value: {} }
+  })
+  return blits
 }
 
 // The user typing /squishys at the prompt of a fullscreen terminal

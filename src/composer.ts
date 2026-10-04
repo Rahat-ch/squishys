@@ -25,28 +25,163 @@ export type Pose = {
 
 const SIDE = 16
 
+/** How many rows from the top lean as a Working squishy wiggles. */
+const LEANING_ROWS = 7
+
 /**
- * The squishy's picture in a pose. Every state and frame draws the squishy
- * standing still for now; the state animations come later.
+ * The squishy's picture in a pose. Each pose is made from the squishy's
+ * still 16x16 picture, by moving its pixels and drawing over them, so every
+ * part and legendary has every pose without art of its own.
+ *
+ * `frame` counts the animator's ticks: a Working squishy's wiggle moves
+ * every second frame, and a Thinking squishy's bounce every frame.
  */
-export function compose(kit: Kit, squishy: Squishy, { size = 'full' }: Pose): Pixels {
-  const still = assembled(kit, squishy)
-  if (size === 'double') return doubled(still)
-  if (size === 'mini') return halved(still)
-  return still
+export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full' }: Pose): Pixels {
+  const picture = posedPicture(kit, squishy, state, frame)
+  if (size === 'double') return doubled(picture)
+  if (size === 'mini') return halved(picture)
+  return picture
 }
 
-/** The 16x16 picture: body, then face, then accessory, in the squishy's colors. */
-function assembled(kit: Kit, squishy: Squishy): Pixels {
+function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: number): Pixels {
+  const { grids, colors } = gridsOf(kit, squishy)
+  const still = painted(grids, colors)
+  switch (state) {
+    case 'working':
+      // A 2-frame wiggle, upright then leaning, each frame held for two ticks
+      return Math.floor(frame / 2) % 2 === 0 ? still : leaning(still, 1)
+    case 'thinking':
+      // A pixel down and back up, a frame each. It starts low, so a Thinking
+      // squishy differs from a Working one even standing still. The art keeps
+      // its bottom row clear more often than its top one, so down loses less.
+      return frame % 2 === 0 ? lowered(still, 1) : still
+    case 'asleep':
+      return overlaid(shutEyes(grids, colors), Z_GLYPH, ZZZ)
+    case 'squished':
+      return flattened(still)
+    default:
+      return still
+  }
+}
+
+/**
+ * The picture squashed to half its height, standing on its bottom row: from
+ * the bottom row up, every other row is kept.
+ */
+function flattened(pixels: Pixels): Pixels {
+  const drawn = pixels.flatMap((row, index) => (row.some(pixel => pixel !== null) ? [index] : []))
+  const bottom = Math.max(-1, ...drawn)
+  const blank = Array.from({ length: SIDE }, () => null)
+  return pixels.map((row, index) => (index > bottom ? row : (pixels[2 * index - bottom] ?? blank)))
+}
+
+/** The color of an Asleep squishy's z, the same for every palette. */
+export const ZZZ = 0x88aaee
+
+/** The z an Asleep squishy shows, top right: `#` is drawn. */
+const Z_GLYPH: Grid = [
+  '............###.',
+  '.............#..',
+  '............###.',
+]
+
+/** Pixels drawn over a picture in one color where the glyph has `#`. */
+function overlaid(pixels: Pixels, glyph: Grid, color: number): Pixels {
+  return pixels.map((row, index) => row.map((pixel, column) => (glyph[index]?.[column] === '#' ? color : pixel)))
+}
+
+/**
+ * The picture with its eyes shut: wherever an eye shows, what lies beneath
+ * it shows instead (the body color where nothing does, as on a legendary),
+ * and each eye becomes a line along its bottom row, at least three wide.
+ */
+function shutEyes(grids: readonly Grid[], colors: Colors): Pixels {
+  const lidded = painted(grids, colors, { eyesShut: true })
+  const eye = colors.e
+  if (eye === undefined) return lidded
+  const lines = eyesOf(grids).map(cells => {
+    const row = Math.max(...cells.map(([at]) => at))
+    let left = Math.min(...cells.map(([, column]) => column))
+    let right = Math.max(...cells.map(([, column]) => column))
+    if (left === right) [left, right] = [left - 1, right + 1]
+    return { row, left, right }
+  })
+  return lidded.map((pixels, row) =>
+    pixels.map((pixel, column) =>
+      lines.some(line => line.row === row && column >= line.left && column <= line.right) ? eye : pixel,
+    ),
+  )
+}
+
+type Cell = readonly [row: number, column: number]
+
+/** Each eye: the pixels where an eye shows, grouped into touching sets (corners count). */
+function eyesOf(grids: readonly Grid[]): Cell[][] {
+  const showing = (row: number, column: number) => topKey(grids, row, column) === 'e'
+  const seen = new Set<string>()
+  const eyes: Cell[][] = []
+  for (let row = 0; row < SIDE; row += 1) {
+    for (let column = 0; column < SIDE; column += 1) {
+      if (!showing(row, column) || seen.has(`${row},${column}`)) continue
+      const eye: Cell[] = []
+      const queue: Cell[] = [[row, column]]
+      seen.add(`${row},${column}`)
+      for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+        eye.push(next)
+        const [at, across] = next
+        for (const [down, right] of NEIGHBORS) {
+          const [r, c] = [at + down, across + right]
+          if (r < 0 || r >= SIDE || c < 0 || c >= SIDE || seen.has(`${r},${c}`) || !showing(r, c)) continue
+          seen.add(`${r},${c}`)
+          queue.push([r, c])
+        }
+      }
+      eyes.push(eye)
+    }
+  }
+  return eyes
+}
+
+const NEIGHBORS: readonly Cell[] = [
+  [-1, -1], [-1, 0], [-1, 1],
+  [0, -1], [0, 1],
+  [1, -1], [1, 0], [1, 1],
+]
+
+/** The key that shows at a pixel: the topmost grid's that isn't `.`. */
+function topKey(grids: readonly Grid[], row: number, column: number): string {
+  let shown = '.'
+  for (const grid of grids) {
+    const key = grid[row]?.[column] ?? '.'
+    if (key !== '.') shown = key
+  }
+  return shown
+}
+
+/** The top rows moved sideways by `by` pixels; what moves off the edge is lost. */
+function leaning(pixels: Pixels, by: number): Pixels {
+  return pixels.map((row, index) => (index < LEANING_ROWS ? row.map((_, column) => row[column - by] ?? null) : row))
+}
+
+/** The whole picture moved down by `by` pixels; what moves off the bottom is lost. */
+function lowered(pixels: Pixels, by: number): Pixels {
+  return pixels.map((row, index) => pixels[index - by] ?? row.map(() => null))
+}
+
+/**
+ * What the 16x16 picture is painted from: body, then face, then accessory
+ * (or a legendary's one grid), and the squishy's colors.
+ */
+function gridsOf(kit: Kit, squishy: Squishy): { grids: readonly Grid[]; colors: Colors } {
   if (squishy.kind === 'legendary') {
     const legendary = partOf(kit.legendaries, squishy.legendary, 'legendary')
-    return painted([legendary.grid], colorsFor(legendary, squishy.shiny))
+    return { grids: [legendary.grid], colors: colorsFor(legendary, squishy.shiny) }
   }
   const body = partOf(kit.bodies, squishy.body, 'body')
   const face = partOf(kit.faces, squishy.face, 'face')
   const accessory = partOf(kit.accessories, squishy.accessory, 'accessory')
   const palette = partOf(kit.palettes, squishy.palette, 'palette')
-  return painted([body.grid, face.grid, accessory.grid], colorsFor(palette, squishy.shiny))
+  return { grids: [body.grid, face.grid, accessory.grid], colors: colorsFor(palette, squishy.shiny) }
 }
 
 /** A palette's or legendary's colors, or its shiny ones for a shiny squishy. */
@@ -64,8 +199,11 @@ function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind:
  * Lays grids over one another, the last on top; `.` lets the one beneath
  * show. Art it can't draw (a grid of the wrong size, a key the colors don't
  * cover) throws, so the kit's tests catch it rather than a gap in a picture.
+ *
+ * With `eyesShut`, eye pixels (`e`) are passed over like `.`, and where only
+ * eyes were drawn the body color fills in.
  */
-function painted(grids: readonly Grid[], colors: Colors): Pixels {
+function painted(grids: readonly Grid[], colors: Colors, { eyesShut = false } = {}): Pixels {
   for (const grid of grids) {
     if (grid.length !== SIDE || grid.some(line => line.length !== SIDE)) {
       throw new Error(`A grid is not ${SIDE}x${SIDE}: ${JSON.stringify(grid)}`)
@@ -75,7 +213,8 @@ function painted(grids: readonly Grid[], colors: Colors): Pixels {
     Array.from({ length: SIDE }, (_, column) => {
       let pixel: Pixel = null
       for (const grid of grids) {
-        const key = grid[row]?.[column] ?? '.'
+        let key = grid[row]?.[column] ?? '.'
+        if (key === 'e' && eyesShut) key = pixel === null ? 'b' : '.'
         if (key === '.') continue
         const color = colors[key]
         if (color === undefined) throw new Error(`The colors have no color for "${key}"`)

@@ -19,6 +19,10 @@
 - Lasting values live in `$.store` (settings under `settings`). The test kit leaves the store unanswered, and a hook whose store call goes unanswered is skipped, so every test that spawns an agent answers it with `mock.store(on)`, or with `stubStore(on)` from `tests/fixtures.ts` to read back what was saved.
 - The pure modules (`src/kit.ts`, `src/roller.ts`, `src/composer.ts`, `src/raster.ts`, `src/seeded.ts` and the kit data) never import from `claude-code`, so tools outside the mod (the art preview) use them as they are. Those are the only modules a tool may import; a tool never imports test code. The mod rolls with `crypto.getRandomValues`; tests and the art preview pass `seeded(n)` from `src/seeded.ts`.
 - `claude plugin validate` wants `types/index.d.ts` self-contained (no imports), so a type it shares with a pure module (`Squishy`, `Rarity`) is written out in both. Change both together: the mod hands values both ways between them, so the typecheck fails if they drift.
+- A squishy's state lives on its agent in the `agents` value (`state`), set by the agent tracker in `src/agents.ts`. The roster draws each squishy's pose at the animator's current frame. Animation frames only ever go out as `$.ui.blit` from the animator in `src/pane.tsx`: a frame never writes `$.state` or calls `$.ui.invalidate`.
+- Mod tests read a squishy's state from its picture: `squishyIn(cells)` from `tests/pictures.ts` names the squishy a just-spawned slot shows, and `stateIn(cells, squishy)` names the pose it shows now, at any frame.
+- While a `turn.step` stream a test opened is still open, the kit waits out a timeout before each act (about 500ms for `find`, 1000ms for `clock.settle`). Read the first piece with `await stream.next()`, keep acts to a minimum until the stream is drained, and use `clock.advance`, which doesn't wait.
+- Under `mock.clock` the agent list is checked every `AGENT_CHECK_MS` while any agent runs. A check that goes unanswered is skipped, so answer `agent.list` (`stubAgentList`) only where the test is about it.
 - The version lives only in `.claude-plugin/plugin.json`.
 
 ## Art preview
