@@ -18,6 +18,13 @@ export function isEnded(state: SquishyState): boolean {
   return state === 'asleep' || state === 'squished'
 }
 
+/**
+ * The ended states whose squishys give up their roster slots, in the order
+ * they give them up: Asleep before Squished, so failures stay in view
+ * longer. A running squishy gives up its slot only to a smaller pane.
+ */
+export const SLOT_GIVING_ORDER: readonly SquishyState[] = ['asleep', 'squished']
+
 /** Whether a squishy in this state animates. */
 export function moves(state: SquishyState): boolean {
   return state === 'working' || state === 'thinking'

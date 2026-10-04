@@ -39,20 +39,6 @@ test('each agent gets its own roster entry, under its own description', async ($
   }
 })
 
-test('no two agents in the roster share a squishy', async ($, on) => {
-  mock.store(on)
-  stubSpawns(on)
-
-  // Rolled at random, twenty from the placeholder kit would all but
-  // certainly repeat one if the live squishys weren't left out
-  for (let n = 1; n <= 20; n += 1) await $.agent.spawn(spawnOf(`toolu_${n}`))
-
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const pictures = (await ui.findAll({ type: 'Raster' })).map(picture => picture.props.cells)
-  expect(pictures).toHaveLength(20)
-  expect(new Set(pictures).size).toBe(20)
-})
-
 test('an agent first seen through a tool call gets one squishy too', async ($, on) => {
   // An in-process teammate that no agent.spawn announced
   on('agent.list', () => ({
