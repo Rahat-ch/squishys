@@ -1,5 +1,6 @@
 // The squishy states and their rules, in one place: which states have
-// ended, which animate, and which state the way an agent ended maps to.
+// ended, which animate, which state the way an agent ended maps to, and
+// what an answered permission prompt leaves.
 // Pure: it takes plain data and never touches Claude Code, so the agent
 // tracker, the pane and the tests all share it.
 

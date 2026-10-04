@@ -2,13 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { AgentStatus } from 'claude-code'
 
 import { AGENT_CHECK_MS } from '../src/agents'
-import { PANE, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
+import { PANE, drain, finishOf, readFrom, spawnOf, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
 import { spawnAndWatch, watch } from './pictures'
-
-// Reads a stream to its end, as Claude Code does a model response
-async function drain(stream: AsyncIterable<unknown>): Promise<void> {
-  for await (const _ of stream);
-}
 
 test('a spawned agent’s squishy is Working', async ($, on) => {
   mock.store(on)

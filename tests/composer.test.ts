@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BUBBLE_COLOR, MARK_COLOR, ZZZ_COLOR, compose } from '../src/composer'
+import { BUBBLE_COLOR, MARK_COLOR, RING_COLOR, ZZZ_COLOR, compose } from '../src/composer'
 import type { Size } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Grid, Kit } from '../src/kit'
@@ -109,7 +109,7 @@ test('every part and legendary composes to a well-formed grid at every size, sta
   }
 })
 
-test('with every part and legendary, a squishy moves when Working or Thinking, sleeps with a z, shows a “!” when it Needs you and lies flat when Squished', () => {
+test('with every part and legendary, a squishy moves when Working or Thinking, sleeps with a z and lies flat when Squished', () => {
   for (const squishy of eachPart(KIT)) {
     const at = (state: SquishyState, frame: number) => compose(KIT, squishy, { state, frame })
     const still = at('working', 0)
@@ -119,10 +119,6 @@ test('with every part and legendary, a squishy moves when Working or Thinking, s
     if (JSON.stringify(at('thinking', 0)) === JSON.stringify(still)) throw new Error(`${what} looks Working when Thinking`)
     const asleep = at('asleep', 0)
     if (!(asleep[0]?.[12] === ZZZ_COLOR && asleep[1]?.[13] === ZZZ_COLOR)) throw new Error(`${what} has no z asleep`)
-    const needsYou = at('needsYou', 0)
-    if (!(needsYou[1]?.[14] === MARK_COLOR && needsYou[4]?.[14] === MARK_COLOR && needsYou[0]?.[14] === BUBBLE_COLOR)) {
-      throw new Error(`${what} has no “!” when it Needs you`)
-    }
     const squished = at('squished', 0)
     if (rowsDrawn(squished).some(row => row < 7)) throw new Error(`${what} is not flat when Squished`)
     const bottom = Math.max(...rowsDrawn(still))
@@ -208,25 +204,56 @@ test('an Asleep squishy shuts its eyes to a line along their bottom, and a z flo
   expect(posed(kitWith(grid('b'), EYES), 'asleep', 1)).toEqual(asleep)
 })
 
-test('a squishy that Needs you holds still with a “!” in a bubble up top right, over its picture', () => {
+/** The top right of a picture, `width` by `height`, as the bubble's keys: `k` ring, `w` bubble, `!` mark. */
+function topRight(pixels: ReturnType<typeof compose>, width: number, height: number): string[] {
+  const key = (pixel: number | null) =>
+    pixel === RING_COLOR ? 'k' : pixel === BUBBLE_COLOR ? 'w' : pixel === MARK_COLOR ? '!' : '.'
+  return pixels.slice(0, height).map(row => row.slice(row.length - width).map(key).join(''))
+}
+
+test('a squishy that Needs you holds still with a ringed “!” bubble up top right, over its picture', () => {
   const needsYou = posed(kitWith(grid('b')), 'needsYou', 0)
   const still = posed(kitWith(grid('b')), 'working', 0)
 
-  const bubble = (row: number) => (needsYou[row] ?? []).slice(12).map(pixel => (pixel === GREY ? '.' : pixel === MARK_COLOR ? '!' : 'o'))
-  expect([0, 1, 2, 3, 4, 5, 6].map(row => bubble(row).join(''))).toEqual([
-    '.ooo',
-    '.o!o',
-    '.o!o',
-    '.ooo',
-    '.o!o',
-    '.ooo',
-    'o...',
-  ])
-  expect(needsYou[0]?.[13]).toBe(BUBBLE_COLOR)
+  expect(topRight(needsYou, 6, 7)).toEqual(['.kkkkk', '.kw!wk', '.kw!wk', '.kwwwk', '.kw!wk', '.kkkkk', '......'])
   // Everywhere else it is the still picture
-  expect(needsYou.slice(7)).toEqual(still.slice(7))
-  expect(needsYou[0]?.slice(0, 12)).toEqual(still[0]?.slice(0, 12))
+  expect(needsYou.slice(6)).toEqual(still.slice(6))
+  expect(needsYou.map(row => row.slice(0, 11))).toEqual(still.map(row => row.slice(0, 11)))
   expect(posed(kitWith(grid('b')), 'needsYou', 1)).toEqual(needsYou)
+})
+
+test('the “!” bubble is drawn at the picture’s own size: twice as big at 2×, a compact ringed “!” on the mini', () => {
+  const kit = kitWith(grid('b'))
+  const squishy = roll(kit, { live: [], rng: seeded(1), odds: { shiny: 0 } })
+
+  const double = compose(kit, squishy, { state: 'needsYou', frame: 0, size: 'double' })
+  const big = ['kkkkk', 'kw!wk', 'kw!wk', 'kwwwk', 'kw!wk', 'kkkkk'].flatMap(row => {
+    const wide = [...row].map(key => key + key).join('')
+    return [wide, wide]
+  })
+  expect(topRight(double, 10, 12)).toEqual(big)
+  expect(topRight(double, 11, 13)[12]).toBe('...........')
+
+  const mini = compose(kit, squishy, { state: 'needsYou', frame: 0, size: 'mini' })
+  expect(topRight(mini, 4, 6)).toEqual(['.kkk', '.k!k', '.kkk', '.k!k', '.kkk', '....'])
+})
+
+test('with every part and legendary, at every size, the “!” shows and the bubble’s ring differs from the squishy beneath it', () => {
+  for (const squishy of eachPart(KIT)) {
+    for (const size of Object.keys(SIDES) as Size[]) {
+      const needsYou = compose(KIT, squishy, { state: 'needsYou', frame: 0, size })
+      const still = compose(KIT, squishy, { state: 'working', frame: 0, size })
+      const what = `${JSON.stringify(squishy)} ${size}`
+      if (!needsYou.some(row => row.includes(MARK_COLOR))) throw new Error(`${what} shows no “!”`)
+      needsYou.forEach((row, at) =>
+        row.forEach((pixel, column) => {
+          if (pixel === RING_COLOR && still[at]?.[column] === RING_COLOR) {
+            throw new Error(`${what}: the bubble’s ring at ${at},${column} is the color beneath it`)
+          }
+        }),
+      )
+    }
+  }
 })
 
 test('a Squished squishy lies flat: half as tall, every other row kept, still standing on its bottom row', () => {

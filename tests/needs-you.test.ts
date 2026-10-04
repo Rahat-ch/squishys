@@ -1,22 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { readFrom, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
+import { drain, permissionRequestFrom, readFrom, stepOf, stubAgentList, stubSpawns, stubTurns } from './fixtures'
 import { spawnAndWatch } from './pictures'
-
-// Reads a stream to its end, as Claude Code does a model response
-async function drain(stream: AsyncIterable<unknown>): Promise<void> {
-  for await (const _ of stream);
-}
-
-// PermissionRequest, as Claude Code raises it before asking the user about a
-// Bash call. `agent_id` is there only when it fires from inside an agent.
-function permissionRequestFrom(agentId?: string) {
-  return {
-    tool_name: 'Bash',
-    tool_input: { command: 'npm test' },
-    ...(agentId === undefined ? {} : { agent_id: agentId, agent_type: 'general-purpose' }),
-  }
-}
 
 // The base of each classic event agent-1 raises after its prompt
 const FROM_AGENT = { agent_id: 'agent-1', agent_type: 'general-purpose' } as const
@@ -33,16 +18,21 @@ test('a permission request from inside an agent puts its squishy in Needs you, w
   expect(await state()).toBe('needsYou')
 })
 
-test('a permission request a settings hook answers asks the user nothing, so the squishy stays Working', async ($, on) => {
-  mock.store(on)
-  stubSpawns(on)
-  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
-  const { state } = await spawnAndWatch($)
+for (const [how, answer] of [
+  ['answers', { decision: { behavior: 'allow' } }],
+  ['blocks', { block: 'Bash is off limits here' }],
+] as const) {
+  test(`a permission request a settings hook ${how} asks the user nothing, so the squishy stays Working`, async ($, on) => {
+    mock.store(on)
+    stubSpawns(on)
+    on('classic.PermissionRequest', () => answer)
+    const { state } = await spawnAndWatch($)
 
-  await $.classic.PermissionRequest(permissionRequestFrom('agent-1'))
+    await $.classic.PermissionRequest(permissionRequestFrom('agent-1'))
 
-  expect(await state()).toBe('working')
-})
+    expect(await state()).toBe('working')
+  })
+}
 
 test('a permission request from the orchestrator marks no squishy', async ($, on) => {
   mock.store(on)

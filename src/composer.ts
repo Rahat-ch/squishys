@@ -36,12 +36,14 @@ const LEANING_ROWS = 7
  *
  * `frame` counts the animator's ticks: a Working squishy's wiggle moves
  * every second frame, and a Thinking squishy's bounce every frame.
+ *
+ * A squishy that Needs you holds still, with its "!" bubble drawn over the
+ * picture once it is at its final size, so the mark keeps its shape there.
  */
 export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full' }: Pose): Pixels {
   const picture = posedPicture(kit, squishy, state, frame)
-  if (size === 'double') return doubled(picture)
-  if (size === 'mini') return halved(picture)
-  return picture
+  const sized = size === 'double' ? doubled(picture) : size === 'mini' ? halved(picture) : picture
+  return state === 'needsYou' ? withBubble(sized) : sized
 }
 
 function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: number): Pixels {
@@ -56,9 +58,6 @@ function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: nu
       // squishy differs from a Working one even standing still. The art keeps
       // its bottom row clear more often than its top one, so down loses less.
       return frame % 2 === 0 ? lowered(still, 1) : still
-    case 'needsYou':
-      // Held still, so the bubble reads as a call rather than activity
-      return overlaid(still, BUBBLE_GLYPH, { o: BUBBLE_COLOR, '!': MARK_COLOR })
     case 'asleep':
       return overlaid(shutEyes(grids, colors), Z_GLYPH, { '#': ZZZ_COLOR })
     case 'squished':
@@ -90,26 +89,44 @@ const Z_GLYPH: Grid = [
 ]
 
 /**
- * The bubble and mark of a squishy that Needs you, the same for every
- * palette: a white bubble with a red "!" stands out on any art.
+ * The colors of a squishy's "!" bubble when it Needs you, the same for every
+ * palette: a dark ring stands out on light art, and the white bubble and red
+ * mark inside it on dark art.
  */
+export const RING_COLOR = 0x1c1c2a
 export const BUBBLE_COLOR = 0xffffff
 export const MARK_COLOR = 0xd02040
 
+const BUBBLE_COLORS: Readonly<Record<string, number>> = { k: RING_COLOR, w: BUBBLE_COLOR, '!': MARK_COLOR }
+
 /**
- * The "!" bubble a squishy that Needs you shows, top right, where an Asleep
- * squishy's z goes: `o` is the bubble, `!` the mark, and the tail points
- * down at the squishy.
+ * The bubble, drawn top right where an Asleep squishy's z goes: `k` is the
+ * ring, `w` the bubble and `!` the mark. A picture at least BUBBLE_FROM wide
+ * gets the whole bubble, one copy of it per BUBBLE_FROM pixels; one at least
+ * COMPACT_BUBBLE_FROM wide gets a ringed "!" alone; a smaller one a ringed dot.
  */
-const BUBBLE_GLYPH: Grid = [
-  '.............ooo',
-  '.............o!o',
-  '.............o!o',
-  '.............ooo',
-  '.............o!o',
-  '.............ooo',
-  '............o...',
-]
+const BUBBLE: Grid = ['kkkkk', 'kw!wk', 'kw!wk', 'kwwwk', 'kw!wk', 'kkkkk']
+const COMPACT_BUBBLE: Grid = ['kkk', 'k!k', 'kkk', 'k!k', 'kkk']
+const TINY_BUBBLE: Grid = ['kkk', 'k!k', 'kkk']
+const BUBBLE_FROM = 16
+const COMPACT_BUBBLE_FROM = 8
+
+/** The picture, at whatever size, with the "!" bubble of a squishy that Needs you. */
+function withBubble(pixels: Pixels): Pixels {
+  const side = pixels.length
+  const bubble =
+    side >= BUBBLE_FROM ? scaled(BUBBLE, Math.floor(side / BUBBLE_FROM)) : side >= COMPACT_BUBBLE_FROM ? COMPACT_BUBBLE : TINY_BUBBLE
+  const left = '.'.repeat(Math.max(0, side - (bubble[0]?.length ?? 0)))
+  return overlaid(pixels, bubble.map(row => left + row), BUBBLE_COLORS)
+}
+
+/** Each key of a glyph as a `by` x `by` block. */
+function scaled(glyph: Grid, by: number): Grid {
+  return glyph.flatMap(row => {
+    const wide = [...row].map(key => key.repeat(by)).join('')
+    return Array.from({ length: by }, () => wide)
+  })
+}
 
 /** Pixels drawn over a picture where the glyph has a key of `colors`, in that color. */
 function overlaid(pixels: Pixels, glyph: Grid, colors: Readonly<Record<string, number>>): Pixels {
