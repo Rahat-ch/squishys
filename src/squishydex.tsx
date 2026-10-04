@@ -17,6 +17,7 @@ import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
 import { bareAccessory, legendaryKey, speciesSquishy, squishyOf } from './roller'
 import type { AssembledSquishy, LegendarySquishy } from './roller'
+import { SHARE_HOTKEY, SHARE_LINK_LABEL, speciesShareKey, unopenedShare } from './share'
 import { BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, PICTURE_ROWS, buttonColumns, linedUp, nameCut } from './slots'
 import { SQUISHYDEX_KEY, isNewIn, partnerPalettes, progressOf, recordMet, recordViewed, speciesKey, squishydexFrom, variantOfKey } from './squishydex-record'
 import type { DexPlace, MetLegendary, MetSpecies, Squishydex } from './squishydex-record'
@@ -158,7 +159,7 @@ export function registerSquishydex(on: On): void {
   // spelled out, since the engine reads a matcher off this file alone.
   on('ui.render', { component: 'Pane', requestId: 'squishys' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'squishydex') return next(e)
-    const { Box, Button, Raster, Select, Text } = $.ui.resolve(e)
+    const { Box, Button, Link, Raster, Select, Text } = $.ui.resolve(e)
     const { bodyColumns, scroll } = e.props
     const bodyRows = scroll.bodyRows
     const dex = await readSquishydex($)
@@ -300,14 +301,18 @@ export function registerSquishydex(on: On): void {
       </Box>
     )
 
-    // A species' card: the variants met, the date first met, and making it
-    // the partner in a palette it was met in
+    // A species' card: the variants met, the date first met, making it the
+    // partner in a palette it was met in, and sharing it
     async function speciesCard(place: Place, met: MetSpecies, squishy: AssembledSquishy, palettes: readonly string[]) {
       const partner = await readPartner($)
+      // The compose page of a Share the browser didn't open
+      const shareLink = unopenedShare(speciesShareKey(squishy.key))
       const sameSpecies = partner?.kind === 'assembled' && speciesKey(partner) === place.key
       const isPartner = sameSpecies && partner.palette === squishy.palette
       const actions = [
         ...(isPartner ? [] : [button('squishydex-partner', 'm', 'Make partner', () => void makePartner($, squishy))]),
+        // Answered by the ui.press hook in share.tsx
+        button(speciesShareKey(squishy.key), SHARE_HOTKEY, 'Share', () => {}),
         back,
         roster,
       ]
@@ -331,6 +336,7 @@ export function registerSquishydex(on: On): void {
             />
           ) : null}
           {rowsOf('squishydex-card-footer', actions)}
+          {shareLink !== undefined ? <Link key="squishydex-share-link" href={shareLink} label={SHARE_LINK_LABEL} /> : null}
         </Box>
       )
     }

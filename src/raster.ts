@@ -55,7 +55,8 @@ export function hexColor(pixel: number): string {
   return `#${pixel.toString(16).padStart(6, '0')}`
 }
 
-function base64Of(bytes: Uint8Array): string {
+/** Bytes as base64: a Raster's cells, and the share card's PNG. */
+export function base64Of(bytes: Uint8Array): string {
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return btoa(binary)

@@ -19,6 +19,14 @@ export function isEnded(state: SquishyState): boolean {
 }
 
 /**
+ * Whether an agent's squishy can be shared from its focus view: while it's
+ * Asleep, its agent having finished. A Squished one can't.
+ */
+export function canShare(agent: { state: SquishyState }): boolean {
+  return agent.state === 'asleep'
+}
+
+/**
  * The ended states whose squishys give up their roster slots, in the order
  * they give them up: Asleep before Squished, so failures stay in view
  * longer. A running squishy gives up its slot only to a smaller pane.

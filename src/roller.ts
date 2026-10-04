@@ -90,6 +90,11 @@ export function forcedOdds(value: string | undefined): Partial<Odds> | undefined
 /** What a shiny's Name starts with, so a shiny shows as one wherever its Name does. */
 export const SHINY_MARK = '✨ '
 
+/** A Name without SHINY_MARK, as drawn where the mark is drawn some other way (the share card's pixel sparkle). */
+export function withoutShinyMark(name: string): string {
+  return name.startsWith(SHINY_MARK) ? name.slice(SHINY_MARK.length) : name
+}
+
 /** A source of randomness: each call returns a number in [0, 1). */
 export type Rng = () => number
 
