@@ -7,12 +7,12 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PaneOpenArgs, Timer } from 'claude-code'
 
 import type { Agent, Squishy } from '../types'
-import { compose, stillMiniPixels } from './composer'
+import { compose } from './composer'
 import type { Size } from './composer'
 import { pickKeys } from './keys'
 import { KIT } from './kit'
 import { isSparkling } from './moments'
-import { PARTNER_BUTTON, PARTNER_KEY, PARTNER_PICTURE, partnerFrom, stillPicture } from './partner'
+import { PARTNER_BUTTON, PARTNER_KEY, PARTNER_PICTURE, partnerFrom } from './partner'
 import { halfBlocks } from './raster'
 import type { RasterCells } from './raster'
 import { SETTINGS_KEY, settingsFrom } from './settings'
@@ -20,9 +20,8 @@ import {
   FOOTER_BUTTON_GAP,
   FOOTER_COLUMN_GAP,
   FOOTER_COLUMNS,
+  FOOTER_ROW_COLUMNS,
   FOOTER_ROW_GAP,
-  MINI_SLOT_COLUMNS,
-  MINI_SLOT_GAP,
   OVERFLOW_HOTKEY,
   SETTINGS_BUTTON,
   SQUISHYDEX_BUTTON,
@@ -30,6 +29,7 @@ import {
   SLOT_COLUMNS,
   SLOT_ROWS,
   SLOT_ROW_GAP,
+  SLOT_SHAPES,
   buttonColumns,
   layoutRoster,
   linedUp,
@@ -150,12 +150,18 @@ let animator: Timer | undefined
 /** Whether a frame's repaints are still going out. */
 let painting = false
 /**
- * The pictures the animator may repaint, by Raster key: whose squishy each
- * shows, at what size, in which site (the pane or the band, by requestId),
- * and the cells it shows now. Each drawing of a site fills it again for
- * that site, through `animatedPicture`.
+ * The pictures the animator may repaint, by site and Raster key (`shownKey`),
+ * so the pane's minis and the band's never stand for each other: whose
+ * squishy each shows, at what size, in which site (the pane or the band, by
+ * requestId), under which Raster key, and the cells it shows now. Each
+ * drawing of a site fills it again for that site, through `animatedPicture`.
  */
-const shown = new Map<string, { agentId: string; size: Size; requestId: string; cells: string }>()
+const shown = new Map<string, { agentId: string; size: Size; requestId: string; key: string; cells: string }>()
+
+/** Where `shown` keeps a picture: its site, then its Raster key. */
+function shownKey(requestId: string, key: string): string {
+  return `${requestId} ${key}`
+}
 
 /** The key of the Raster showing an agent's squishy at this size. */
 export function pictureKey(agentId: string, size: Size = 'full'): string {
@@ -170,7 +176,8 @@ export function pictureKey(agentId: string, size: Size = 'full'): string {
  */
 export function animatedPicture(agent: Agent, size: Size = 'full', requestId: string = PANE_ID): RasterCells {
   const picture = pictureOf(agent, size)
-  shown.set(pictureKey(agent.id, size), { agentId: agent.id, size, requestId, cells: picture.cells })
+  const key = pictureKey(agent.id, size)
+  shown.set(shownKey(requestId, key), { agentId: agent.id, size, requestId, key, cells: picture.cells })
   return picture
 }
 
@@ -199,18 +206,17 @@ async function noteSparkles($: EngineInterface, known: readonly Agent[], motionR
 
 /** Forgets the pictures a site showed, as it's drawn again. */
 function forgetShown(requestId: string): void {
-  for (const [key, picture] of shown) if (picture.requestId === requestId) shown.delete(key)
+  for (const [at, picture] of shown) if (picture.requestId === requestId) shown.delete(at)
 }
 
 /** One slot of the roster as drawn: the partner's or an agent's. */
 type Slot = {
   /** The agent's id, or `partner`. */
   id: string
-  pictureKey: string
   /** The key of the Button that picks it. */
   pickKey: string
-  /** Its picture at the layout's slot size; none for Names alone. */
-  picture: RasterCells | undefined
+  /** Its picture at the layout's slot size, and the Raster's key; none for a label slot. */
+  picture: { key: string; cells: RasterCells } | undefined
   name: string
   description: string
   /** Whether the main view shows the agent (or, for the partner, the orchestrator). */
@@ -323,10 +329,8 @@ export function registerPane(on: On): void {
     // still, its pick (src/focus.tsx leaves it be) returns to the roster,
     // and it's marked while the main view shows the orchestrator. A short
     // inline pane draws mini pictures, or none (layout.slotSize).
-    const { slotSize } = layout
-    const partnerPicture = (squishy: Squishy) =>
-      slotSize === 'full' ? stillPicture(squishy) : slotSize === 'mini' ? halfBlocks(stillMiniPixels(KIT, squishy)) : undefined
-    const agentPicture = (agent: Agent) => (slotSize === 'name' ? undefined : animatedPicture(agent, slotSize))
+    const shape = SLOT_SHAPES[layout.slotSize]
+    const { picture: pictureSize } = shape
     const slots: Slot[] = showsList
       ? []
       : [
@@ -334,9 +338,8 @@ export function registerPane(on: On): void {
             ? [
                 {
                   id: 'partner',
-                  pictureKey: PARTNER_PICTURE,
                   pickKey: PARTNER_BUTTON,
-                  picture: partnerPicture(partner),
+                  picture: pictureSize === undefined ? undefined : { key: PARTNER_PICTURE, cells: stillPictureAt(partner, pictureSize) },
                   name: partner.name,
                   description: 'Orchestrator',
                   inView: view.agentId === undefined,
@@ -345,9 +348,8 @@ export function registerPane(on: On): void {
             : []),
           ...layout.slots.map(agent => ({
             id: agent.id,
-            pictureKey: pictureKey(agent.id, slotSize === 'mini' ? 'mini' : 'full'),
             pickKey: `${PICK_PREFIX}${agent.id}`,
-            picture: agentPicture(agent),
+            picture: pictureSize === undefined ? undefined : { key: pictureKey(agent.id, pictureSize), cells: animatedPicture(agent, pictureSize) },
             name: agent.squishy.name,
             description: agent.description,
             inView: agent.id === view.agentId,
@@ -388,38 +390,41 @@ export function registerPane(on: On): void {
             {row.map((slot, column) => {
               const index = rowIndex * columns + column
               const hotkey = pickHotkeys[index]
-              const picture = slot.picture === undefined ? null : <Raster key={slot.pictureKey} {...slot.picture} />
-              // An agent's press picks its squishy: src/focus.tsx answers it. The partner's leaves the roster be.
-              const pick = (
-                <Button key={slot.pickKey} {...(hotkey === undefined ? {} : { hotkey })} plain label={slotLabel(slot.name, hotkey)} onPress={() => {}} />
-              )
               const lines = [
-                pick,
-                <Text key={`description-${slot.id}`} dimColor wrap="truncate-end">
-                  {slot.description}
-                </Text>,
-                // Squishys only reads the main view, never changes it (ADR 0001).
-                slot.inView ? (
-                  <Box key={`in-view-${slot.id}`}>
-                    <Text color="cyan">▲ in main view</Text>
-                  </Box>
-                ) : null,
+                // An agent's press picks its squishy: src/focus.tsx answers it. The partner's leaves the roster be.
+                <Button key={slot.pickKey} {...(hotkey === undefined ? {} : { hotkey })} plain label={slotLabel(slot.name, hotkey)} onPress={() => {}} />,
+                ...(shape.lines === 'all'
+                  ? [
+                      <Text key={`description-${slot.id}`} dimColor wrap="truncate-end">
+                        {slot.description}
+                      </Text>,
+                      // Squishys only reads the main view, never changes it (ADR 0001).
+                      slot.inView ? (
+                        <Box key={`in-view-${slot.id}`}>
+                          <Text color="cyan">▲ in main view</Text>
+                        </Box>
+                      ) : null,
+                    ]
+                  : []),
               ]
-              return slotSize === 'full' ? (
-                <Box key={`slot-${slot.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS} hover={SLOT_HOVER}>
-                  {picture}
-                  {lines}
-                </Box>
-              ) : slotSize === 'mini' ? (
-                <Box key={`slot-${slot.id}`} flexDirection="row" columnGap={MINI_SLOT_GAP} width={MINI_SLOT_COLUMNS} hover={SLOT_HOVER}>
-                  {picture}
-                  <Box key={`lines-${slot.id}`} flexDirection="column" width={SLOT_COLUMNS}>
-                    {lines}
-                  </Box>
-                </Box>
-              ) : (
-                <Box key={`slot-${slot.id}`} width={SLOT_COLUMNS} hover={SLOT_HOVER}>
-                  {pick}
+              // The picture over the slot's lines, or beside them in a column of their own, or none (SLOT_SHAPES)
+              return (
+                <Box
+                  key={`slot-${slot.id}`}
+                  flexDirection={shape.direction}
+                  alignItems={shape.alignItems}
+                  columnGap={shape.gap}
+                  width={shape.columns}
+                  hover={SLOT_HOVER}
+                >
+                  {slot.picture === undefined ? null : <Raster key={slot.picture.key} {...slot.picture.cells} />}
+                  {shape.direction === 'column' ? (
+                    lines
+                  ) : (
+                    <Box key={`lines-${slot.id}`} flexDirection="column" width={SLOT_COLUMNS}>
+                      {lines}
+                    </Box>
+                  )}
                 </Box>
               )
             })}
@@ -448,32 +453,40 @@ export function registerPane(on: On): void {
         button: <Button key="squishydex" {...SQUISHYDEX_BUTTON} plain dimColor onPress={() => {}} />,
       },
     ]
-    // Docked, the footer goes under the slots; inline, where rows are
-    // scarce, beside them
+    // As many buttons to a row as fit `columns` (slots.ts budgets the rows)
+    const linedFooter = (columns: number) => (
+      <Box key="footer" flexDirection="column" width={columns}>
+        {linedUp(
+          footer.map(each => each.columns),
+          columns,
+          FOOTER_BUTTON_GAP,
+        ).map((line, index) => (
+          <Box key={`footer-row-${index}`} flexDirection="row" columnGap={FOOTER_BUTTON_GAP}>
+            {line.map(at => footer[at]?.button)}
+          </Box>
+        ))}
+      </Box>
+    )
+    // Docked, the footer goes under the slots, so a narrow pane's takes more
+    // rows; inline, where rows are scarce, beside them: a button to a row,
+    // or in a pane too short for that, a row of them (layout.footer)
     return placement === 'inline' ? (
       <Box flexDirection="row" columnGap={FOOTER_COLUMN_GAP}>
         <Box flexDirection="column" flexGrow={1}>
           {body}
         </Box>
-        <Box key="footer" flexDirection="column" width={FOOTER_COLUMNS}>
-          {footer.map(each => each.button)}
-        </Box>
+        {layout.footer === 'column' ? (
+          <Box key="footer" flexDirection="column" width={FOOTER_COLUMNS}>
+            {footer.map(each => each.button)}
+          </Box>
+        ) : (
+          linedFooter(FOOTER_ROW_COLUMNS)
+        )}
       </Box>
     ) : (
       <Box flexDirection="column" rowGap={FOOTER_ROW_GAP}>
         {body}
-        {/* As many buttons to a row as fit, so a narrow pane's footer takes more rows (slots.ts budgets them) */}
-        <Box key="footer" flexDirection="column">
-          {linedUp(
-            footer.map(each => each.columns),
-            bodyColumns,
-            FOOTER_BUTTON_GAP,
-          ).map((line, index) => (
-            <Box key={`footer-row-${index}`} flexDirection="row" columnGap={FOOTER_BUTTON_GAP}>
-              {line.map(at => footer[at]?.button)}
-            </Box>
-          ))}
-        </Box>
+        {linedFooter(bodyColumns)}
       </Box>
     )
   })
@@ -510,6 +523,11 @@ async function readPartner($: EngineInterface): Promise<Squishy | undefined> {
   }
 }
 
+/** The partner's squishy at rest at this size (src/partner.tsx's `stillPicture` at full size). */
+function stillPictureAt(squishy: Squishy, size: Size): RasterCells {
+  return halfBlocks(compose(KIT, squishy, { state: 'working', frame: 0, size }))
+}
+
 /** An agent's squishy in its state's pose, at the animation's current frame, sparkling while it does. */
 function pictureOf(agent: Agent, size: Size): RasterCells {
   return halfBlocks(compose(KIT, agent.squishy, { state: agent.state, frame, size, sparkle: sparkling.has(agent.id) }))
@@ -536,9 +554,9 @@ async function animateShown($: EngineInterface): Promise<void> {
  * `sparklers`, each with its agent.
  */
 function movingPictures(known: readonly Agent[], sparklers: ReadonlySet<string>) {
-  return [...shown].flatMap(([key, each]) => {
+  return [...shown].flatMap(([at, each]) => {
     const agent = known.find(({ id }) => id === each.agentId)
-    return agent !== undefined && moves(agent.state, sparklers.has(agent.id)) ? [{ key, agent, ...each }] : []
+    return agent !== undefined && moves(agent.state, sparklers.has(agent.id)) ? [{ at, agent, ...each }] : []
   })
 }
 
@@ -568,15 +586,15 @@ async function nextFrame($: EngineInterface): Promise<void> {
     const moving = movingPictures(known, new Set([...sparkledBefore, ...sparkling]))
     if (moving.length === 0) return stopAnimating()
     frame += 1
-    for (const { key, agent, size, requestId, cells } of moving) {
+    for (const { at, key, agent, size, requestId, cells } of moving) {
       const picture = pictureOf(agent, size)
       if (cells === picture.cells) continue
       let refused = true
       try {
         refused = (await $.ui.blit({ requestId, key, ...picture })).deny !== undefined
       } catch {}
-      if (refused) shown.delete(key)
-      else shown.set(key, { agentId: agent.id, size, requestId, cells: picture.cells })
+      if (refused) shown.delete(at)
+      else shown.set(at, { agentId: agent.id, size, requestId, key, cells: picture.cells })
     }
   } finally {
     painting = false

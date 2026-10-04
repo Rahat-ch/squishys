@@ -8,6 +8,7 @@ import type { Mounted } from 'claude-code/testing'
 import { KIT, everySpecies } from '../src/kit'
 import { bareAccessory, legendaryKey } from '../src/roller'
 import { agentShareKey } from '../src/share'
+import { LABEL_SLOT_ROWS, MINI_SLOT_ROWS } from '../src/slots'
 import { SQUISHYDEX_KEY, speciesKey, variantKey } from '../src/squishydex-record'
 import { PANE, PARTNERED, finishOf, paneSized, roomFor, spawnOf, stubSpawns, stubStore } from './fixtures'
 
@@ -30,6 +31,20 @@ test('the roster: digits pick the squishys, m the overflow, o settings and d the
   expect(await hotkeysOf(ui)).toEqual({ partner: '1', 'squishy-agent-1': '2', 'squishy-agent-2': '3', overflow: 'm', settings: 'o', squishydex: 'd' })
   await $.ui.press({ plugin: 'squishys', key: 'overflow' })
   expect(await hotkeysOf(ui)).toEqual({ 'squishy-agent-3': '1', overflow: 'm', settings: 'o', squishydex: 'd' })
+})
+
+test('the roster’s mini and label slots, in a short inline pane, keep the digits, the footer its letters', async ($, on) => {
+  stubStore(on, PARTNERED)
+  stubSpawns(on)
+  for (const id of ['toolu_1', 'toolu_2']) await $.agent.spawn(spawnOf(id))
+  const bodyColumns = roomFor('inline', 6, 1).bodyColumns
+  const expected = { partner: '1', 'squishy-agent-1': '2', 'squishy-agent-2': '3', settings: 'o', squishydex: 'd' }
+
+  for (const bodyRows of [MINI_SLOT_ROWS, LABEL_SLOT_ROWS]) {
+    const ui = await $.ui.mount({ ...paneSized({ placement: 'inline', bodyColumns, bodyRows }), surface: 'terminal' })
+    expect({ bodyRows, hotkeys: await hotkeysOf(ui) }).toEqual({ bodyRows, hotkeys: expected })
+    await ui.unmount()
+  }
 })
 
 test('the focus view: r back, s Stop, m the model, e the effort, i Redirect, 1 the partner, and x Share once it’s Asleep', async ($, on) => {

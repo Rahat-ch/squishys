@@ -7,9 +7,9 @@ import type { Engine, Mounted } from 'claude-code/testing'
 
 import { FRAME_MS, pictureKey } from '../src/pane'
 import { PARTNER_PICTURE } from '../src/partner'
-import { MINI_SLOT_ROWS } from '../src/slots'
+import { LABEL_SLOT_ROWS, MINI_SLOT_ROWS } from '../src/slots'
 import { REMEMBERED_KEY } from '../src/rebuild'
-import { PARTNERED, SQUISHYS_COMMAND, finishOf, paneSized, roomFor, spawnOf, stubBlits, stubSpawns, stubStore, stubTurns } from './fixtures'
+import { PARTNERED, SQUISHYS_COMMAND, THEME_KEY, finishOf, slotLight, paneSized, roomFor, spawnOf, stubBlits, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, watch } from './pictures'
 
 async function spawn($: Engine, count: number, from = 1): Promise<void> {
@@ -68,10 +68,29 @@ test('an inline pane too short for a full slot shows every squishy as a mini bes
   expect(await ui.find({ type: 'Text', text: 'Task 2' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '▲ in main view' })).toBeDefined()
   expect(await overflowCount(ui)).toBeUndefined()
+  for (const key of ['slot-partner', 'slot-agent-1']) expect(await slotLight(ui, key)).toMatch(THEME_KEY)
 
-  await ui.redraw(paneSized({ placement: 'inline', bodyColumns, bodyRows: MINI_SLOT_ROWS - 1 }).props)
+  // In fewer rows, the Names alone, with the footer's buttons in a row beside them, so nothing scrolls
+  for (const bodyRows of [MINI_SLOT_ROWS - 1, LABEL_SLOT_ROWS]) {
+    await ui.redraw(paneSized({ placement: 'inline', bodyColumns, bodyRows }).props)
+    expect(await ui.findAll({ type: 'Raster' })).toEqual([])
+    expect(await ui.find({ type: 'Button', key: 'squishy-agent-2' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Task 2' })).toBeUndefined()
+    expect(await overflowCount(ui)).toBeUndefined()
+    expect(await ui.find({ key: 'footer-row-0' })).toBeDefined()
+    expect(await ui.find({ key: 'footer-row-1' })).toBeUndefined()
+    for (const key of ['slot-partner', 'slot-agent-1']) expect(await slotLight(ui, key)).toMatch(THEME_KEY)
+  }
+})
+
+test('a short inline pane draws the slot size that leaves the least overflow: five agents in three rows show as Names, not minis and +2', async ($, on) => {
+  stubStore(on, PARTNERED)
+  stubSpawns(on)
+  await spawn($, 5)
+  const ui = await $.ui.mount({ ...paneSized({ placement: 'inline', bodyColumns: roomFor('inline', 6, 1).bodyColumns, bodyRows: MINI_SLOT_ROWS }), surface: 'terminal' })
+
   expect(await ui.findAll({ type: 'Raster' })).toEqual([])
-  expect(await ui.find({ type: 'Button', key: 'squishy-agent-2' })).toBeDefined()
+  for (let n = 1; n <= 5; n += 1) expect(await ui.find({ type: 'Button', key: `squishy-agent-${n}` })).toBeDefined()
   expect(await overflowCount(ui)).toBeUndefined()
 })
 

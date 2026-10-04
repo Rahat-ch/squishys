@@ -17,6 +17,9 @@ import {
   textColumns,
   BAND_PICTURE_COLUMNS,
   BAND_PICTURE_ROWS,
+  FOOTER_COLUMN_GAP,
+  FOOTER_ROW_COLUMNS,
+  LABEL_SLOT_ROWS,
   MINI_SLOT_COLUMNS,
   MINI_SLOT_GAP,
   MINI_SLOT_ROWS,
@@ -24,6 +27,7 @@ import {
   PICTURE_ROWS,
   SLOT_COLUMN_GAP,
   SLOT_COLUMNS,
+  SLOT_LINES,
   SLOT_MIN_COLUMNS,
   SLOT_ROWS,
   buttonColumns,
@@ -86,10 +90,13 @@ test('an inline pane too short for a full slot gets mini slots, the mini picture
   }
 })
 
-test('mini slots go as many across as fit beside the footer, and only agents past them overflow', () => {
+test('mini slots go as many across as fit beside the footer, and past the slot cap agents overflow', () => {
   const across = 3
   const bodyColumns = roomFor('inline', 1, 1).bodyColumns - SLOT_COLUMNS + across * MINI_SLOT_COLUMNS + (across - 1) * SLOT_COLUMN_GAP
-  const layout = layoutRoster({ placement: 'inline', bodyColumns, bodyRows: MINI_SLOT_ROWS, slotCap: MAX_SLOTS, agents: agents(4), partner: PARTNER })
+  // The cap leaves labels no more room than minis, so the minis stay
+  const layout = layoutRoster({ placement: 'inline', bodyColumns, bodyRows: MINI_SLOT_ROWS, slotCap: across - 1, agents: agents(4), partner: PARTNER })
+
+  expect(layout.slotSize).toBe('mini')
 
   expect(layout.columns).toBe(across)
   expect(ids(layout.slots)).toEqual(['agent-1', 'agent-2'])
@@ -99,7 +106,8 @@ test('mini slots go as many across as fit beside the footer, and only agents pas
 test('an inline pane too short even for a mini slot shows the Names alone, and only one with no row at all shows none', () => {
   const wide = roomFor('inline', 6, 1).bodyColumns
   const named = layoutRoster({ placement: 'inline', bodyColumns: wide, bodyRows: MINI_SLOT_ROWS - 1, slotCap: MAX_SLOTS, agents: agents(1), partner: PARTNER })
-  expect(named.slotSize).toBe('name')
+  expect(named.slotSize).toBe('label')
+  expect(named.partnerSlot).toBe(true)
   expect(ids(named.slots)).toEqual(['agent-1'])
 
   const none = layoutRoster({ placement: 'inline', bodyColumns: wide, bodyRows: 0, slotCap: MAX_SLOTS, agents: agents(1), partner: PARTNER })
@@ -119,9 +127,40 @@ test('inline, a full slot row that only the partner fits gives way to smaller sl
   const narrow = roomFor('inline', 1, 1)
   const layout = layoutRoster({ ...narrow, slotCap: MAX_SLOTS, agents: agents(2), partner: PARTNER })
 
-  expect(layout.slotSize).toBe('name')
+  // A slot across, and as many label rows down as a full slot's rows hold
+  expect(layout.slotSize).toBe('label')
+  expect(layout.columns).toBe(1)
   expect(layout.partnerSlot).toBe(true)
-  expect(layout.slots.length).toBeGreaterThan(0)
+  expect(ids(layout.slots)).toEqual(['agent-1', 'agent-2'])
+})
+
+test('a short inline pane shrinks its slots to the size that leaves the least overflow, the larger picture on a tie', () => {
+  const wide = roomFor('inline', 6, 1).bodyColumns
+  // Minis there go four across in one row: the partner and three agents
+  const many = layoutRoster({ placement: 'inline', bodyColumns: wide, bodyRows: MINI_SLOT_ROWS, slotCap: MAX_SLOTS, agents: agents(5), partner: PARTNER })
+  expect(many.slotSize).toBe('label')
+  expect(ids(many.slots)).toEqual(['agent-1', 'agent-2', 'agent-3', 'agent-4', 'agent-5'])
+  expect(many.overflow).toEqual([])
+
+  // Labels would show every one of three too, so the minis stay
+  const few = layoutRoster({ placement: 'inline', bodyColumns: wide, bodyRows: MINI_SLOT_ROWS, slotCap: MAX_SLOTS, agents: agents(3), partner: PARTNER })
+  expect(few.slotSize).toBe('mini')
+  expect(few.overflow).toEqual([])
+})
+
+test('inline, in a pane shorter than the footer’s column of buttons, the footer is a row beside the slots and its width comes off theirs', () => {
+  const across = 3
+  const bodyColumns = FOOTER_ROW_COLUMNS + FOOTER_COLUMN_GAP + across * SLOT_COLUMNS + (across - 1) * SLOT_COLUMN_GAP
+  for (const bodyRows of [LABEL_SLOT_ROWS, MINI_SLOT_ROWS - 1]) {
+    const layout = layoutRoster({ placement: 'inline', bodyColumns, bodyRows, slotCap: MAX_SLOTS, agents: agents(4), partner: PARTNER })
+
+    expect({ bodyRows, footer: layout.footer, slotSize: layout.slotSize, columns: layout.columns }).toEqual({ bodyRows, footer: 'row', slotSize: 'label', columns: across })
+    expect(ids(layout.slots)).toEqual(['agent-1', 'agent-2'])
+  }
+  // With rows for a button each, the footer is a column again
+  expect(layoutRoster({ placement: 'inline', bodyColumns, bodyRows: MINI_SLOT_ROWS, slotCap: MAX_SLOTS, agents: agents(4) }).footer).toBe('column')
+  // Docked, its buttons are always lined up under the slots
+  expect(layoutRoster({ ...roomFor('dock', 2, 1), slotCap: MAX_SLOTS, agents: agents(4) }).footer).toBe('row')
 })
 
 test('the slot cap from settings limits the slots, however big the pane', () => {
@@ -292,7 +331,9 @@ test('a mini slot is a mini picture, a gap, and a slot’s width for its lines, 
 
   expect(MINI_SLOT_COLUMNS).toBe(mini.columns + MINI_SLOT_GAP + SLOT_COLUMNS)
   // Its Name, its description and the main view's mark, beside the picture
-  expect(MINI_SLOT_ROWS).toBe(Math.max(mini.rows, 3))
+  expect(MINI_SLOT_ROWS).toBe(Math.max(mini.rows, SLOT_LINES))
+  // A label slot is its Name's Button alone
+  expect(LABEL_SLOT_ROWS).toBe(1)
 })
 
 test('a slot’s Name is cut so its button, hotkey and all, fits the slot, and every Name and legendary’s fits once cut', () => {
