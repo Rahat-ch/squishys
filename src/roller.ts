@@ -2,7 +2,7 @@
 // the squishys already live and a source of randomness, and never touches
 // Claude Code, so its tests seed the randomness and call it directly.
 
-import type { Kit, Rarity } from './kit'
+import type { Kit, PartBase, Rarity } from './kit'
 
 /** A squishy assembled from the kit's parts. */
 export type AssembledSquishy = {
@@ -98,7 +98,7 @@ function rollOnce(kit: Kit, odds: Odds, rng: Rng): Squishy {
   return assembledOf({ body, face, palette, accessory }, rng() < odds.shiny)
 }
 
-type Part = { id: string; rarity: Rarity; syllable: string }
+type Part = PartBase
 type Parts = { body: Part; face: Part; palette: Part; accessory: Part }
 type Weighted<T> = { value: T; weight: number }
 

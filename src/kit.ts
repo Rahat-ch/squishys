@@ -24,7 +24,7 @@ export type Grid = readonly string[]
 export type Colors = Readonly<Record<string, number>>
 
 /** What every part has: an id, a rarity and its fragment of a Name. */
-type PartBase = {
+export type PartBase = {
   /** Unique within its kind, and stable: identity keys are built from it. */
   id: string
   rarity: Rarity

@@ -1,4 +1,4 @@
-// The sprite composer: turns a squishy into pixels, ready for the half-block
+// The composer: turns a squishy into pixels, ready for the half-block
 // packer in raster.ts. Pure: it takes the kit and a squishy as plain data
 // and never touches Claude Code, so tools outside the mod (the art preview)
 // draw squishys exactly as the mod does.
@@ -39,15 +39,19 @@ export function compose(kit: Kit, squishy: Squishy, { size = 'full' }: Pose): Pi
 /** The 16x16 picture: body, then face, then accessory, in the squishy's colors. */
 function assembled(kit: Kit, squishy: Squishy): Pixels {
   if (squishy.kind === 'legendary') {
-    const legendary = kit.legendaries.find(each => each.id === squishy.legendary)
-    if (legendary === undefined) throw new Error(`The kit has no legendary "${squishy.legendary}"`)
-    return painted([legendary.grid], squishy.shiny ? legendary.shiny : legendary.colors)
+    const legendary = partOf(kit.legendaries, squishy.legendary, 'legendary')
+    return painted([legendary.grid], colorsFor(legendary, squishy.shiny))
   }
   const body = partOf(kit.bodies, squishy.body, 'body')
   const face = partOf(kit.faces, squishy.face, 'face')
   const accessory = partOf(kit.accessories, squishy.accessory, 'accessory')
   const palette = partOf(kit.palettes, squishy.palette, 'palette')
-  return painted([body.grid, face.grid, accessory.grid], squishy.shiny ? palette.shiny : palette.colors)
+  return painted([body.grid, face.grid, accessory.grid], colorsFor(palette, squishy.shiny))
+}
+
+/** A palette's or legendary's colors, or its shiny ones for a shiny squishy. */
+function colorsFor(source: { colors: Colors; shiny: Colors }, shiny: boolean): Colors {
+  return shiny ? source.shiny : source.colors
 }
 
 function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind: string): T {

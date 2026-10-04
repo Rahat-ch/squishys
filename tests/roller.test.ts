@@ -100,6 +100,27 @@ function rollInTurn(kit: Kit, count: number, seed: number) {
   return live
 }
 
+test('a rarity’s share is split evenly among its parts', () => {
+  // Two commons share 70%, as the real kit's many parts per rarity will
+  const kit: Kit = {
+    ...ONE_OF_EACH,
+    bodies: [
+      { id: 'round', rarity: 'common', syllable: 'mo', grid: BLANK },
+      { id: 'tall', rarity: 'common', syllable: 'ba', grid: BLANK },
+      { id: 'flat', rarity: 'uncommon', syllable: 'go', grid: BLANK },
+      { id: 'star', rarity: 'rare', syllable: 'zu', grid: BLANK },
+    ],
+  }
+  const rng = seeded(7)
+  const bodies = Array.from({ length: 100_000 }, () => {
+    const squishy = roll(kit, { live: [], rng, odds: { legendary: 0, shiny: 0 } })
+    return squishy.kind === 'assembled' ? squishy.body : undefined
+  })
+  for (const [body, expected] of [['round', 0.35], ['tall', 0.35], ['flat', 0.25], ['star', 0.05]] as const) {
+    expect(Math.abs(share(bodies, each => each === body) - expected)).toBeLessThan(0.01)
+  }
+})
+
 test('a roll is never a squishy a live agent already has', () => {
   // The placeholder kit makes 3^4 parts × 2 + 1 legendary × 2 = 164 squishys
   const live = rollInTurn(KIT, 160, 7)

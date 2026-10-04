@@ -1,4 +1,4 @@
-// A small placeholder kit, so the roller and sprite composer work before
+// A small placeholder kit, so the roller and composer work before
 // the real art is drawn: three parts of each kind (one of each rarity), one
 // legendary and three starters. The real kit replaces this file.
 
