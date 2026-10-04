@@ -331,7 +331,7 @@ export function registerSquishydex(on: On): void {
           {palettes.length > 1 ? (
             <Select
               key="squishydex-palette"
-              label="Partner palette: "
+              label="Partner palette"
               options={palettes.map(value => ({ value }))}
               value={squishy.palette}
               onSelect={value => void update($, squishydexPalette, () => value)}

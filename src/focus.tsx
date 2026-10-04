@@ -285,7 +285,7 @@ export function registerFocus(on: On): void {
               // Its pick is answered by the ui.select hook in model-switch.ts
               <Select
                 key={`${MODEL_SWITCH_PREFIX}${agent.id}`}
-                label="Experimental: switch model: "
+                label="Experimental: switch model"
                 options={[{ value: AS_STARTED, label: 'As started' }, ...modelOptions(switchable)]}
                 value={switched !== undefined && switchable.includes(switched.model) ? switched.model : AS_STARTED}
                 onSelect={() => {}}

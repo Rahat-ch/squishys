@@ -87,7 +87,7 @@ export function registerSettings(on: On): void {
         <Text bold>Settings</Text>
         <Select
           key="model"
-          label="Model for new agents: "
+          label="Model for new agents"
           options={[
             { value: LET_CLAUDE_CHOOSE, label: 'Let Claude choose' },
             ...modelOptions(),
@@ -97,14 +97,14 @@ export function registerSettings(on: On): void {
         />
         <Select
           key="slotCap"
-          label="Roster slots, at most: "
+          label="Roster slots, at most"
           options={Array.from({ length: MAX_SLOTS }, (_, index) => ({ value: String(index + 1) }))}
           value={String(settings.slotCap)}
           onSelect={value => void saveSettings($, current => ({ ...current, slotCap: Number(value) }))}
         />
         <Select
           key="liveModelSwitch"
-          label="Experimental: switch a running agent's model from its focus view: "
+          label="Experimental: switch a running agent's model from its focus view"
           options={[
             { value: String(false), label: 'Off' },
             { value: String(true), label: 'On' },
@@ -117,7 +117,7 @@ export function registerSettings(on: On): void {
         {chimes ? (
           <Select
             key="chime"
-            label="Chime on a shiny or legendary: "
+            label="Chime on a shiny or legendary"
             options={[
               { value: String(false), label: 'Off' },
               { value: String(true), label: 'On' },
