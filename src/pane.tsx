@@ -19,11 +19,16 @@ import {
   FOOTER_COLUMN_GAP,
   FOOTER_COLUMNS,
   FOOTER_ROW_GAP,
+  OVERFLOW_HOTKEY,
+  SETTINGS_BUTTON,
+  SQUISHYDEX_BUTTON,
   SLOT_COLUMN_GAP,
   SLOT_COLUMNS,
   SLOT_ROWS,
   SLOT_ROW_GAP,
+  buttonColumns,
   layoutRoster,
+  linedUp,
 } from './slots'
 import { moves } from './states'
 
@@ -141,6 +146,8 @@ export function registerPane(on: On): void {
     // immediate: the orchestrator is usually mid-turn while its agents run,
     // which is exactly when the user wants the pane.
     await $.command.register({ name: 'squishys', description: 'Open or close the squishys pane', immediate: true })
+    // and so is /squishydex, which src/squishydex.tsx answers
+    await $.command.register({ name: 'squishydex', description: 'Open the Squishydex: every squishy you have met', immediate: true })
     // A hot reload keeps $.state but drops the animator; drawing the roster
     // again starts it.
     if ((await read($, agents)).some(agent => moves(agent.state))) $.ui.invalidate('ui.render')
@@ -309,11 +316,25 @@ export function registerPane(on: On): void {
         {known.length === 0 ? noAgents : null}
       </Box>
     )
+    const overflowLabel = `+${layout.overflow.length}`
     const footer = [
       ...(layout.overflow.length > 0
-        ? [<Button key="overflow" hotkey="m" plain label={`+${layout.overflow.length}`} onPress={() => void showOverflowList($, !showsList)} />]
+        ? [
+            {
+              columns: buttonColumns(overflowLabel, OVERFLOW_HOTKEY),
+              button: <Button key="overflow" hotkey={OVERFLOW_HOTKEY} plain label={overflowLabel} onPress={() => void showOverflowList($, !showsList)} />,
+            },
+          ]
         : []),
-      <Button key="settings" hotkey="o" plain dimColor label="Settings" onPress={() => void update($, mode, () => 'settings')} />,
+      {
+        columns: buttonColumns(SETTINGS_BUTTON.label, SETTINGS_BUTTON.hotkey),
+        button: <Button key="settings" {...SETTINGS_BUTTON} plain dimColor onPress={() => void update($, mode, () => 'settings')} />,
+      },
+      {
+        columns: buttonColumns(SQUISHYDEX_BUTTON.label, SQUISHYDEX_BUTTON.hotkey),
+        // src/squishydex.tsx answers its press
+        button: <Button key="squishydex" {...SQUISHYDEX_BUTTON} plain dimColor onPress={() => {}} />,
+      },
     ]
     // Docked, the footer goes under the slots; inline, where rows are
     // scarce, beside them
@@ -323,14 +344,23 @@ export function registerPane(on: On): void {
           {body}
         </Box>
         <Box key="footer" flexDirection="column" width={FOOTER_COLUMNS}>
-          {footer}
+          {footer.map(each => each.button)}
         </Box>
       </Box>
     ) : (
       <Box flexDirection="column" rowGap={FOOTER_ROW_GAP}>
         {body}
-        <Box key="footer" flexDirection="row" columnGap={FOOTER_BUTTON_GAP}>
-          {footer}
+        {/* As many buttons to a row as fit, so a narrow pane's footer takes more rows (slots.ts budgets them) */}
+        <Box key="footer" flexDirection="column">
+          {linedUp(
+            footer.map(each => each.columns),
+            bodyColumns,
+            FOOTER_BUTTON_GAP,
+          ).map((line, index) => (
+            <Box key={`footer-row-${index}`} flexDirection="row" columnGap={FOOTER_BUTTON_GAP}>
+              {line.map(at => footer[at]?.button)}
+            </Box>
+          ))}
         </Box>
       </Box>
     )

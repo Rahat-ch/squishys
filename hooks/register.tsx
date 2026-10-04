@@ -12,6 +12,7 @@ import { registerPartner } from '../src/partner'
 import { registerRebuild } from '../src/rebuild'
 import { registerSettings } from '../src/settings'
 import { registerSpinner } from '../src/spinner'
+import { registerSquishydex } from '../src/squishydex'
 
 export const register: Register = on => {
   // The order matters: a plugin's registrations nest in order, first
@@ -24,6 +25,7 @@ export const register: Register = on => {
   registerRebuild(on)
   registerSettings(on)
   registerPartner(on)
+  registerSquishydex(on)
   registerFocus(on)
   registerModelSwitch(on)
   registerBand(on)

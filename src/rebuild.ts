@@ -14,6 +14,8 @@ import { squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
 import { cryptoRandom, roll, squishyOf } from './roller'
 import { liveSquishys } from './slots'
+import { recordMet } from './squishydex-record'
+import type { StoreCalls } from './squishydex-record'
 import { stateOfStatus } from './states'
 
 // The engine reads each $.state reference off the file that uses it, so
@@ -65,18 +67,15 @@ let remembering: Promise<void> = Promise.resolve()
  * one before, then reads the pairs again, merges these agents in and
  * writes, so writes from this process (parallel spawns, a spawn during a
  * rebuild) never lose each other's pairs. The hook passes its own store
- * calls in, as `$` stays in the hook's file. Another session writing
+ * calls in (see StoreCalls), as `$` stays in the hook's file. Another session writing
  * between one read and write can still lose a pair; that's rare, and costs
  * only a squishy coming back after /clear. A store that can't be written
  * loses only that too.
  */
-export function rememberSquishys(
-  store: { get: () => Promise<unknown>; set: (remembered: Remembered) => Promise<void> },
-  seen: readonly Pick<Agent, 'id' | 'squishy'>[],
-): Promise<void> {
+export function rememberSquishys({ get, set }: StoreCalls, seen: readonly Pick<Agent, 'id' | 'squishy'>[]): Promise<void> {
   remembering = remembering.then(async () => {
     try {
-      await store.set(withRemembered(rememberedFrom(await store.get()), seen))
+      await set(REMEMBERED_KEY, withRemembered(rememberedFrom(await get(REMEMBERED_KEY)), seen))
     } catch {}
   })
   return remembering
@@ -85,8 +84,13 @@ export function rememberSquishys(
 export function registerRebuild(on: On): void {
   // Compaction keeps $.state, so its rebuild only adds agents the roster lacks.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork', 'compact'] }, async ($, e, next) => {
-    await rebuild($)
-    return next(e)
+    const added = await rebuild($)
+    const started = await next(e)
+    // Met: the Squishydex records the rebuilt squishys once the event has
+    // gone on. It keeps a squishy's first-met date, so a restored one
+    // changes nothing.
+    await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, added)
+    return started
   })
 }
 
@@ -97,15 +101,16 @@ export function registerRebuild(on: On): void {
  * a fresh roll that repeats no live squishy (see liveSquishys), no
  * restored one and not the partner's.
  * A store that can't be read means fresh rolls, never no roster.
+ * Returns the squishys of the agents it added.
  */
-async function rebuild($: EngineInterface): Promise<void> {
+async function rebuild($: EngineInterface): Promise<Squishy[]> {
   let listed: AgentInfo[]
   try {
     listed = await $.agent.list()
   } catch {
-    return // nothing to rebuild from
+    return [] // nothing to rebuild from
   }
-  if (listed.length === 0) return
+  if (listed.length === 0) return []
   let remembered: Remembered = []
   let partner: Squishy | undefined
   try {
@@ -134,6 +139,7 @@ async function rebuild($: EngineInterface): Promise<void> {
     })
     return added.length === 0 ? current : [...current, ...added]
   })
-  if (added.length === 0) return
-  await rememberSquishys({ get: () => $.store.get(REMEMBERED_KEY), set: remembered => $.store.set(REMEMBERED_KEY, remembered) }, added)
+  if (added.length === 0) return []
+  await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, added)
+  return added.map(agent => agent.squishy)
 }

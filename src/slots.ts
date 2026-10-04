@@ -25,16 +25,64 @@ export const SLOT_COLUMN_GAP = 2
 /** The rows between rows of slots. */
 export const SLOT_ROW_GAP = 1
 /**
- * The footer: the overflow count and Settings. Docked, where columns are
- * plenty, it takes a row under the slots, FOOTER_ROW_GAP rows below them;
- * inline, where rows are scarce, FOOTER_COLUMNS beside them,
- * FOOTER_COLUMN_GAP columns away. Its buttons sit FOOTER_BUTTON_GAP apart.
+ * The columns a Button takes as drawn: its label, after the `x: ` its
+ * hotkey draws before it.
  */
-export const FOOTER_ROWS = 1
+export function buttonColumns(label: string, hotkey?: string): number {
+  return label.length + (hotkey === undefined ? 0 : hotkey.length + 2)
+}
+
+/**
+ * Lays items of these widths out in lines `columns` wide, `gap` apart, as
+ * many to a line as fit, in order: the indexes on each line. An item wider
+ * than a line has a line of its own.
+ */
+export function linedUp(widths: readonly number[], columns: number, gap: number): number[][] {
+  const lines: number[][] = []
+  let used = 0
+  widths.forEach((width, index) => {
+    const line = lines[lines.length - 1]
+    if (line !== undefined && used + gap + width <= columns) {
+      line.push(index)
+      used += gap + width
+    } else {
+      lines.push([index])
+      used = width
+    }
+  })
+  return lines
+}
+
+/** The roster footer's buttons. The overflow count's label is `+N`. */
+export const OVERFLOW_HOTKEY = 'm'
+export const SETTINGS_BUTTON = { label: 'Settings', hotkey: 'o' } as const
+export const SQUISHYDEX_BUTTON = { label: 'Squishydex', hotkey: 'd' } as const
+/** The widest overflow count the footer makes room for. */
+const WIDEST_OVERFLOW = '+99'
+/** Each footer button's columns, the overflow count at its widest. */
+const FOOTER_WIDTHS = [
+  buttonColumns(WIDEST_OVERFLOW, OVERFLOW_HOTKEY),
+  buttonColumns(SETTINGS_BUTTON.label, SETTINGS_BUTTON.hotkey),
+  buttonColumns(SQUISHYDEX_BUTTON.label, SQUISHYDEX_BUTTON.hotkey),
+]
+
+/**
+ * The footer: the overflow count, Settings and the Squishydex. Docked, where
+ * columns are plenty, it goes under the slots, FOOTER_ROW_GAP rows below
+ * them, in as many rows as its buttons need at that width (`footerRows`),
+ * FOOTER_BUTTON_GAP apart; inline, where rows are scarce, a column
+ * FOOTER_COLUMNS wide beside them, FOOTER_COLUMN_GAP columns away, a button
+ * to a row.
+ */
 export const FOOTER_ROW_GAP = 1
-export const FOOTER_COLUMNS = 10
+export const FOOTER_COLUMNS = Math.max(...FOOTER_WIDTHS)
 export const FOOTER_COLUMN_GAP = 2
 export const FOOTER_BUTTON_GAP = 2
+
+/** The rows the docked footer takes in a pane this wide: its buttons lined up, budgeted with every one there. */
+export function footerRows(bodyColumns: number): number {
+  return linedUp(FOOTER_WIDTHS, bodyColumns, FOOTER_BUTTON_GAP).length
+}
 
 /** A mini squishy's picture in the band, in cells: half a picture across, two pixels down a cell. */
 const MINI_COLUMNS = Math.floor(PICTURE_COLUMNS / 2)
@@ -195,8 +243,8 @@ export function slotsThatFit(columns: number): number {
 
 /** How many slots fit the pane, at most `slotCap`. */
 function slotCount(size: RosterSize, slotCap: number): number {
-  // Docked, the footer row and the gap above it come off the rows
-  const room = size.bodyRows + SLOT_ROW_GAP - (size.placement === 'dock' ? FOOTER_ROWS + FOOTER_ROW_GAP : 0)
+  // Docked, the footer's rows and the gap above them come off the rows
+  const room = size.bodyRows + SLOT_ROW_GAP - (size.placement === 'dock' ? footerRows(size.bodyColumns) + FOOTER_ROW_GAP : 0)
   const down = Math.max(0, Math.floor(room / (SLOT_ROWS + SLOT_ROW_GAP)))
   return Math.min(slotCap, slotsAcross(size, slotCap) * down)
 }

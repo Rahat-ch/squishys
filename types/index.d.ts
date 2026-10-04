@@ -139,9 +139,9 @@ export type StopControl = { agentId: string; armedAt: number }
 
 /**
  * What the pane is showing: `starter` is the starter pick, while no partner
- * is saved. Later modes (Squishydex) join this union.
+ * is saved; `squishydex` is the Squishydex.
  */
-export type PaneMode = 'roster' | 'settings' | 'focus' | 'starter'
+export type PaneMode = 'roster' | 'settings' | 'focus' | 'starter' | 'squishydex'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -176,6 +176,16 @@ declare module 'claude-code' {
       reducedMotion: boolean
       /** Whether the roster shows its overflow list in place of its slots. */
       overflowOpen: boolean
+      /** Which page of its species the Squishydex shows, from 0. */
+      squishydexPage: number
+      /**
+       * The species or legendary whose card the Squishydex shows, by its
+       * place's key (a species key, or a legendary's squishy key); none for
+       * its pages.
+       */
+      squishydexPicked: string | null
+      /** The palette picked on a species' card for making it the partner; none for the first met. */
+      squishydexPalette: string | null
     }
   }
 }

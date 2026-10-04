@@ -70,3 +70,8 @@ export type Kit = {
 
 /** The kit the mod ships: placeholder art until the real kit is drawn. */
 export const KIT: Kit = PLACEHOLDER_KIT
+
+/** Every species the kit can make: each body with each face, in kit order. */
+export function everySpecies(kit: Kit): Species[] {
+  return kit.bodies.flatMap(body => kit.faces.map(face => ({ body: body.id, face: face.id })))
+}

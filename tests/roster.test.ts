@@ -32,7 +32,7 @@ test('each agent gets its own roster entry, under its own description', async ($
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.findAll({ type: 'Raster' })).toHaveLength(3)
-  const names = (await ui.findAll({ type: 'Button' })).filter(button => button.key !== 'settings')
+  const names = (await ui.findAll({ type: 'Button' })).filter(button => !['settings', 'squishydex'].includes(String(button.key)))
   expect(names).toHaveLength(3)
   for (const description of ['Find config parser', 'Fork the plan', 'Run the tests']) {
     expect(await ui.find({ type: 'Text', text: description })).toBeDefined()
