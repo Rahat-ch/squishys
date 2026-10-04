@@ -3,7 +3,7 @@
 // changes them.
 
 import { atom, read, update } from 'claude-code'
-import type { AgentSpawnInput, EngineInterface, On } from 'claude-code'
+import type { AgentSpawnInput, EngineInterface, On, SelectOption } from 'claude-code'
 
 /** The Agent tool's model aliases a default can name. */
 export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'] as const
@@ -33,7 +33,6 @@ const LET_CLAUDE_CHOOSE = 'let-claude-choose'
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
 const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
-const switchedModels = atom({ plugin: 'squishys', key: 'switchedModels' } as const, {})
 
 /** The settings a stored value holds, with defaults for anything missing or no longer valid. */
 export function settingsFrom(stored: unknown): Settings {
@@ -59,6 +58,11 @@ export function isModel(value: unknown): value is Model {
   return MODELS.includes(value as Model)
 }
 
+/** The options for picking among `models`, labeled and ordered the same in every model picker. */
+export function modelOptions(models: readonly Model[] = MODELS): SelectOption[] {
+  return MODELS.filter(model => models.includes(model)).map(model => ({ value: model, label: model }))
+}
+
 function isSlotCap(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_SLOTS
 }
@@ -79,7 +83,7 @@ export function registerSettings(on: On): void {
           label="Model for new agents: "
           options={[
             { value: LET_CLAUDE_CHOOSE, label: 'Let Claude choose' },
-            ...MODELS.map(model => ({ value: model, label: model })),
+            ...modelOptions(),
           ]}
           value={settings.model ?? LET_CLAUDE_CHOOSE}
           onSelect={value => void saveSettings($, ({ model: _, ...rest }) => (isModel(value) ? { ...rest, model: value } : rest))}
@@ -95,25 +99,18 @@ export function registerSettings(on: On): void {
           key="liveModelSwitch"
           label="Experimental: switch a running agent's model from its focus view: "
           options={[
-            { value: 'off', label: 'Off' },
-            { value: 'on', label: 'On' },
+            { value: String(false), label: 'Off' },
+            { value: String(true), label: 'On' },
           ]}
-          value={settings.liveModelSwitch ? 'on' : 'off'}
-          onSelect={value => void setLiveModelSwitch($, value === 'on')}
+          value={String(settings.liveModelSwitch === true)}
+          onSelect={value =>
+            void saveSettings($, ({ liveModelSwitch: _, ...rest }) => (value === String(true) ? { ...rest, liveModelSwitch: true } : rest))
+          }
         />
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>
     )
   })
-}
-
-/**
- * Turns the experimental live model switch on or off. Off undoes every
- * switch made, so no agent's requests are rewritten any longer.
- */
-async function setLiveModelSwitch($: EngineInterface, on: boolean): Promise<void> {
-  await saveSettings($, ({ liveModelSwitch: _, ...rest }) => (on ? { ...rest, liveModelSwitch: true } : rest))
-  if (!on) await update($, switchedModels, () => ({}))
 }
 
 async function readSettings($: EngineInterface): Promise<Settings> {

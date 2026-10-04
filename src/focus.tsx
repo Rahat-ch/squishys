@@ -5,9 +5,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { ActivityRow, SquishyState } from '../types'
+import type { ActivityRow, Model, SquishyState } from '../types'
+import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
 import { PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
-import { MODELS, SETTINGS_KEY, isModel, settingsFrom } from './settings'
+import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
+import { isEnded } from './states'
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -18,9 +20,6 @@ const fedAgentIds = atom({ plugin: 'squishys', key: 'fedAgentIds' } as const, []
 const switchedModels = atom({ plugin: 'squishys', key: 'switchedModels' } as const, {})
 /** The feeds, one member per agent id, each read as `atom({ ...activity, id }, [])`. */
 const activity = { plugin: 'squishys', key: 'activity' } as const
-
-/** The model picker's value for the model the agent started on. */
-const AS_STARTED = 'as-started'
 
 /** How many of its latest rows each agent's feed keeps. */
 export const FEED_ROWS = 50
@@ -125,14 +124,6 @@ export function registerFocus(on: On): void {
     return completed
   })
 
-  // Experimental: an agent switched to another model in its focus view
-  // sends its requests to that model from then on. Only the switched
-  // agent's requests change; the setting turned off empties the switches.
-  on('turn.step', { agentId: /./ }, async function* ($, e, next) {
-    const model = e.agentId !== undefined ? (await read($, switchedModels))[e.agentId] : undefined
-    return yield* next(model !== undefined ? { ...e, model } : e)
-  })
-
   // The pick: a press on any Button keyed `squishy-<agent id>` (PICK_PREFIX:
   // a roster slot's, by click or digit) opens that agent's focus view. One
   // handler for every place a squishy can be picked from.
@@ -162,12 +153,17 @@ export function registerFocus(on: On): void {
     }
     // Only this agent's feed: another agent's activity doesn't redraw it
     const feed = await read($, atom({ ...activity, id: agent.id }, []))
-    const switched = (await read($, switchedModels))[agent.id]
-    let canSwitch = false
+    // Experimental: the models the live model switch may name, while it's on
+    // (src/model-switch.ts keeps the switches and answers the picker)
+    let switchable: Model[] | undefined
     try {
-      canSwitch = settingsFrom(await $.store.get(SETTINGS_KEY)).liveModelSwitch === true
-    } catch {} // a store that can't be read leaves the experiment off
-    const shownModel = switched !== undefined ? `${switched} (switched)` : agent.model
+      if (settingsFrom(await $.store.get(SETTINGS_KEY)).liveModelSwitch === true) {
+        switchable = []
+        switchable = allowedModels((await $.settings.read()).availableModels)
+      }
+    } catch {}
+    const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
+    const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
     return (
       <Box key="focus" flexDirection="column" rowGap={1}>
         <Box flexDirection="row" columnGap={2}>
@@ -176,15 +172,18 @@ export function registerFocus(on: On): void {
             <Text bold>{agent.squishy.name}</Text>
             <Text>{STATE_NAMES[agent.state]}</Text>
             {shownModel !== undefined ? <Text dimColor>{shownModel}</Text> : null}
-            {canSwitch ? (
+            {switchable === undefined || isEnded(agent.state) ? null : switchable.length === 0 ? (
+              <Text dimColor>Experimental: no model can be switched to, by your availableModels setting.</Text>
+            ) : (
+              // Its pick is answered by the ui.select hook in model-switch.ts
               <Select
-                key="model-switch"
+                key={`${MODEL_SWITCH_PREFIX}${agent.id}`}
                 label="Experimental: switch model: "
-                options={[{ value: AS_STARTED, label: 'As started' }, ...MODELS.map(model => ({ value: model }))]}
-                value={switched ?? AS_STARTED}
-                onSelect={value => void switchModel($, agent.id, value)}
+                options={[{ value: AS_STARTED, label: 'As started' }, ...modelOptions(switchable)]}
+                value={switched !== undefined && switchable.includes(switched.model) ? switched.model : AS_STARTED}
+                onSelect={() => {}}
               />
-            ) : null}
+            )}
             <Text>{agent.description}</Text>
           </Box>
         </Box>
@@ -222,11 +221,6 @@ export function registerFocus(on: On): void {
       </Box>
     )
   })
-}
-
-/** Records the model an agent's requests use from now on, or none for the one it started on. */
-async function switchModel($: EngineInterface, agentId: string, value: string): Promise<void> {
-  await update($, switchedModels, ({ [agentId]: _, ...rest }) => (isModel(value) ? { ...rest, [agentId]: value } : rest))
 }
 
 /**
