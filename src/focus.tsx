@@ -3,13 +3,14 @@
 // live activity.
 
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, Timer } from 'claude-code'
 
-import type { ActivityRow, Model, SquishyState } from '../types'
+import type { ActivityRow, Agent, Model, SquishyState, StopControl } from '../types'
+import { isStoppingAtNextStep, stopAtNextStep } from './agents'
 import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
 import { PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
-import { isEnded } from './states'
+import { endedState, isEnded } from './states'
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -18,6 +19,7 @@ const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 const focusedAgentId = atom({ plugin: 'squishys', key: 'focusedAgentId' } as const, null)
 const fedAgentIds = atom({ plugin: 'squishys', key: 'fedAgentIds' } as const, [])
 const switchedModels = atom({ plugin: 'squishys', key: 'switchedModels' } as const, {})
+const stopControl = atom({ plugin: 'squishys', key: 'stopControl' } as const, null)
 /** The feeds, one member per agent id, each read as `atom({ ...activity, id }, [])`. */
 const activity = { plugin: 'squishys', key: 'activity' } as const
 
@@ -39,6 +41,21 @@ const TELLING_ARGUMENTS = ['command', 'file_path', 'notebook_path', 'path', 'pat
 /** The fields of a tool call's input that aren't the tool's arguments. */
 const ENVELOPE_FIELDS = ['tool', 'tool_use_id', 'agentId']
 
+/** How long, in milliseconds, a first press of Stop waits for the second. */
+export const STOP_CONFIRM_MS = 3000
+
+/**
+ * How long, in milliseconds, Stop waits for TaskStop to answer before it
+ * stops the agent at its next step instead.
+ */
+export const STOP_WAIT_MS = 2000
+
+/** The longest TaskStop's refusal runs in the focus view, in characters. */
+const REFUSAL_LIMIT = 200
+
+/** The timer that disarms Stop when no second press comes. */
+let disarm: Timer | undefined
+
 /** How each state reads in the focus view. */
 const STATE_NAMES: Record<SquishyState, string> = {
   working: 'Working',
@@ -49,7 +66,7 @@ const STATE_NAMES: Record<SquishyState, string> = {
 }
 
 /** How each run that ended without an answer reads in the feed. */
-const ENDED_ROWS = { interrupted: 'Interrupted', failed: 'Failed' } as const
+const ENDED_ROWS = { interrupted: 'Interrupted', failed: 'Failed', stopped: 'Stopped by you' } as const
 
 /**
  * Text with every control character but tab and newline taken out: terminal
@@ -98,9 +115,17 @@ function rowAfterRun(reason: string, answer: string): ActivityRow | undefined {
   return answer.trim() === '' ? undefined : { kind: 'answer', text: drawable(answer) }
 }
 
-/** A feed with a row added: only the latest answer kept, and only the latest FEED_ROWS rows. */
+/**
+ * A feed with a row added: only the latest answer kept, and only the latest
+ * FEED_ROWS rows. A run the user stopped reads Stopped by you, not also
+ * Interrupted, whichever of the two comes first.
+ */
 function withRow(feed: readonly ActivityRow[], row: ActivityRow): ActivityRow[] {
-  const kept = row.kind === 'answer' ? feed.filter(each => each.kind !== 'answer') : feed
+  const last = feed.at(-1)?.kind
+  if (row.kind === 'interrupted' && last === 'stopped') return [...feed]
+  let kept: readonly ActivityRow[] = feed
+  if (row.kind === 'answer') kept = feed.filter(each => each.kind !== 'answer')
+  if (row.kind === 'stopped' && last === 'interrupted') kept = feed.slice(0, -1)
   return [...kept, row].slice(-FEED_ROWS)
 }
 
@@ -117,10 +142,16 @@ export function registerFocus(on: On): void {
     return next(e)
   })
 
+  // A run the user's Stop ended at its next step was stopped, whatever it
+  // answered. The tracker, outside this hook, lets the agent go after it.
   on('turn.complete', { agentId: /./ }, async ($, e, next) => {
     const completed = await next(e)
-    const row = rowAfterRun(e.reason, e.answer)
-    if (e.agentId !== undefined && row !== undefined) await addActivity($, e.agentId, row)
+    const { agentId } = e
+    if (agentId === undefined) return completed
+    const stoppedByUser = isStoppingAtNextStep(agentId)
+    const row = stoppedByUser ? { kind: 'stopped' as const } : rowAfterRun(e.reason, e.answer)
+    if (row !== undefined) await addActivity($, agentId, row)
+    if (stoppedByUser) await update($, stopControl, control => (control?.agentId === agentId ? null : control))
     return completed
   })
 
@@ -129,9 +160,26 @@ export function registerFocus(on: On): void {
   // handler for every place a squishy can be picked from.
   on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e, next) => {
     const agentId = e.element.slice(PICK_PREFIX.length)
+    await leaveStop($)
     await update($, focusedAgentId, () => agentId)
     await update($, mode, () => 'focus')
     return next(e)
+  })
+
+  // Stop takes two presses: the first arms it, and a second within
+  // STOP_CONFIRM_MS stops the agent. Only a running agent that isn't
+  // already being stopped can be.
+  on('ui.press', { plugin: 'squishys', element: 'stop' }, async ($, e, next) => {
+    const pressed = await next(e)
+    const id = await read($, focusedAgentId)
+    const agent = (await read($, agents)).find(each => each.id === id)
+    const control = await read($, stopControl)
+    if (agent === undefined || !canStop(agent, control)) return pressed
+    // Awaited, so the agent tracker's hook sees the TaskStop call: the press
+    // takes at most STOP_WAIT_MS more
+    if (control?.agentId === agent.id && control.step === 'armed') await stop($, agent)
+    else await arm($, agent.id)
+    return pressed
   })
 
   // The focus view. Each mode's hook draws only while the pane is in that
@@ -142,7 +190,7 @@ export function registerFocus(on: On): void {
     const { Box, Button, Markdown, Raster, Select, Text } = $.ui.resolve(e)
     const id = await read($, focusedAgentId)
     const agent = (await read($, agents)).find(each => each.id === id)
-    const back = <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
+    const back = <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void leaveFocus($)} />
     if (agent === undefined) {
       return (
         <Box flexDirection="column" rowGap={1}>
@@ -164,6 +212,8 @@ export function registerFocus(on: On): void {
     } catch {}
     const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
     const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
+    const shownStop = await read($, stopControl)
+    const note = stopNote(shownStop, agent)
     return (
       <Box key="focus" flexDirection="column" rowGap={1}>
         <Box flexDirection="row" columnGap={2}>
@@ -187,10 +237,16 @@ export function registerFocus(on: On): void {
             <Text>{agent.description}</Text>
           </Box>
         </Box>
-        {/* Stop (#12) and Redirect (#13) join the controls here. */}
+        {/* Redirect (#13) joins the controls here. */}
         <Box key="controls" flexDirection="row" columnGap={2}>
           {back}
+          {canStop(agent, shownStop) ? <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> : null}
         </Box>
+        {note === undefined ? null : (
+          <Box key="stop-note">
+            <Text color="yellow">{note}</Text>
+          </Box>
+        )}
         <Box key="activity" flexDirection="column">
           {feed.length === 0 && agent.state !== 'thinking' ? <Text dimColor>No activity yet.</Text> : null}
           {feed.map((row, index) => {
@@ -242,5 +298,92 @@ async function addActivity($: EngineInterface, agentId: string, row: ActivityRow
     try {
       await $.ui.scroll({ in: PANE_ID, to: 'end' })
     } catch {} // a pane that can't scroll now shows the row once the user scrolls
+  }
+}
+
+/** Whether Stop is offered for this agent: it runs, and no stop of it is under way. */
+function canStop(agent: Agent, control: StopControl | null): boolean {
+  return !isEnded(agent.state) && (control?.agentId !== agent.id || control.step === 'armed')
+}
+
+/** What the Stop control says about this agent, if anything. */
+function stopNote(control: StopControl | null, agent: Agent): string | undefined {
+  if (control?.agentId !== agent.id) return undefined
+  const { name } = agent.squishy
+  if (control.step === 'armed') return `press s again to stop ${name}`
+  // Once the agent has ended, its state and feed say how it went
+  if (isEnded(agent.state)) return undefined
+  if (control.step === 'stopping') return `Stopping ${name}…`
+  const why = control.refusal === undefined ? '' : ` TaskStop didn't stop it: ${control.refusal}`
+  return `Stopping ${name} at its next step: its tool calls are refused.${why}`
+}
+
+/** Back to the roster, leaving Stop as it was before the focus view opened. */
+async function leaveFocus($: EngineInterface): Promise<void> {
+  await leaveStop($)
+  await update($, mode, () => 'roster')
+}
+
+/**
+ * Disarms Stop as the focus view changes agent or mode. A stop under way
+ * carries on, and says how it went if its agent's focus view opens again.
+ */
+async function leaveStop($: EngineInterface): Promise<void> {
+  disarm?.cancel()
+  await update($, stopControl, control => (control?.step === 'armed' ? null : control))
+}
+
+/** Arms Stop for an agent, until a second press or STOP_CONFIRM_MS. */
+async function arm($: EngineInterface, agentId: string): Promise<void> {
+  disarm?.cancel()
+  await update($, stopControl, () => ({ agentId, step: 'armed' }))
+  disarm = $.clock.after(STOP_CONFIRM_MS, () => {
+    void update($, stopControl, control => (control?.agentId === agentId && control.step === 'armed' ? null : control))
+  })
+}
+
+/**
+ * Stops an agent through TaskStop, whose call the agent tracker sees, and
+ * squishes the agent's squishy for. When TaskStop is refused, fails, or
+ * leaves the agent running by the agent list, or gives no answer within
+ * STOP_WAIT_MS, the tracker stops the agent at its next step instead.
+ */
+async function stop($: EngineInterface, agent: Agent): Promise<void> {
+  disarm?.cancel()
+  await update($, stopControl, () => ({ agentId: agent.id, step: 'stopping' }))
+  let timer: Timer | undefined
+  const late = new Promise<{ late: true }>(resolve => {
+    timer = $.clock.after(STOP_WAIT_MS, () => resolve({ late: true }))
+  })
+  const asked = $.tool.call({ tool: 'TaskStop', task_id: agent.id }).then(
+    result => ({ refusal: result.deny ?? (result.isError === true ? (result.text ?? String(result.result)) : undefined) }),
+    (error: unknown) => ({ refusal: error instanceof Error ? error.message : String(error) }),
+  )
+  const answer = await Promise.race([asked, late])
+  timer?.cancel()
+  const refusal = 'refusal' in answer && answer.refusal !== undefined ? refusalLine(answer.refusal) : undefined
+  if ('refusal' in answer && refusal === undefined && (await hasEnded($, agent.id))) {
+    await addActivity($, agent.id, { kind: 'stopped' })
+    await update($, stopControl, control => (control?.agentId === agent.id ? null : control))
+    return
+  }
+  stopAtNextStep(agent.id)
+  const atNextStep: StopControl = { agentId: agent.id, step: 'atNextStep', ...(refusal === undefined ? {} : { refusal }) }
+  await update($, stopControl, () => atNextStep)
+}
+
+/** TaskStop's refusal as one printable line, cut short past REFUSAL_LIMIT. */
+function refusalLine(refusal: string): string {
+  const line = printable(refusal).replace(/\s+/g, ' ').trim()
+  return line.length > REFUSAL_LIMIT ? `${cut(line, REFUSAL_LIMIT - 1)}…` : line
+}
+
+/** Whether the agent list says this agent has ended; no answer says it hasn't. */
+async function hasEnded($: EngineInterface, agentId: string): Promise<boolean> {
+  try {
+    const status = (await $.agent.list()).find(each => each.id === agentId)?.status
+    return status !== undefined && endedState(status) !== undefined
+  } catch {
+    return false
   }
 }

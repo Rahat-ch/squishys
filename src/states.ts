@@ -52,10 +52,21 @@ export function stateOfStatus(status: string): SquishyState {
 /**
  * The state a run of an agent's loop leaves it in, by why the run ended:
  * one that answered (or refused) finished, one that ended on an error or
- * that the user interrupted failed or was stopped.
+ * that the user interrupted failed or was stopped. A run the user's Stop
+ * ended was stopped, whatever its reason says.
  */
-export function stateAfterRun(reason: string): SquishyState {
-  return reason === 'error' || reason === 'aborted' ? 'squished' : 'asleep'
+export function stateAfterRun(reason: string, stoppedByUser = false): SquishyState {
+  return stoppedByUser || reason === 'error' || reason === 'aborted' ? 'squished' : 'asleep'
+}
+
+/**
+ * The state a squishy is in once a stop says its agent ended as `ended`
+ * (SubagentStop, or TaskStop's Squished): one still running takes it, one
+ * whose run already ended keeps the state that end gave it, so a run the
+ * user's Stop ended stays Squished though the agent list says it completed.
+ */
+export function stateAtStop(state: SquishyState, ended: SquishyState): SquishyState {
+  return isEnded(state) ? state : ended
 }
 
 /**

@@ -12,7 +12,7 @@ import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
 import { cryptoRandom, roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
 import { liveSquishys } from './slots'
-import { answered, endedState, isEnded, stateAfterRun } from './states'
+import { answered, endedState, isEnded, stateAfterRun, stateAtStop } from './states'
 
 /**
  * How often, in milliseconds, the agent list is checked for agents that
@@ -68,8 +68,12 @@ export function registerAgentTracking(on: On): void {
   // (in-process teammates may): an agent first seen through its tool call.
   // Only ids `$.agent.list()` names count, which leaves out workflow agents
   // and Claude Code's own forks.
+  //
+  // An agent the user is stopping at its next step has its tool calls
+  // refused, before anything else sees them.
   on('tool.call', async ($, e, next) => {
     const { agentId } = e
+    if (agentId !== undefined && stopping.has(agentId)) return { deny: STOPPED_BY_USER }
     if (agentId !== undefined && !notAgents.has(agentId) && !hasSquishy(await read($, agents), agentId)) {
       const listed = (await $.agent.list()).find(agent => agent.id === agentId)
       if (listed !== undefined) await assignSquishy($, agentId, listed.description)
@@ -80,14 +84,27 @@ export function registerAgentTracking(on: On): void {
     // A prompt the call raised has been answered once its result is in. This
     // dispatch's reads predate the prompt, so `asking` says whether one came.
     if (agentId !== undefined && asking.has(agentId)) await setState($, agentId, answered, { current: true })
+    // An agent TaskStop stopped (the focus view's Stop, or the orchestrator
+    // itself) is Squished.
+    if (e.tool === 'TaskStop' && result.deny === undefined && result.isError === undefined) {
+      const stoppedId = e.task_id ?? e.shell_id
+      if (stoppedId !== undefined) await setState($, stoppedId, state => stateAtStop(state, 'squished'))
+    }
     return result
   })
 
   // A squishy is Thinking from the first piece of its agent's response to
   // the last, then Working while the agent runs the tools the response
   // called, or until the turn completes.
+  //
+  // An agent the user is stopping at its next step gets an answer that ends
+  // its loop instead of a model request: no model is called.
   on('turn.step', async function* ($, e, next) {
     const { agentId } = e
+    if (agentId !== undefined && stopping.has(agentId)) {
+      yield { kind: 'text', index: 0, text: STOPPED_ANSWER } as const
+      return { turnId: e.turnId, index: e.index, answer: STOPPED_ANSWER, toolUses: [], stopReason: 'end_turn', usage: null }
+    }
     const response = next(e)
     if (agentId === undefined) return yield* response
     await signOfLife($, agentId)
@@ -109,10 +126,15 @@ export function registerAgentTracking(on: On): void {
   })
 
   // Each run of an agent's loop is one turn, and how it ended says whether
-  // the agent finished, failed or was stopped.
+  // the agent finished, failed or was stopped. A run the user's Stop ended
+  // at its next step was stopped, whatever it answered, and the agent is no
+  // longer held back: a message can resume it.
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
-    if (e.agentId !== undefined) await setState($, e.agentId, stateAfterRun(e.reason))
+    if (e.agentId !== undefined) {
+      await setState($, e.agentId, stateAfterRun(e.reason, stopping.has(e.agentId)))
+      stopping.delete(e.agentId)
+    }
     return completed
   })
 
@@ -140,16 +162,43 @@ export function registerAgentTracking(on: On): void {
   })
 
   // An agent that stopped: the agent list says whether it finished, failed
-  // or was stopped. One the list can't tell about finished.
+  // or was stopped, and one the list can't tell about finished. One the
+  // user is stopping at its next step was stopped. One whose run already
+  // ended keeps what its end said.
   on('classic.SubagentStop', async ($, e, next) => {
-    const stopped = await next(e)
+    const result = await next(e)
     let status: AgentStatus | undefined
     try {
       status = (await $.agent.list()).find(agent => agent.id === e.agent_id)?.status
     } catch {}
-    await setState($, e.agent_id, (status !== undefined ? endedState(status) : undefined) ?? 'asleep')
-    return stopped
+    const listed = (status !== undefined ? endedState(status) : undefined) ?? 'asleep'
+    await setState($, e.agent_id, state => stateAtStop(state, stopping.has(e.agent_id) ? 'squished' : listed))
+    return result
   })
+}
+
+/** What a tool call from an agent the user is stopping gets back. */
+const STOPPED_BY_USER = 'Stopped by the user'
+
+/** The answer that ends the loop of an agent the user is stopping. */
+const STOPPED_ANSWER = 'Stopped by the user.'
+
+/**
+ * The agents the user is stopping at their next step, the fallback for
+ * those TaskStop didn't stop: their tool calls are refused, and their next
+ * model request is answered with the end of their run. The run's end lets
+ * each go. A reload empties it.
+ */
+const stopping = new Set<string>()
+
+/** Stops an agent at its next step: the fallback for when TaskStop didn't stop it. */
+export function stopAtNextStep(agentId: string): void {
+  stopping.add(agentId)
+}
+
+/** Whether the user is stopping this agent at its next step. */
+export function isStoppingAtNextStep(agentId: string): boolean {
+  return stopping.has(agentId)
 }
 
 /**
