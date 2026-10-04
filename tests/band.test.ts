@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { On, PaneOpenArgs } from 'claude-code'
+import type { On } from 'claude-code'
 
 import { OPEN_HINT } from '../src/band'
 import { KIT } from '../src/kit'
@@ -9,7 +9,7 @@ import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { BAND_GAP, BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, nameCut } from '../src/slots'
-import { PANE, PARTNERED, SQUISHYS_COMMAND, readFrom, spawnOf, stubBlits, stubSpawns, stubStore } from './fixtures'
+import { PANE, PARTNERED, SQUISHYS_COMMAND, readFrom, spawnOf, stubBlits, stubPanes, stubSpawns, stubStore } from './fixtures'
 import { cellsOf } from './pictures'
 
 // The band's render input, as Claude Code passes it, with room for `across`
@@ -36,36 +36,6 @@ function bandSized(across: number, { pictured = true, overflow = 0, hasSurvey = 
 const BENEATH = 'drawn by Claude Code'
 function stubBandBeneath(on: On): void {
   on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: [BENEATH] }))
-}
-
-// Stands in for Claude Code's panes, placing an unasked open only on a wide
-// terminal (`wide`) and leaving it unplaced otherwise. Claude Code places an
-// open the user asked for (from the hook of a command they typed, or a
-// press) at any width: the test sets `asking` around such an act. With
-// `unplaced`, the pane starts open and unplaced, as an earlier open left it;
-// with `refusal`, an open the user asked for is refused so. Reads back every
-// open asked for.
-function stubPanes(
-  on: On,
-  { wide, unplaced = false, refusal }: { wide: boolean; unplaced?: boolean; refusal?: string },
-): { opens: PaneOpenArgs[]; asking: boolean } {
-  const stub = { opens: [] as PaneOpenArgs[], asking: false }
-  const open = new Map<string, boolean>(unplaced ? [[PANE_ID, false]] : [])
-  on('ui.panes', () => ({
-    value: [...open].map(([id, isPlaced]) => ({ id, title: id, isShown: true, isFocused: false, isPlaced })),
-  }))
-  on('ui.open', ($, e) => {
-    stub.opens.push(e)
-    if (stub.asking && refusal !== undefined) return { deny: refusal }
-    const isPlaced = wide || stub.asking || open.get(e.id) === true
-    open.set(e.id, isPlaced)
-    return { value: isPlaced ? { isPlaced } : { isPlaced, reason: 'An unasked pane needs 144 columns; the terminal has 100' } }
-  })
-  on('ui.close', ($, e) => {
-    open.delete(e.id)
-    return { value: undefined }
-  })
-  return stub
 }
 
 // Reads back every toast the mod shows
@@ -237,7 +207,7 @@ test('band Buttons carry no hotkeys, so a digit typed into an empty prompt types
   for (const button of buttons) expect(button.props.hotkey).toBeUndefined()
 })
 
-test('clicking a mini squishy in the band opens the pane on its focus view, and the band steps aside', async ($, on) => {
+test('clicking a mini squishy in the band opens the pane with the keyboard on its focus view, and the band steps aside', async ($, on) => {
   const stored = stubStore(on)
   stubSpawns(on)
   stubBandBeneath(on)
@@ -249,8 +219,12 @@ test('clicking a mini squishy in the band opens the pane on its focus view, and 
   panes.asking = true
   await band.press({ key: 'squishy-agent-2' })
 
-  // Asked for by the click, so Claude Code places it at any width
-  expect(panes.opens.map(open => open.id)).toEqual([PANE_ID, PANE_ID])
+  // Asked for by the click, so Claude Code places it at any width, and it
+  // takes the keyboard, so the focus view's hotkeys work at once
+  expect(panes.opens.map(open => [open.id, open.focus])).toEqual([
+    [PANE_ID, undefined],
+    [PANE_ID, true],
+  ])
   expect(await band.find({ type: 'Button' })).toBeUndefined()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await pane.find({ key: 'focus' })).toBeDefined()
@@ -274,7 +248,7 @@ test('a pick from the band whose open is refused says why in a toast', async ($,
   expect(await band.find({ type: 'Button', key: 'squishy-agent-1' })).toBeDefined()
 })
 
-test('/squishys opens the unplaced pane rather than closing it, and the band steps aside', async ($, on) => {
+test('/squishys opens the unplaced pane with the keyboard rather than closing it, and the band steps aside', async ($, on) => {
   mock.store(on)
   stubSpawns(on)
   stubBandBeneath(on)
@@ -286,7 +260,10 @@ test('/squishys opens the unplaced pane rather than closing it, and the band ste
   panes.asking = true
   await $.command.run(SQUISHYS_COMMAND)
 
-  expect(panes.opens.map(open => open.id)).toEqual([PANE_ID, PANE_ID])
+  expect(panes.opens.map(open => [open.id, open.focus])).toEqual([
+    [PANE_ID, undefined],
+    [PANE_ID, true],
+  ])
   expect(await band.find({ type: 'Text', text: OPEN_HINT })).toBeUndefined()
 })
 

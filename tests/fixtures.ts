@@ -1,6 +1,6 @@
 // Inputs Claude Code would hand the mod, shared by the test files.
 
-import type { AgentStatus, On } from 'claude-code'
+import type { AgentStatus, On, PaneOpenArgs } from 'claude-code'
 
 import { KIT } from '../src/kit'
 import { PANE_ID } from '../src/pane'
@@ -26,6 +26,41 @@ export const PANE = {
     view: {},
   },
 } as const
+
+// Stands in for Claude Code's panes: which ids are open, whether each is
+// placed and has the keyboard. It places an unasked open only on a wide
+// terminal (`wide`, the default) and leaves it unplaced otherwise; an open
+// the user asked for (from the hook of a command they typed, or a press) is
+// placed at any width: the test sets `asking` around such an act. An open
+// with `focus` gets the keyboard, as over an empty prompt; a test takes it
+// back (the user's Esc or typing) or gives it (ctrl+x tab, a click) through
+// `panes`. With `unplaced`, the pane starts open and unplaced, as an earlier
+// open left it; with `refusal`, an open the user asked for is refused so.
+// Reads back every open asked for.
+export type PanesStub = {
+  opens: PaneOpenArgs[]
+  asking: boolean
+  panes: Map<string, { isPlaced: boolean; isFocused: boolean }>
+}
+export function stubPanes(on: On, { wide = true, unplaced = false, refusal }: { wide?: boolean; unplaced?: boolean; refusal?: string } = {}): PanesStub {
+  const stub: PanesStub = { opens: [], asking: false, panes: new Map(unplaced ? [[PANE_ID, { isPlaced: false, isFocused: false }]] : []) }
+  on('ui.panes', () => ({
+    value: [...stub.panes].map(([id, pane]) => ({ id, title: id, isShown: true, ...pane })),
+  }))
+  on('ui.open', ($, e) => {
+    stub.opens.push(e)
+    if (stub.asking && refusal !== undefined) return { deny: refusal }
+    const was = stub.panes.get(e.id)
+    const isPlaced = wide || stub.asking || was?.isPlaced === true
+    stub.panes.set(e.id, { isPlaced, isFocused: (isPlaced && e.focus === true) || was?.isFocused === true })
+    return { value: isPlaced ? { isPlaced } : { isPlaced, reason: 'An unasked pane needs 144 columns; the terminal has 100' } }
+  })
+  on('ui.close', ($, e) => {
+    stub.panes.delete(e.id)
+    return { value: undefined }
+  })
+  return stub
+}
 
 // A pane body with just room for `across` by `down` slots, plus `spare`
 // columns and rows (negative for short of it): slots SLOT_COLUMN_GAP

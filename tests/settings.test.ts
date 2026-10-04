@@ -31,6 +31,16 @@ test('settings start as "let Claude choose" and the most slots', async ($, on) =
   expect((await ui.find({ type: 'Select', key: 'slotCap' }))?.props.value).toBe('9')
 })
 
+test('no setting’s label ends in a colon, since Claude Code draws one after it', async ($, on) => {
+  stubStore(on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.ui.press({ plugin: 'squishys', key: 'settings' })
+
+  const labels = (await ui.findAll({ type: 'Select' })).map(select => String(select.props.label))
+  expect(labels.length).toBeGreaterThan(0)
+  for (const label of labels) expect(label).not.toMatch(/:\s*$/)
+})
+
 test('picked settings are saved to the store', async ($, on) => {
   const stored = stubStore(on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })

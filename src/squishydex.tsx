@@ -11,7 +11,7 @@ import type { Squishy } from '../types'
 import { compose } from './composer'
 import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
-import { OPEN_PANE, PANE_ID, openRefused } from './pane'
+import { OPEN_PANE_ASKED, PANE_ID, notePaneOpened, openRefused } from './pane'
 import { PARTNER_KEY, partnerFrom, stillPicture } from './partner'
 import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
@@ -134,13 +134,15 @@ const squishydexPalette = atom({ plugin: 'squishys', key: 'squishydexPalette' } 
 export function registerSquishydex(on: On): void {
   // /squishydex (registered with /squishys, in src/pane.tsx) opens the pane
   // on the Squishydex's pages. Asked for, the pane is placed at any width,
-  // and the band (src/band.tsx) is drawn again to step aside.
+  // and asks for the keyboard, opened again while it lacks it; the band
+  // (src/band.tsx) is drawn again to step aside.
   on('command.run', { command: 'squishydex' }, async $ => {
     await showPages($)
     const panes = await $.ui.panes()
-    if (!panes.some(pane => pane.id === PANE_ID && pane.isPlaced)) {
+    if (!panes.some(pane => pane.id === PANE_ID && pane.isPlaced && pane.isFocused)) {
       try {
-        await $.ui.open(OPEN_PANE)
+        await $.ui.open(OPEN_PANE_ASKED)
+        notePaneOpened(OPEN_PANE_ASKED)
       } catch (error) {
         $.ui.toast(openRefused(error))
       }
@@ -329,7 +331,7 @@ export function registerSquishydex(on: On): void {
           {palettes.length > 1 ? (
             <Select
               key="squishydex-palette"
-              label="Partner palette: "
+              label="Partner palette"
               options={palettes.map(value => ({ value }))}
               value={squishy.palette}
               onSelect={value => void update($, squishydexPalette, () => value)}

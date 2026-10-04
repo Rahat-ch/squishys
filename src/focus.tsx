@@ -7,7 +7,7 @@ import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
 import type { ActivityRow, Agent, Delivery, Model, RedirectOutcome, Squishy, SquishyState } from '../types'
 import { AS_STARTED, MODEL_SWITCH_PREFIX, allowedModels } from './model-switch'
-import { OPEN_PANE, PANE_ID, PICK_PREFIX, animatedPicture, openRefused, pictureKey } from './pane'
+import { OPEN_PANE_ASKED, PANE_ID, PICK_PREFIX, animatedPicture, notePaneOpened, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, modelOptions, settingsFrom } from './settings'
 import { SHARE_HOTKEY, SHARE_LINK_LABEL, agentShareKey, unopenedShare } from './share'
@@ -146,6 +146,15 @@ function pickedOutsidePane(press: { component: string }): boolean {
   return press.component !== 'Pane'
 }
 
+/**
+ * What the focus view says while the pane lacks the keyboard, as after a
+ * pick from the band, whose press holds the keys. On the main screen
+ * (Claude Code's classic rendering) a click never reaches the pane.
+ */
+export function focusHint(isFullscreen: boolean): string {
+  return isFullscreen ? 'Click here or press Ctrl+X Tab' : 'Press Ctrl+X Tab'
+}
+
 export function registerFocus(on: On): void {
   // The feed's hooks fit agents' events alone. They must run after the
   // agent tracker's hooks on the same events, which record an agent first
@@ -176,10 +185,11 @@ export function registerFocus(on: On): void {
   // a roster slot's, by click or digit) opens that agent's focus view. One
   // handler for every place a squishy can be picked from. Picked outside the
   // pane (from the band, while the pane is unplaced), it opens the pane too:
-  // asked for by the press, it's placed at any width, and the band is drawn
-  // again to step aside. It answers the press itself: the Buttons' own
-  // onPress is a no-op, and the redraw these writes bring drops the handler
-  // that next(e) would reach.
+  // asked for by the press, it's placed at any width and asks for the
+  // keyboard (OPEN_PANE_ASKED, likely refused while the band holds the keys),
+  // and the band is drawn again to step aside. It answers the press itself:
+  // the Buttons' own onPress is a no-op, and the redraw these writes bring
+  // drops the handler that next(e) would reach.
   on('ui.press', { plugin: 'squishys', element: /^squishy-/ }, async ($, e) => {
     const agentId = e.element.slice(PICK_PREFIX.length)
     await leaveStop($)
@@ -188,7 +198,8 @@ export function registerFocus(on: On): void {
     await update($, mode, () => 'focus')
     if (pickedOutsidePane(e)) {
       try {
-        await $.ui.open(OPEN_PANE)
+        await $.ui.open(OPEN_PANE_ASKED)
+        notePaneOpened(OPEN_PANE_ASKED)
       } catch (error) {
         $.ui.toast(openRefused(error))
       }
@@ -271,7 +282,7 @@ export function registerFocus(on: On): void {
     const shownDelivery = latest?.agentId === agent.id && latest.wasEnded === isEnded(agent.state) ? latest : undefined
     return (
       <Box key="focus" flexDirection="column" rowGap={1}>
-        <Box flexDirection="row" columnGap={2}>
+        <Box key="focus-header" flexDirection="row" columnGap={2}>
           <Raster key={pictureKey(agent.id, 'double')} {...animatedPicture(agent, 'double')} />
           <Box flexDirection="column">
             <Text bold>{agent.squishy.name}</Text>
@@ -283,13 +294,19 @@ export function registerFocus(on: On): void {
               // Its pick is answered by the ui.select hook in model-switch.ts
               <Select
                 key={`${MODEL_SWITCH_PREFIX}${agent.id}`}
-                label="Experimental: switch model: "
+                label="Experimental: switch model"
                 options={[{ value: AS_STARTED, label: 'As started' }, ...modelOptions(switchable)]}
                 value={switched !== undefined && switchable.includes(switched.model) ? switched.model : AS_STARTED}
                 onSelect={() => {}}
               />
             )}
             <Text>{agent.description}</Text>
+            {/* Beside the 2× picture, which is taller than this column, and cut short: it never adds a row */}
+            {e.props.isFocused ? null : (
+              <Text dimColor wrap="truncate-end">
+                {focusHint(e.viewport?.isFullscreen === true)}
+              </Text>
+            )}
           </Box>
         </Box>
         {/* As many controls to a row as fit the pane */}

@@ -28,6 +28,17 @@ export const PARTNER_KEY = 'partner'
 /** What the pane's Button that picks the partner is keyed. */
 export const PARTNER_BUTTON = 'partner'
 
+/**
+ * What the starter pick says while the pane lacks the keyboard, when its
+ * digits would go to the prompt instead. On the main screen (Claude Code's
+ * classic rendering, not fullscreen) a click never reaches the pane, so it
+ * names only the keys.
+ */
+export function starterHint(isFullscreen: boolean): string {
+  const keys = `Ctrl+X Tab then 1–${KIT.starters.length}`
+  return isFullscreen ? `Click a squishy, or press ${keys}` : `Press ${keys}`
+}
+
 /** What the Raster showing the partner's still picture is keyed. */
 export const PARTNER_PICTURE = 'partner-picture'
 
@@ -86,8 +97,12 @@ export function registerPartner(on: On): void {
     const across = Math.max(1, slotsThatFit(e.props.bodyColumns))
     const rows = Array.from({ length: Math.ceil(starters.length / across) }, (_, row) => starters.slice(row * across, (row + 1) * across))
     return (
-      <Box flexDirection="column" rowGap={1}>
+      <Box flexDirection="column">
         <Text bold>Pick your partner, the squishy that stands for the orchestrator.</Text>
+        {/* The hint takes the blank row under the title, so the pick stays as tall as the inline pane asks for */}
+        <Text dimColor wrap="truncate-end">
+          {e.props.isFocused ? ' ' : starterHint(e.viewport?.isFullscreen === true)}
+        </Text>
         <Box key="starters" flexDirection="column" rowGap={SLOT_ROW_GAP}>
           {rows.map((row, rowIndex) => (
             <Box key={`starter-row-${rowIndex}`} flexDirection="row" columnGap={SLOT_COLUMN_GAP}>

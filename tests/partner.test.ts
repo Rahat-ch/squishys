@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import { KIT } from '../src/kit'
 import type { Species } from '../src/kit'
 import { FRAME_MS } from '../src/pane'
-import { PARTNER_BUTTON, PARTNER_KEY, PARTNER_PICTURE } from '../src/partner'
+import { PARTNER_BUTTON, PARTNER_KEY, PARTNER_PICTURE, starterHint } from '../src/partner'
 import { halfBlocks } from '../src/raster'
 import { compose } from '../src/composer'
 import { roll, speciesSquishy, squishyOf } from '../src/roller'
@@ -57,6 +57,32 @@ test('on first open, the pane shows the three starters and nothing else, each an
   )
   expect(await ui.find({ key: 'squishy-agent-1' })).toBeUndefined()
   expect(await ui.find({ key: 'settings' })).toBeUndefined()
+})
+
+test('while the pane lacks the keyboard, the starter pick says how to give it one, and the hint goes once it has it', async ($, on) => {
+  stubStore(on)
+  await startSession($, on)
+  const hint = { type: 'Text', text: starterHint(true) } as const
+
+  const unfocused = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Cut short rather than wrapped, so it never adds a row
+  expect((await unfocused.find(hint))?.props.wrap).toBe('truncate-end')
+  await unfocused.unmount()
+
+  const focused = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' })
+  expect(await focused.find({ key: 'starter-1' })).toBeDefined()
+  expect(await focused.find(hint)).toBeUndefined()
+})
+
+test('on the main screen, where a click never reaches the pane, the hint names only the keys', async ($, on) => {
+  stubStore(on)
+  await startSession($, on)
+
+  const ui = await $.ui.mount({ ...PANE, viewport: { ...PANE.viewport, isFullscreen: false }, surface: 'terminal' })
+
+  expect(await ui.find({ type: 'Text', text: starterHint(false) })).toBeDefined()
+  expect(starterHint(false)).not.toMatch(/click/i)
+  expect(await ui.find({ type: 'Text', text: starterHint(true) })).toBeUndefined()
 })
 
 test('on a pane narrower than three slots, the starters wrap onto rows that fit', async ($, on) => {

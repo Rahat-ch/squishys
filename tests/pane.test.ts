@@ -1,25 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { On } from 'claude-code'
 
 import { PANE_ID } from '../src/pane'
-import { PANE, SQUISHYS_COMMAND, spawnOf, stubSpawns } from './fixtures'
-
-// Stands in for Claude Code's panes: which ids are open right now
-function stubPanes(on: On): Set<string> {
-  const open = new Set<string>()
-  on('ui.panes', () => ({
-    value: [...open].map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })),
-  }))
-  on('ui.open', ($, e) => {
-    open.add(e.id)
-    return { value: { isPlaced: true } }
-  })
-  on('ui.close', ($, e) => {
-    open.delete(e.id)
-    return { value: undefined }
-  })
-  return open
-}
+import { PANE, SQUISHYS_COMMAND, spawnOf, stubPanes, stubSpawns } from './fixtures'
 
 test('/squishys is registered when the session starts, to run even mid-turn', async ($, on) => {
   const registered: { name: string; immediate?: true }[] = []
@@ -34,14 +16,34 @@ test('/squishys is registered when the session starts, to run even mid-turn', as
   expect(registered).toContainEqual({ name: 'squishys', immediate: true })
 })
 
-test('/squishys opens the pane and running it again closes it', async ($, on) => {
-  const open = stubPanes(on)
+test('/squishys opens the pane with the keyboard, and running it again closes it', async ($, on) => {
+  const { panes, opens } = stubPanes(on)
 
   await $.command.run(SQUISHYS_COMMAND)
-  expect([...open]).toEqual([PANE_ID])
+  expect(opens.map(open => open.focus)).toEqual([true])
+  expect([...panes.keys()]).toEqual([PANE_ID])
+
+  // Typing the command handed the keyboard back to the prompt
+  panes.set(PANE_ID, { isPlaced: true, isFocused: false })
+  await $.command.run(SQUISHYS_COMMAND)
+  expect([...panes.keys()]).toEqual([])
+})
+
+test('/squishys gives the keyboard to a pane that opened unasked rather than closing it, and closes it the next time', async ($, on) => {
+  mock.store(on)
+  stubSpawns(on)
+  const { panes, opens } = stubPanes(on)
+  await $.agent.spawn(spawnOf('toolu_1'))
+  expect(opens.map(open => open.focus)).toEqual([undefined])
+  expect(panes.get(PANE_ID)?.isFocused).toBe(false)
 
   await $.command.run(SQUISHYS_COMMAND)
-  expect([...open]).toEqual([])
+  expect(opens.map(open => open.focus)).toEqual([undefined, true])
+  expect(panes.get(PANE_ID)?.isFocused).toBe(true)
+
+  panes.set(PANE_ID, { isPlaced: true, isFocused: false })
+  await $.command.run(SQUISHYS_COMMAND)
+  expect([...panes.keys()]).toEqual([])
 })
 
 test('off the terminal, the pane is Claude Code’s own drawing', async ($, on) => {
