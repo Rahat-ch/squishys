@@ -55,6 +55,12 @@ export const ODDS: Odds = {
 /** A source of randomness: each call returns a number in [0, 1). */
 export type Rng = () => number
 
+/** Real randomness, which the mod rolls with: a number in [0, 1) from the platform. */
+export function cryptoRandom(): number {
+  const [value = 0] = crypto.getRandomValues(new Uint32Array(1))
+  return value / 0x1_0000_0000
+}
+
 export type RollOptions = {
   /** The squishys live agents already have; the roll is none of them. */
   live: readonly Squishy[]
@@ -82,6 +88,29 @@ export function roll(kit: Kit, { live, rng, odds: given }: RollOptions): Squishy
   // A squishy the odds rule out (weight 0) never comes up, even here.
   const free = everySquishy(kit, odds).filter(({ value, weight }) => weight > 0 && !taken.has(value.key))
   return free.length > 0 ? pick(free, rng) : rollOnce(kit, odds, rng)
+}
+
+/**
+ * The squishy a key stands for, so a squishy can be kept as its key alone.
+ * Undefined when the kit no longer has one of its parts.
+ */
+export function squishyOf(kit: Kit, key: string): Squishy | undefined {
+  const ids = key.split('/')
+  const shiny = ids[ids.length - 1] === 'shiny'
+  if (shiny) ids.pop()
+  if (ids.length === 2 && ids[0] === 'legendary') {
+    const legendary = kit.legendaries.find(each => each.id === ids[1])
+    return legendary === undefined ? undefined : legendaryOf(legendary, shiny)
+  }
+  if (ids.length !== 4) return undefined
+  const [body, face, palette, accessory] = [
+    kit.bodies.find(part => part.id === ids[0]),
+    kit.faces.find(part => part.id === ids[1]),
+    kit.palettes.find(part => part.id === ids[2]),
+    kit.accessories.find(part => part.id === ids[3]),
+  ]
+  if (!body || !face || !palette || !accessory) return undefined
+  return assembledOf({ body, face, palette, accessory }, shiny)
 }
 
 function rollOnce(kit: Kit, odds: Odds, rng: Rng): Squishy {

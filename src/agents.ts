@@ -7,7 +7,8 @@ import type { AgentStatus, EngineInterface, On, Timer } from 'claude-code'
 
 import type { Agent, SquishyState } from '../types'
 import { KIT } from './kit'
-import { roll } from './roller'
+import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
+import { cryptoRandom, roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
 import { answered, endedState, isEnded, stateAfterRun } from './states'
 
@@ -36,6 +37,15 @@ export function registerAgentTracking(on: On): void {
     agentCheck = undefined
     if ((await read($, agents)).some(agent => !isEnded(agent.state))) keepChecking($)
     return next(e)
+  })
+
+  // After /clear, /resume, a branch or compaction, rebuild.ts's hook rebuilds
+  // the roster before passing the event on, and this one checks after it:
+  // the agent list is checked while any rebuilt agent runs.
+  on('classic.SessionStart', { source: ['clear', 'resume', 'fork', 'compact'] }, async ($, e, next) => {
+    const started = await next(e)
+    if ((await read($, agents)).some(agent => !isEnded(agent.state))) keepChecking($)
+    return started
   })
 
   // Subagents, forks and background agents all start through agent.spawn,
@@ -230,17 +240,15 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
  * agent's identity wins over keeping squishys apart.
  */
 async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<void> {
+  let assigned: Agent | undefined
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
     const squishy = roll(KIT, { live: known.map(agent => agent.squishy), rng: cryptoRandom })
-    const agent: Agent = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
-    return [...known, agent]
+    assigned = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
+    return [...known, assigned]
   })
   keepChecking($)
-}
-
-/** Real randomness for the roller: a number in [0, 1) from the platform. */
-function cryptoRandom(): number {
-  const [value = 0] = crypto.getRandomValues(new Uint32Array(1))
-  return value / 0x1_0000_0000
+  // Kept in the store too, so it comes back after /clear or /resume
+  if (assigned === undefined) return
+  await rememberSquishys({ get: () => $.store.get(REMEMBERED_KEY), set: remembered => $.store.set(REMEMBERED_KEY, remembered) }, [assigned])
 }

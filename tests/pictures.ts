@@ -50,11 +50,12 @@ export function stateIn(cells: unknown, squishy: Squishy): SquishyState | undefi
 }
 
 /**
- * Which squishy a newly spawned (Working, frame 0) picture shows, among
- * those the Name on its button fits. A Name is its parts' syllables, so
- * only parts whose syllable comes next in it are tried.
+ * Which squishy a picture shows in this pose at frame 0 (a newly spawned
+ * squishy's is Working), among those the Name on its button fits. A Name is
+ * its parts' syllables, so only parts whose syllable comes next in it are
+ * tried.
  */
-export function squishyIn(cells: unknown, name: string): Squishy {
+export function squishyIn(cells: unknown, name: string, state: SquishyState = 'working'): Squishy {
   const wanted = name.toLowerCase()
   const fits = (sofar: string, syllable: string) => wanted.startsWith(sofar + syllable)
   const candidates: Squishy[] = []
@@ -76,8 +77,8 @@ export function squishyIn(cells: unknown, name: string): Squishy {
       }
     }
   }
-  const squishy = candidates.find(each => cellsOf(each, 'working') === cells)
-  if (squishy === undefined) throw new Error(`No squishy named ${name} draws that picture`)
+  const squishy = candidates.find(each => cellsOf(each, state) === cells)
+  if (squishy === undefined) throw new Error(`No squishy named ${name} draws that picture ${state}`)
   return squishy
 }
 

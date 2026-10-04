@@ -6,6 +6,7 @@ import type { Register } from 'claude-code'
 import { registerAgentTracking } from '../src/agents'
 import { registerFocus } from '../src/focus'
 import { registerPane } from '../src/pane'
+import { registerRebuild } from '../src/rebuild'
 import { registerSettings } from '../src/settings'
 
 export const register: Register = on => {
@@ -15,6 +16,7 @@ export const register: Register = on => {
   // mode's, so it can animate the squishys they draw.
   registerAgentTracking(on)
   registerPane(on)
+  registerRebuild(on)
   registerSettings(on)
   registerFocus(on)
 }
