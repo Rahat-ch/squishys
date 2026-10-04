@@ -34,6 +34,15 @@ export function endedState(status: string): SquishyState | undefined {
 }
 
 /**
+ * The state an agent's status in the agent list means at any time: its
+ * ended state once it has ended, and Working until then. For a squishy the
+ * mod hasn't followed its agent's events for, as after /clear.
+ */
+export function stateOfStatus(status: string): SquishyState {
+  return endedState(status) ?? 'working'
+}
+
+/**
  * The state a run of an agent's loop leaves it in, by why the run ended:
  * one that answered (or refused) finished, one that ended on an error or
  * that the user interrupted failed or was stopped.

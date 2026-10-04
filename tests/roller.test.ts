@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { KIT } from '../src/kit'
 import type { Kit } from '../src/kit'
-import { roll } from '../src/roller'
+import { roll, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { seeded } from '../src/seeded'
 
@@ -205,4 +205,28 @@ test('a squishy’s rarity is that of its rarest part', () => {
   }
 
   expect(roll(kit, { live: [], rng: seeded(5) })).toMatchObject({ rarity: 'rare', name: 'Mochibi' })
+})
+
+test('a squishy’s key gives the same squishy back, assembled or legendary, plain or shiny', () => {
+  const rng = seeded(7)
+  const squishys = [
+    roll(KIT, { live: [], rng, odds: { legendary: 0, shiny: 0 } }),
+    roll(KIT, { live: [], rng, odds: { legendary: 0, shiny: 1 } }),
+    roll(KIT, { live: [], rng, odds: { legendary: 1, shiny: 0 } }),
+    roll(KIT, { live: [], rng, odds: { legendary: 1, shiny: 1 } }),
+  ]
+
+  for (const squishy of squishys) expect(squishyOf(KIT, squishy.key)).toEqual(squishy)
+})
+
+test('a key whose parts the kit no longer has gives no squishy', () => {
+  const kit: Kit = {
+    ...ONE_OF_EACH,
+    legendaries: [{ id: 'grand-bao', name: 'Grand Bao', grid: BLANK, colors: {}, shiny: {} }],
+  }
+
+  expect(squishyOf(kit, 'round/smile/cream/none')).toMatchObject({ name: 'Mochi' })
+  for (const key of ['round/smile/cream/bow', 'legendary/gone', 'legendary/gone/shiny', 'round/smile', '']) {
+    expect(squishyOf(kit, key)).toBeUndefined()
+  }
 })

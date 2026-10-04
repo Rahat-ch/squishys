@@ -113,17 +113,25 @@ export function stubTurns(on: On): void {
   on('turn.complete', ($, e) => ({ text: e.answer }))
 }
 
-// Stands in for `$.agent.list()`: each agent's status, as the test sets it.
+// One agent as `$.agent.list()` names it, less its type
+export type ListedAgent = { id: string; description: string; status: AgentStatus }
+
+// Stands in for `$.agent.list()`: each agent's status, as the test sets it
+// (a Map the test may change), or these agents with their own descriptions.
 // Reads back how many times the list was asked for.
-export function stubAgentList(on: On, statuses: Map<string, AgentStatus>): () => number {
+export function stubAgentList(on: On, agents: Map<string, AgentStatus> | readonly ListedAgent[]): () => number {
   let lookups = 0
   on('agent.list', () => {
     lookups += 1
-    return {
-      value: [...statuses].map(([id, status]) => ({ id, description: 'Find config parser', type: 'general-purpose', status })),
-    }
+    const listed = agents instanceof Map ? [...agents].map(([id, status]) => ({ id, description: 'Find config parser', status })) : agents
+    return { value: listed.map(agent => ({ ...agent, type: 'general-purpose' })) }
   })
   return () => lookups
+}
+
+// What Claude Code answers classic.SessionStart with, beneath the mod
+export function stubSessionStart(on: On): void {
+  on('classic.SessionStart', () => ({}))
 }
 
 // Stands in for the terminal taking each `$.ui.blit`, keeping each one's
