@@ -3,8 +3,8 @@
 // species' Squishydex card) saves the squishy's pixel card (src/card.ts) as
 // a PNG, copies it to the clipboard (or shows where it is where it can't),
 // and only then opens X's compose page with the share text filled in, its
-// last line a reminder to paste the card. Nothing is ever posted: the user
-// reviews the text, pastes the card and posts it.
+// last line a reminder to paste the card once it was copied. Nothing is
+// ever posted: the user reviews the text, adds the card and posts it.
 
 import { atom, read } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
@@ -165,8 +165,8 @@ function metText(squishy: Squishy, met: number, total: number): string {
 }
 
 /**
- * The share text's last line, after a blank one: how to paste the card, by
- * the platform's shortcut. With the longest Name and description, the text,
+ * The share text's last line, after a blank one, once the card is on the
+ * clipboard: how to paste it, by the platform's shortcut. With the longest Name and description, the text,
  * this and the link (23 as X counts it) stay within a post's 280.
  */
 function pasteReminder(platform: Platform): string {
@@ -254,9 +254,7 @@ async function share($: EngineInterface, buttonKey: string, { squishy, text }: S
   const [uname = '', written = ''] = saved.stdout.split('\n').map(line => line.trim())
   const path = saved.ok && written !== '' ? written : undefined
   if (path === undefined) notes.push(`Couldn't save the card: ${saved.reason}`)
-  const platform = platformOf(uname)
-  const url = composeUrl(text + pasteReminder(platform))
-  const offerLink = await handOver($, platform, path, url, notes)
+  const { url, offerLink } = await handOver($, platformOf(uname), path, text, notes)
   if (offerLink) unopened.set(buttonKey, url)
   else unopened.delete(buttonKey)
   $.ui.invalidate('ui.render')
@@ -305,25 +303,35 @@ function handingOn(platform: Platform): Handing | undefined {
 /**
  * Hands the saved card (if it was) and the compose page to the user: the
  * card onto the clipboard, or shown where it is when it can't be, and only
- * once that's done, the compose page. Says whether to offer the compose
- * page as a link: wherever it may not have opened.
+ * once that's done, the compose page, with the paste reminder only if the
+ * card was copied. Gives the compose page and whether to offer it as a
+ * link: wherever it may not have opened.
  */
-async function handOver($: EngineInterface, platform: Platform, path: string | undefined, url: string, notes: string[]): Promise<boolean> {
+async function handOver(
+  $: EngineInterface,
+  platform: Platform,
+  path: string | undefined,
+  text: string,
+  notes: string[],
+): Promise<{ url: string; offerLink: boolean }> {
   const handing = handingOn(platform)
   if (handing === undefined) {
     if (path !== undefined) notes.push(`Card saved to ${path}: attach it to your post.`)
     notes.push('Use the Post on X link to write your post.')
-    return true
+    return { url: composeUrl(text), offerLink: true }
   }
+  let copied = false
   if (path !== undefined) {
-    const copied = await run($, handing.copy(path))
-    if (copied.ok) notes.push(COPIED_NOTE)
+    const copy = await run($, handing.copy(path))
+    copied = copy.ok
+    if (copied) notes.push(COPIED_NOTE)
     else {
       await run($, handing.reveal(path))
-      notes.push(`Couldn't copy the card (${copied.reason}). It's saved at ${path}`)
+      notes.push(`Couldn't copy the card (${copy.reason}). It's saved at ${path}`)
     }
   }
+  const url = composeUrl(copied ? text + pasteReminder(platform) : text)
   const opened = await run($, handing.open(url))
   if (!opened.ok) notes.push(`Couldn't open your browser (${opened.reason}): use the Post on X link.`)
-  return !opened.ok || !handing.knowsOpened
+  return { url, offerLink: !opened.ok || !handing.knowsOpened }
 }

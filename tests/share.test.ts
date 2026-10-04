@@ -230,6 +230,8 @@ test('on Linux without wl-copy or xclip, Share shows the card’s folder and pat
   expect(toasts).toHaveLength(1)
   expect(toasts[0]).toContain(path)
   expect(toasts[0]).not.toContain(COPIED)
+  // Nothing was copied, so there's nothing to paste
+  expect(composed(openedUrl(runs))?.text?.endsWith(' 🥟')).toBe(true)
 })
 
 test('the card is saved under a file name made from the squishy’s key', async ($, on) => {
@@ -312,6 +314,29 @@ test('a card that can’t be saved says why in a toast, and the compose page sti
   expect(runs.some(run => run.argv[0] === 'osascript')).toBe(false)
   expect(composed(openedUrl(runs))).toBeDefined()
   expect(toasts.join('\n')).toContain('No space left on device')
+  expect(composed(openedUrl(runs))?.text?.endsWith(' 🥟')).toBe(true)
+})
+
+test('a card that wasn’t copied leaves the paste reminder out of the share text', async ($, on) => {
+  const runs = stubProcesses(on, 'Darwin', { osascript: { exitCode: 1, stderr: 'Not authorized' } })
+  stubToasts(on)
+  const { squishy } = await finishedAgent($, on)
+
+  await $.ui.press({ plugin: 'squishys', key: agentShareKey('agent-1') })
+
+  expect(composed(openedUrl(runs))?.text).toBe(`My squishy ${squishy.name} just finished: Find config parser 🥟`)
+})
+
+test('on a system Share has no clipboard step for, the card is saved and the share text has no paste reminder', async ($, on) => {
+  stubProcesses(on, 'FreeBSD')
+  const toasts = stubToasts(on)
+  const { ui, squishy } = await finishedAgent($, on)
+
+  await $.ui.press({ plugin: 'squishys', key: agentShareKey('agent-1') })
+
+  expect(toasts.join('\n')).toContain('Card saved to')
+  const link = await ui.find({ type: 'Link' })
+  expect(composed(String(link?.props.href))?.text).toBe(`My squishy ${squishy.name} just finished: Find config parser 🥟`)
 })
 
 test('a clipboard that refuses the card on macOS shows the card in Finder instead, and says where it is', async ($, on) => {
@@ -336,8 +361,8 @@ test('where no process can run, Share says so in a toast and offers the compose 
 
   expect(toasts.join('\n')).toContain('CLI only')
   const link = await ui.find({ type: 'Link' })
-  // Nothing said what system this is, so the reminder names Ctrl+V
-  expect(composed(String(link?.props.href))?.text).toBe(`My squishy ${squishy.name} just finished: Find config parser 🥟${CTRL_REMINDER}`)
+  // No card was saved or copied, so the text has no paste reminder
+  expect(composed(String(link?.props.href))?.text).toBe(`My squishy ${squishy.name} just finished: Find config parser 🥟`)
 })
 
 test('a shiny legendary shows its crown and sparkle in the share text', async ($, on) => {
