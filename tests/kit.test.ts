@@ -137,6 +137,36 @@ test('on a 256-color terminal, no two of a palette’s or legendary’s colors r
   }
 })
 
+/** WCAG relative luminance. */
+function luminance(color: number): number {
+  const linear = (channel: number) => {
+    const c = channel / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const [r, g, b] = rgbOf(color)
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+}
+
+/** WCAG contrast ratio, 1 to 21. */
+function contrast(one: number, other: number): number {
+  const [light, dark] = [luminance(one), luminance(other)].sort((a, b) => b - a)
+  return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05)
+}
+
+// The backgrounds of a typical dark and light terminal, which see-through pixels show
+const DARK_TERMINAL = 0x1e1e1e
+const LIGHT_TERMINAL = 0xfafafa
+
+test('every outline shows against a dark and a light terminal, and every face against its body', () => {
+  for (const { id, colors, shiny } of [...KIT.palettes, ...KIT.legendaries]) {
+    for (const [what, each] of [[id, colors], [`${id} shiny`, shiny]] as const) {
+      if (contrast(each.outline, DARK_TERMINAL) < 2.5) throw new Error(`${what}'s outline is lost on a dark terminal`)
+      if (contrast(each.outline, LIGHT_TERMINAL) < 3) throw new Error(`${what}'s outline is lost on a light terminal`)
+      if (contrast(each.outline, each.base) < 2.5) throw new Error(`${what}'s eyes are lost on its body`)
+    }
+  }
+})
+
 /** The foreground and background pairs a squishy's half-block cells paint. */
 function colorPairs(squishy: Squishy): Set<string> {
   const pixels = compose(KIT, squishy, { state: 'working', frame: 0 })

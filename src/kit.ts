@@ -3,7 +3,7 @@
 // Pure: nothing here touches Claude Code, so tools outside the mod (the art
 // preview) can read the kit too.
 
-import { PLACEHOLDER_KIT } from './placeholder-kit'
+import { DRAWN_KIT } from './drawn-kit'
 
 /** How seldom a part turns up. */
 export type Rarity = 'common' | 'uncommon' | 'rare'
@@ -95,8 +95,8 @@ export type Kit = {
   starters: readonly Species[]
 }
 
-/** The kit the mod ships: placeholder art until the real kit is drawn. */
-export const KIT: Kit = PLACEHOLDER_KIT
+/** The kit the mod ships. */
+export const KIT: Kit = DRAWN_KIT
 
 /** Every species the kit can make: each body with each face, in kit order. */
 export function everySpecies(kit: Kit): Species[] {

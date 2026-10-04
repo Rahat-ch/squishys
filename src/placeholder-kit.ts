@@ -11,7 +11,7 @@ function overlay(rows: Readonly<Record<number, string>>): Grid {
   return NOTHING.map((blank, row) => rows[row] ?? blank)
 }
 
-const CREAM: Colors = { outline: 0x222233, dark: 0xccaa88, base: 0xeeddcc, highlight: 0xffffff }
+const CREAM: Colors = { outline: 0x7a5a8a, dark: 0xccaa88, base: 0xeeddcc, highlight: 0xffffff }
 
 export const PLACEHOLDER_KIT: Kit = {
   bodies: [
@@ -104,21 +104,21 @@ export const PLACEHOLDER_KIT: Kit = {
       rarity: 'common',
       syllable: '',
       colors: CREAM,
-      shiny: { outline: 0x222233, dark: 0x9966cc, base: 0xcc99ff, highlight: 0xeeddff, sparkle: 0xffee66 },
+      shiny: { outline: 0x7a5a8a, dark: 0x9966cc, base: 0xcc99ff, highlight: 0xeeddff, sparkle: 0xffee66 },
     },
     {
       id: 'peach',
       rarity: 'uncommon',
       syllable: 'ko',
-      colors: { outline: 0x222233, dark: 0xdd9977, base: 0xffbb99, highlight: 0xffe0d0 },
-      shiny: { outline: 0x222233, dark: 0x99bb66, base: 0xccee99, highlight: 0xeeffdd, sparkle: 0xffee66 },
+      colors: { outline: 0x7a5a8a, dark: 0xdd9977, base: 0xffbb99, highlight: 0xffe0d0 },
+      shiny: { outline: 0x7a5a8a, dark: 0x99bb66, base: 0xccee99, highlight: 0xeeffdd, sparkle: 0xffee66 },
     },
     {
       id: 'mint',
       rarity: 'rare',
       syllable: 'ri',
-      colors: { outline: 0x222233, dark: 0x77bb99, base: 0xaaeecc, highlight: 0xe0fff0 },
-      shiny: { outline: 0x222233, dark: 0x6699cc, base: 0x99ccff, highlight: 0xe6f2ff, sparkle: 0xffee66 },
+      colors: { outline: 0x7a5a8a, dark: 0x77bb99, base: 0xaaeecc, highlight: 0xe0fff0 },
+      shiny: { outline: 0x7a5a8a, dark: 0x6699cc, base: 0x99ccff, highlight: 0xe6f2ff, sparkle: 0xffee66 },
     },
   ],
   accessories: [
@@ -159,8 +159,8 @@ export const PLACEHOLDER_KIT: Kit = {
         '.oddddddo.',
         '..oooooo..',
       ],
-      colors: { outline: 0x222233, dark: 0xbbaacc, base: 0xeee6f6, highlight: 0xffffff },
-      shiny: { outline: 0x222233, dark: 0xeebb66, base: 0xffeeaa, highlight: 0xffffee, sparkle: 0xff6699 },
+      colors: { outline: 0x7a5a8a, dark: 0xbbaacc, base: 0xeee6f6, highlight: 0xffffff },
+      shiny: { outline: 0x7a5a8a, dark: 0xeebb66, base: 0xffeeaa, highlight: 0xffffee, sparkle: 0xff6699 },
     },
   ],
   starters: [
