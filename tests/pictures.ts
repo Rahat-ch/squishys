@@ -35,9 +35,12 @@ export function eachPart(kit: Kit = KIT): Squishy[] {
   ])
 }
 
-/** The cells of a Raster showing this squishy in this pose: a slot's, or at `double`, a focus view's. */
-export function cellsOf(squishy: Squishy, state: SquishyState, frame = 0, size: Size = 'full'): string {
-  return halfBlocks(compose(KIT, squishy, { state, frame, size })).cells
+/**
+ * The cells of a Raster showing this squishy in this pose: a slot's, or at
+ * `double`, a focus view's; with `sparkle`, a shiny's or legendary's glints.
+ */
+export function cellsOf(squishy: Squishy, state: SquishyState, frame = 0, size: Size = 'full', sparkle = false): string {
+  return halfBlocks(compose(KIT, squishy, { state, frame, size, sparkle })).cells
 }
 
 /**

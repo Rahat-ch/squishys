@@ -53,6 +53,24 @@ export const ODDS: Odds = {
   rarity: { common: 0.7, uncommon: 0.25, rare: 0.05 },
 }
 
+/**
+ * The odds a forced roll takes, by what `SQUISHYS_FORCE_ROLL` names: the
+ * mod's tests force plain rolls (so a stray shiny's sparkle never shows up
+ * in a test about something else) and shiny or legendary ones (to see a
+ * moment), and so can a person trying the mod out.
+ */
+const FORCED_ODDS: Readonly<Record<string, Partial<Odds>>> = {
+  plain: { legendary: 0, shiny: 0 },
+  shiny: { legendary: 0, shiny: 1 },
+  legendary: { legendary: 1, shiny: 0 },
+  'shiny-legendary': { legendary: 1, shiny: 1 },
+}
+
+/** The odds `SQUISHYS_FORCE_ROLL` forces; undefined (the standard odds) when it's unset or names nothing known. */
+export function forcedOdds(value: string | undefined): Partial<Odds> | undefined {
+  return value !== undefined && Object.hasOwn(FORCED_ODDS, value) ? FORCED_ODDS[value] : undefined
+}
+
 /** A source of randomness: each call returns a number in [0, 1). */
 export type Rng = () => number
 

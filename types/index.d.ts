@@ -64,6 +64,11 @@ export type Agent = {
    * for an agent first seen through its tool call.
    */
   model?: string
+  /**
+   * Until when its squishy sparkles (`$.clock.now()` milliseconds), set as
+   * a shiny or legendary squishy is rolled; absent for any other.
+   */
+  sparkleUntil?: number
 }
 
 /** A model alias the Agent tool takes. Mirrors `Model` in src/settings.tsx. */

@@ -52,6 +52,10 @@ _Avoid_: mythic, boss, rare (rare is a rarity)
 A very rare roll that gives any squishy a special palette and sparkle, independent of its rarity.
 _Avoid_: golden, special
 
+**Moment**:
+The arrival of a shiny or legendary squishy, which the mod announces with a toast, a sparkle in its slot and, if the user turned it on, a chime. It shows as NEW in the Squishydex until viewed.
+_Avoid_: event, alert, drop
+
 **Partner**:
 The user's own squishy, which stands for the orchestrator. The user picks it, and it stays the same from session to session.
 _Avoid_: trainer, main squishy

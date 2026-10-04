@@ -10,9 +10,11 @@ import { KIT } from './kit'
 import { OPEN_PANE, PANE_ID, squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
 import { rememberSquishys } from './rebuild'
-import { cryptoRandom, roll } from './roller'
+import { momentToast, sparkleUntil } from './moments'
+import { cryptoRandom, forcedOdds, roll } from './roller'
 import { recordMet } from './squishydex-record'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
+import type { Settings } from './settings'
 import { liveSquishys } from './slots'
 import { answered, endedState, isEnded, stateAfterRun, stateAtStop } from './states'
 import { STOPPED_BY_USER, disarmed, entryNamed, forgetStops, isHeldBack, refusalOf, resumed, runEnded, wasStoppedByUser } from './stop'
@@ -69,6 +71,8 @@ export function registerAgentTracking(on: On): void {
     const assigned = await assignSquishy($, started.agentId, e.description, started.model)
     // Met: the Squishydex records it
     if (assigned !== undefined) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [assigned.squishy])
+    // A shiny or legendary is announced once the agent has started, so it never holds up the spawn
+    if (assigned !== undefined) await announce($, assigned, settings)
     return started
   })
 
@@ -93,6 +97,8 @@ export function registerAgentTracking(on: On): void {
     const result = await next(e)
     // Met: the Squishydex records it once the call has gone on, so recording never holds the call up
     if (assigned !== undefined) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [assigned.squishy])
+    // and a shiny or legendary is announced, as from a spawn
+    if (assigned !== undefined) await announce($, assigned)
     // A prompt the call raised has been answered once its result is in. This
     // dispatch's reads predate the prompt, so `asking` says whether one came.
     if (agentId !== undefined && asking.has(agentId)) await setState($, agentId, answered, { current: true })
@@ -312,11 +318,17 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   try {
     partner = partnerFrom(await $.store.get(PARTNER_KEY))
   } catch {}
+  // SQUISHYS_FORCE_ROLL forces what the roll is (src/roller.ts): how the
+  // tests, and a person trying the mod out, see a shiny or legendary moment
+  let odds: ReturnType<typeof forcedOdds>
+  try {
+    odds = forcedOdds(await $.env.get('SQUISHYS_FORCE_ROLL'))
+  } catch {}
   let assigned: Agent | undefined
   let first = false
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
-    const squishy = roll(KIT, { live: liveSquishys(known, squishysOnScreen(), partner), rng: cryptoRandom })
+    const squishy = roll(KIT, { live: liveSquishys(known, squishysOnScreen(), partner), rng: cryptoRandom, ...(odds !== undefined ? { odds } : {}) })
     assigned = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
     first = known.length === 0
     return [...known, assigned]
@@ -327,4 +339,30 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   if (assigned === undefined) return undefined
   await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, [assigned])
   return assigned
+}
+
+/**
+ * Announces an agent's squishy just rolled when it's a moment
+ * (src/moments.ts): a toast names a shiny or legendary, its slot sparkles
+ * for SPARKLE_MS from now, and with the chime setting on, the chime plays.
+ * `settings` are those the hook read already, if it did; a store that
+ * can't be read means no chime, and a clock that can't be read no sparkle.
+ * The chime isn't awaited, so it never holds the hook while it plays, and
+ * one that can't play is let be.
+ */
+async function announce($: EngineInterface, { id, squishy }: Agent, settings?: Settings): Promise<void> {
+  const toast = momentToast(squishy)
+  if (toast === undefined) return
+  $.ui.toast(toast)
+  try {
+    const until = sparkleUntil(squishy, await $.clock.now())
+    if (until !== undefined) await update($, agents, known => known.map(agent => (agent.id === id ? { ...agent, sparkleUntil: until } : agent)))
+  } catch {}
+  let chime = settings?.chime === true
+  if (settings === undefined) {
+    try {
+      chime = settingsFrom(await $.store.get(SETTINGS_KEY)).chime === true
+    } catch {}
+  }
+  if (chime) $.audio.play({ asset: 'sounds/chime.wav' }).catch(() => {})
 }

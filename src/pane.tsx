@@ -10,6 +10,7 @@ import type { Agent, Squishy } from '../types'
 import { compose } from './composer'
 import type { Size } from './composer'
 import { KIT } from './kit'
+import { isSparkling } from './moments'
 import { PARTNER_BUTTON, PARTNER_KEY, PARTNER_PICTURE, partnerFrom, stillPicture } from './partner'
 import { halfBlocks } from './raster'
 import type { RasterCells } from './raster'
@@ -121,6 +122,29 @@ export function animatedPicture(agent: Agent, size: Size = 'full', requestId: st
   return picture
 }
 
+/**
+ * The agents whose squishys sparkle now (src/moments.ts), as last worked
+ * out: as a site is drawn, and at each frame. None under Reduce motion.
+ */
+let sparkling: ReadonlySet<string> = new Set()
+
+/**
+ * Works out which squishys sparkle now. The clock is read only while some
+ * agent has had a sparkle; one that can't be read stops every sparkle.
+ */
+async function noteSparkles($: EngineInterface, known: readonly Agent[], motionReduced: boolean): Promise<void> {
+  if (motionReduced || !known.some(agent => agent.sparkleUntil !== undefined)) {
+    sparkling = new Set()
+    return
+  }
+  try {
+    const now = await $.clock.now()
+    sparkling = new Set(known.filter(agent => isSparkling(agent.sparkleUntil, now)).map(agent => agent.id))
+  } catch {
+    sparkling = new Set()
+  }
+}
+
 /** Forgets the pictures a site showed, as it's drawn again. */
 function forgetShown(requestId: string): void {
   for (const [key, picture] of shown) if (picture.requestId === requestId) shown.delete(key)
@@ -193,9 +217,11 @@ export function registerPane(on: On): void {
   // animates them as the pane's own.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
+    const motionReduced = await read($, reducedMotion)
     forgetShown(e.requestId)
+    await noteSparkles($, await read($, agents), motionReduced)
     const drawing = await next(e)
-    if (await read($, reducedMotion)) stopAnimating()
+    if (motionReduced) stopAnimating()
     else await animateShown($)
     return drawing
   })
@@ -207,6 +233,7 @@ export function registerPane(on: On): void {
     const motionReduced = await read($, reducedMotion)
     if (motionReduced) stopAnimating()
     forgetShown(PANE_ID)
+    await noteSparkles($, await read($, agents), motionReduced)
     // Each pane mode has its own hook, which draws only in its own mode; the
     // animator moves whichever squishys it drew.
     if ((await read($, mode)) !== 'roster') {
@@ -398,9 +425,9 @@ async function readPartner($: EngineInterface): Promise<Squishy | undefined> {
   }
 }
 
-/** An agent's squishy in its state's pose, at the animation's current frame. */
+/** An agent's squishy in its state's pose, at the animation's current frame, sparkling while it does. */
 function pictureOf(agent: Agent, size: Size): RasterCells {
-  return halfBlocks(compose(KIT, agent.squishy, { state: agent.state, frame, size }))
+  return halfBlocks(compose(KIT, agent.squishy, { state: agent.state, frame, size, sparkle: sparkling.has(agent.id) }))
 }
 
 /** Keeps `reducedMotion` in step with Claude Code's `prefersReducedMotion` setting. */
@@ -414,16 +441,19 @@ async function readMotionSetting($: EngineInterface): Promise<void> {
   if ((await read($, reducedMotion)) !== reduced) await update($, reducedMotion, () => reduced)
 }
 
-/** Starts the animator if a squishy just drawn is Working or Thinking. */
+/** Starts the animator if a squishy just drawn is Working, Thinking or sparkling. */
 async function animateShown($: EngineInterface): Promise<void> {
   if (movingPictures(await read($, agents)).length > 0) animator ??= $.clock.every(FRAME_MS, () => void nextFrame($))
 }
 
-/** The shown pictures whose squishy is Working or Thinking, each with its agent. */
-function movingPictures(known: readonly Agent[]) {
+/**
+ * The shown pictures whose squishy is Working, Thinking or one of
+ * `sparklers`, each with its agent.
+ */
+function movingPictures(known: readonly Agent[], sparklers: ReadonlySet<string> = sparkling) {
   return [...shown].flatMap(([key, each]) => {
     const agent = known.find(({ id }) => id === each.agentId)
-    return agent !== undefined && moves(agent.state) ? [{ key, agent, ...each }] : []
+    return agent !== undefined && moves(agent.state, sparklers.has(agent.id)) ? [{ key, agent, ...each }] : []
   })
 }
 
@@ -437,16 +467,21 @@ function stopAnimating(): void {
  * Moves the animation on a frame, blitting each shown squishy whose
  * picture changed. A tick that comes while the last frame's repaints are
  * still going out is skipped. A squishy whose repaint is refused is left
- * alone until the pane is drawn again. The animation stops once no shown
- * squishy is Working or Thinking, or Reduce motion is on; the next drawing
- * of the pane starts it again.
+ * alone until the pane is drawn again. A squishy whose sparkle just ended
+ * is repainted once more, at rest. The animation stops once no shown
+ * squishy is Working, Thinking or sparkling, or Reduce motion is on; the
+ * next drawing of the pane starts it again.
  */
 async function nextFrame($: EngineInterface): Promise<void> {
   if (painting) return
   painting = true
   try {
-    const moving = movingPictures(await read($, agents))
-    if (moving.length === 0 || (await read($, reducedMotion))) return stopAnimating()
+    const known = await read($, agents)
+    if (await read($, reducedMotion)) return stopAnimating()
+    const sparkledBefore = sparkling
+    await noteSparkles($, known, false)
+    const moving = movingPictures(known, new Set([...sparkledBefore, ...sparkling]))
+    if (moving.length === 0) return stopAnimating()
     frame += 1
     for (const { key, agent, size, requestId, cells } of moving) {
       const picture = pictureOf(agent, size)

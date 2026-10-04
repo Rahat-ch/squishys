@@ -1,5 +1,6 @@
 // Inputs Claude Code would hand the mod, shared by the test files.
 
+import { mock } from 'claude-code/testing'
 import type { AgentStatus, On } from 'claude-code'
 
 import { KIT } from '../src/kit'
@@ -54,8 +55,15 @@ export const PARTNERED: Readonly<Record<string, unknown>> = {
   [SQUISHYDEX_KEY]: withMet(squishydexFrom(undefined), STARTER ? [STARTER] : [], 0),
 }
 
+// What a test can force the mod's rolls to be, through SQUISHYS_FORCE_ROLL
+export type ForcedRoll = 'plain' | 'shiny' | 'legendary' | 'shiny-legendary'
+
 // Answers each agent.spawn as Claude Code would, with ids agent-1, agent-2…
-export function stubSpawns(on: On): void {
+// It forces the mod's rolls (plain unless a test asks for a moment), since
+// the mod's randomness can't be seeded from a test: a stray shiny would
+// sparkle, toast and chime in a test about something else.
+export function stubSpawns(on: On, roll: ForcedRoll = 'plain'): void {
+  mock.env(on, { SQUISHYS_FORCE_ROLL: roll })
   let spawned = 0
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `agent-${++spawned}` }))
 }
