@@ -83,24 +83,36 @@ test('at 2× every pixel becomes a 2x2 block', () => {
   expect(pixels[11]?.slice(9, 13)).toEqual([GREY, EYE, EYE, GREY])
 })
 
-test('the mini at half size keeps a pixel wherever most of its 2x2 block is drawn', () => {
-  // Two blocks' worth drawn at the left, see-through after, a lone pixel at the far right
-  const drawnBlocks = 2
-  const left = 'b'.repeat(drawnBlocks * 2)
-  const kit: Kit = {
-    ...TEST_KIT,
-    bodies: [{ id: 'half', rarity: 'common', syllable: 'mo', grid: grid('.', Object.fromEntries(
-      Array.from({ length: PICTURE_SIZE }, (_, row) => [row, row === 0 ? left.padEnd(PICTURE_SIZE - 1, '.') + 'b' : left]),
-    )) }],
-    faces: [{ id: 'none', rarity: 'common', syllable: '', grid: BLANK }],
-    accessories: [{ id: 'none', rarity: 'common', syllable: '', grid: BLANK }],
-  }
-  const squishy = roll(kit, { live: [], rng: seeded(1), odds: { shiny: 0 } })
+// The test palette's outline, which its eyes share
+const OUTLINE = EYE
 
-  const mini = compose(kit, squishy, { state: 'working', frame: 0, size: 'mini' })
+test('the mini at half size draws a pixel wherever at least half its 2x2 block is, and outlines the shape again', () => {
+  // Three blocks' worth drawn at the left, see-through after, a lone pixel at the far right
+  const left = 'bbbbbb'
+  const kit = kitWith(grid('.', Object.fromEntries(
+    Array.from({ length: PICTURE_SIZE }, (_, row) => [row, row === 0 ? left.padEnd(PICTURE_SIZE - 1, '.') + 'b' : left]),
+  )))
 
-  const row = Array.from({ length: PICTURE_SIZE / 2 }, (_, column) => (column < drawnBlocks ? GREY : null))
-  expect(mini).toEqual(Array.from({ length: PICTURE_SIZE / 2 }, () => row))
+  const mini = posed(kit, 'working', 0, 'mini')
+
+  const last = PICTURE_SIZE / 2 - 1
+  const row = (middle: number) => Array.from({ length: PICTURE_SIZE / 2 }, (_, column) => [OUTLINE, middle, OUTLINE][column] ?? null)
+  expect(mini).toEqual(Array.from({ length: PICTURE_SIZE / 2 }, (_, index) => row(index === 0 || index === last ? OUTLINE : GREY)))
+})
+
+test('in the mini an eye survives, while a mouth and a shade give way to the fill', () => {
+  // A one-pixel eye, a two-pixel mouth and a two-pixel shade, each half of a 2x2 block
+  const kit = kitWith(grid('b', { 2: 'bbbbddbbbb' }), grid('.', { 4: '...e', 5: '...e', 6: '....mm' }))
+
+  const mini = posed(kit, 'working', 0, 'mini')
+
+  expect(mini[1]?.[2]).toBe(GREY)
+  expect(mini[2]?.slice(1, 3)).toEqual([EYE, GREY])
+  expect(mini[3]?.[2]).toBe(GREY)
+  // Asleep, the shut eye still shows, and a pixel of z sits top right
+  const asleep = posed(kit, 'asleep', 0, 'mini')
+  expect(asleep[2]?.[1]).toBe(EYE)
+  expect(asleep[0]?.[PICTURE_SIZE / 2 - 1]).toBe(ZZZ_COLOR)
 })
 
 function wellFormed(pixels: ReturnType<typeof compose>, side: number): boolean {
@@ -169,8 +181,8 @@ function kitWith(body: Grid, face: Grid = BLANK): Kit {
   }
 }
 
-function posed(kit: Kit, state: SquishyState, frame: number) {
-  return compose(kit, roll(kit, { live: [], rng: seeded(1), odds: { shiny: 0 } }), { state, frame })
+function posed(kit: Kit, state: SquishyState, frame: number, size: Size = 'full') {
+  return compose(kit, roll(kit, { live: [], rng: seeded(1), odds: { shiny: 0 } }), { state, frame, size })
 }
 
 /** The columns of a row that are drawn. */

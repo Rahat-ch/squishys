@@ -59,11 +59,15 @@ const SHUT_EYE_WIDTH = Math.ceil(PICTURE_SIZE / 6)
  * picture once it is at its final size, so the mark keeps its shape there.
  */
 export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full', sparkle = false }: Pose): Pixels {
-  const { grids, colors } = gridsOf(kit, squishy)
-  const picture = posedPicture(grids, colors, state, frame)
-  const sized = size === 'double' ? doubled(picture) : size === 'mini' ? halved(picture) : picture
+  const sized =
+    size === 'mini'
+      ? mini(kit, squishy, state, frame)
+      : size === 'double'
+        ? doubled(posedPicture(kit, squishy, state, frame))
+        : posedPicture(kit, squishy, state, frame)
   // A shiny's glints are its own sparkle color; a plain legendary's, SPARKLE_COLOR
-  const sparkled = sparkle ? withGlints(sized, frame, squishy.shiny ? colors.sparkle : SPARKLE_COLOR) : sized
+  const glint = squishy.shiny ? gridsOf(kit, squishy).colors.sparkle : SPARKLE_COLOR
+  const sparkled = sparkle ? withGlints(sized, frame, glint) : sized
   return state === 'needsYou' ? withBubble(sparkled) : sparkled
 }
 
@@ -75,8 +79,44 @@ export function stillPixels(kit: Kit, squishy: Squishy): Pixels {
   return compose(kit, squishy, { state: 'working', frame: 0 })
 }
 
-function posedPicture(grids: readonly Grid[], colors: ShinyColors, state: SquishyState, frame: number): Pixels {
-  const still = painted(grids, colors)
+/**
+ * Stands in for the eye color in a picture drawn only to find where the
+ * eyes went; it is no color, so it never reaches a picture shown.
+ */
+const EYE_MARK = 0x1000000
+
+/** The z an Asleep squishy shows in the mini: a pixel, top right. */
+const MINI_Z: Grid = ['#'.padStart(PICTURE_SIZE / 2, '.')]
+
+/**
+ * The band's half-size picture, shrunk from the pose the way a pixel artist
+ * would: see shrunk. The eyes are found by drawing the pose a second time
+ * with the eyes marked.
+ */
+function mini(kit: Kit, squishy: Squishy, state: SquishyState, frame: number): Pixels {
+  const { colors } = gridsOf(kit, squishy)
+  const posed = posedPicture(kit, squishy, state, frame, { z: false })
+  const marked = posedPicture(kit, squishy, state, frame, { z: false, eye: EYE_MARK })
+  const small = shrunk(posed, marked, colors.outline, eyeColor(colors))
+  return state === 'asleep' ? overlaid(small, MINI_Z, { '#': ZZZ_COLOR }) : small
+}
+
+/** The color a squishy's eyes are drawn in. */
+function eyeColor(colors: ShinyColors): number {
+  return colors[KEY_COLORS.e ?? 'outline']
+}
+
+type Drawing = {
+  /** Draw the eyes in this color instead of their own. */
+  eye?: number
+  /** Whether an Asleep squishy shows its z. */
+  z?: boolean
+}
+
+function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: number, drawing: Drawing = {}): Pixels {
+  const { grids, colors } = gridsOf(kit, squishy)
+  const paint = { ...colors, eye: drawing.eye ?? eyeColor(colors) }
+  const still = painted(grids, paint)
   switch (state) {
     case 'working':
       // A 2-frame wiggle, upright then leaning, each frame held for two ticks
@@ -86,8 +126,10 @@ function posedPicture(grids: readonly Grid[], colors: ShinyColors, state: Squish
       // squishy differs from a Working one even standing still. The art keeps
       // its bottom row clear more often than its top one, so down loses less.
       return frame % 2 === 0 ? lowered(still, 1) : still
-    case 'asleep':
-      return overlaid(shutEyes(grids, colors), Z_GLYPH, { '#': ZZZ_COLOR })
+    case 'asleep': {
+      const shut = shutEyes(grids, paint)
+      return drawing.z === false ? shut : overlaid(shut, Z_GLYPH, { '#': ZZZ_COLOR })
+    }
     case 'squished':
       return flattened(still)
     default:
@@ -216,9 +258,9 @@ function overlaid(pixels: Pixels, glyph: Grid, colors: Readonly<Record<string, n
  * and each eye becomes a line along its bottom row, at least SHUT_EYE_WIDTH
  * wide, widening away from the middle so two eyes stay apart.
  */
-function shutEyes(grids: readonly Grid[], colors: ShinyColors): Pixels {
-  const lidded = painted(grids, colors, { eyesShut: true })
-  const eye = colors[KEY_COLORS.e ?? 'outline']
+function shutEyes(grids: readonly Grid[], paint: Paint): Pixels {
+  const lidded = painted(grids, paint, { eyesShut: true })
+  const eye = paint.eye
   const middle = (PICTURE_SIZE - 1) / 2
   const lines = eyesOf(grids).map(cells => {
     const row = Math.max(...cells.map(([at]) => at))
@@ -333,7 +375,10 @@ function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind:
  * With `eyesShut`, eye pixels (`e`) are passed over like `.`, and where only
  * eyes were drawn the body color fills in.
  */
-function painted(grids: readonly Grid[], colors: ShinyColors, { eyesShut = false } = {}): Pixels {
+/** A squishy's colors, and the color its eyes are drawn in this time. */
+type Paint = ShinyColors & { eye: number }
+
+function painted(grids: readonly Grid[], paint: Paint, { eyesShut = false } = {}): Pixels {
   for (const grid of grids) {
     if (grid.length !== PICTURE_SIZE || grid.some(line => line.length !== PICTURE_SIZE)) {
       throw new Error(`A grid is not ${PICTURE_SIZE}x${PICTURE_SIZE}: ${JSON.stringify(grid)}`)
@@ -347,7 +392,7 @@ function painted(grids: readonly Grid[], colors: ShinyColors, { eyesShut = false
         if (key === 'e' && eyesShut) key = pixel === null ? 'b' : '.'
         if (key === '.') continue
         const role = KEY_COLORS[key]
-        const color = role === undefined ? undefined : colors[role]
+        const color = key === 'e' ? paint.eye : role === undefined ? undefined : paint[role]
         if (color === undefined) throw new Error(`The colors have no color for "${key}"`)
         pixel = color
       }
@@ -365,26 +410,48 @@ function doubled(pixels: Pixels): Pixels {
 }
 
 /**
- * Each 2x2 block as one pixel: drawn where at least half the block is,
- * in the block's most common color (the first met on a tie).
+ * The picture at half size, each 2x2 block one pixel, redrawn the way a
+ * pixel artist would shrink it, since at this size a face is a pixel or
+ * two: a pixel is drawn where at least half its block is; the edge of the
+ * drawn shape is outlined again; a block holding any of an eye (where
+ * `marked` has EYE_MARK) keeps the eye; and the rest takes the block's most
+ * common fill color, the lighter on a tie, so a mouth or a line in the
+ * outline color gives way to the fill.
  */
-function halved(pixels: Pixels): Pixels {
-  return Array.from({ length: pixels.length / 2 }, (_, row) =>
-    Array.from({ length: (pixels[0]?.length ?? 0) / 2 }, (_, column) => {
-      const block = [
-        pixels[row * 2]?.[column * 2],
-        pixels[row * 2]?.[column * 2 + 1],
-        pixels[row * 2 + 1]?.[column * 2],
-        pixels[row * 2 + 1]?.[column * 2 + 1],
-      ].filter((pixel): pixel is number => typeof pixel === 'number')
-      if (block.length < 2) return null
-      let best = block[0] ?? null
-      let bestCount = 0
-      for (const pixel of block) {
-        const count = block.filter(other => other === pixel).length
-        if (count > bestCount) [best, bestCount] = [pixel, count]
-      }
-      return best
+function shrunk(pixels: Pixels, marked: Pixels, outline: number, eye: number): Pixels {
+  const half = pixels.length / 2
+  const blockOf = (from: Pixels, row: number, column: number): Pixel[] =>
+    [from[row * 2], from[row * 2 + 1]].flatMap(line => [line?.[column * 2] ?? null, line?.[column * 2 + 1] ?? null])
+  const drawn = Array.from({ length: half }, (_, row) =>
+    Array.from({ length: half }, (_, column) => blockOf(pixels, row, column).filter(pixel => pixel !== null).length >= 2),
+  )
+  const isDrawn = (row: number, column: number) => drawn[row]?.[column] === true
+  return drawn.map((line, row) =>
+    line.map((on, column) => {
+      if (!on) return null
+      const edge = !isDrawn(row - 1, column) || !isDrawn(row + 1, column) || !isDrawn(row, column - 1) || !isDrawn(row, column + 1)
+      if (edge) return outline
+      if (blockOf(marked, row, column).includes(EYE_MARK)) return eye
+      const fills = blockOf(pixels, row, column).filter((pixel): pixel is number => pixel !== null && pixel !== outline)
+      return mostCommon(fills) ?? outline
     }),
   )
+}
+
+/** The color that turns up most often, the lighter on a tie; undefined for none. */
+function mostCommon(colors: readonly number[]): number | undefined {
+  let best: number | undefined
+  let bestCount = 0
+  for (const color of colors) {
+    const count = colors.filter(other => other === color).length
+    if (count > bestCount || (count === bestCount && best !== undefined && lightness(color) > lightness(best))) {
+      ;[best, bestCount] = [color, count]
+    }
+  }
+  return best
+}
+
+/** How light a color looks: its luma, weighting green most and blue least. */
+function lightness(color: number): number {
+  return 0.299 * ((color >> 16) & 0xff) + 0.587 * ((color >> 8) & 0xff) + 0.114 * (color & 0xff)
 }
