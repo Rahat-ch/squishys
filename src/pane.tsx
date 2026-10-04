@@ -1,7 +1,7 @@
-// The pane: one Squishys panel beside the main view. For now it shows only
-// the roster, one slot per agent.
+// The pane: one Squishys panel beside the main view. It shows one mode at a
+// time (see PaneMode); this file draws the roster, one slot per agent.
 
-import { atom, read } from 'claude-code'
+import { atom, read, update } from 'claude-code'
 import type { On } from 'claude-code'
 
 import { PLACEHOLDER_SQUISHY } from './placeholder'
@@ -12,6 +12,7 @@ export const PANE_ID = 'squishys'
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
 const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
+const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 
 export function registerPane(on: On): void {
   on('session.start', async ($, e, next) => {
@@ -32,22 +33,27 @@ export function registerPane(on: On): void {
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
     // v1 draws only in the terminal; elsewhere Claude Code draws its own.
-    if (e.surface !== 'terminal') return next(e)
+    // Each pane mode has its own hook, which draws only in its own mode.
+    if (e.surface !== 'terminal' || (await read($, mode)) !== 'roster') return next(e)
     const { Box, Button, Raster, Text } = $.ui.resolve(e)
     const seen = await read($, agents)
-    if (seen.length === 0) {
-      return <Text dimColor>No agents yet. Each agent the orchestrator starts gets a squishy here.</Text>
-    }
     const picture = halfBlocks(PLACEHOLDER_SQUISHY)
     return (
-      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-        {seen.map(agent => (
-          <Box key={`slot-${agent.id}`} flexDirection="column" alignItems="center">
-            <Raster key={`picture-${agent.id}`} {...picture} />
-            {/* Picking a squishy opens its focus view in a later ticket. */}
-            <Button key={`squishy-${agent.id}`} plain label={agent.squishy.name} onPress={() => {}} />
+      <Box flexDirection="column" rowGap={1}>
+        {seen.length === 0 ? (
+          <Text dimColor>No agents yet. Each agent the orchestrator starts gets a squishy here.</Text>
+        ) : (
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {seen.map(agent => (
+              <Box key={`slot-${agent.id}`} flexDirection="column" alignItems="center">
+                <Raster key={`picture-${agent.id}`} {...picture} />
+                {/* Picking a squishy opens its focus view in a later ticket. */}
+                <Button key={`squishy-${agent.id}`} plain label={agent.squishy.name} onPress={() => {}} />
+              </Box>
+            ))}
           </Box>
-        ))}
+        )}
+        <Button key="settings" hotkey="o" plain dimColor label="Settings" onPress={() => void update($, mode, () => 'settings')} />
       </Box>
     )
   })

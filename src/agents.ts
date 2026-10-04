@@ -5,6 +5,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Agent } from '../types'
+import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
 
 /** Every agent seen this session, in the order they were first seen. */
 const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
@@ -16,9 +17,10 @@ const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
 const notAgents = new Set<string>()
 
 export function registerAgentTracking(on: On): void {
-  // Subagents, forks and background agents all start through agent.spawn.
+  // Subagents, forks and background agents all start through agent.spawn,
+  // on the user's default model when one is set.
   on('agent.spawn', async ($, e, next) => {
-    const started = await next(e)
+    const started = await next(withModelDefault(e, settingsFrom(await $.store.get(SETTINGS_KEY))))
     if (started.agentId !== undefined) await assignSquishy($, started.agentId)
     return started
   })
