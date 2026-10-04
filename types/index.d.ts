@@ -41,6 +41,12 @@ export type Squishy =
       key: string
     }
 
+/**
+ * What a squishy shows about its agent. Mirrors `SquishyState` in
+ * src/states.ts.
+ */
+export type SquishyState = 'working' | 'thinking' | 'needsYou' | 'asleep' | 'squished'
+
 /** One agent the orchestrator started, with the squishy that stands for it. */
 export type Agent = {
   /**
@@ -51,6 +57,8 @@ export type Agent = {
   /** What the agent was asked to do, shown under its squishy's name. */
   description: string
   squishy: Squishy
+  /** What the agent is doing now, which its squishy's pose shows. */
+  state: SquishyState
 }
 
 /**
@@ -66,6 +74,11 @@ declare module 'claude-code' {
       agents: Agent[]
       /** What the pane is showing; the roster until the user picks another. */
       mode: PaneMode
+      /**
+       * Claude Code's `prefersReducedMotion` setting, read at session start
+       * and after each /config change: while it's on, nothing animates.
+       */
+      reducedMotion: boolean
     }
   }
 }
