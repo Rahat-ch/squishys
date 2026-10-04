@@ -33,6 +33,10 @@ const GREAT: Squishy = { kind: 'legendary', legendary: 'xiaolongbao', shiny: fal
 const [LEGENDARY] = KIT.legendaries
 if (LEGENDARY === undefined) throw new Error('The kit needs a legendary')
 
+// The toast each of the kit's legendaries gets: a forced legendary roll may come up as any of them
+const LEGENDARY_TOASTS = KIT.legendaries.map(each => `👑 A legendary ${each.name} appeared!`)
+const SHINY_LEGENDARY_TOASTS = KIT.legendaries.map(each => `🌟 Whoa! A shiny legendary ✨ ${each.name} appeared!`)
+
 // Reads back every toast the mod shows
 function stubToasts(on: On): string[] {
   const toasts: string[] = []
@@ -125,7 +129,8 @@ test('a legendary roll shows a toast naming it', async ($, on) => {
 
   await $.agent.spawn(spawnOf('toolu_1'))
 
-  expect(toasts).toEqual([`👑 A legendary ${LEGENDARY.name} appeared!`])
+  expect(toasts).toHaveLength(1)
+  expect(LEGENDARY_TOASTS).toContain(toasts[0])
 })
 
 test('a shiny legendary roll gets a line of its own', async ($, on) => {
@@ -136,7 +141,8 @@ test('a shiny legendary roll gets a line of its own', async ($, on) => {
 
   await $.agent.spawn(spawnOf('toolu_1'))
 
-  expect(toasts).toEqual([`🌟 Whoa! A shiny legendary ✨ ${LEGENDARY.name} appeared!`])
+  expect(toasts).toHaveLength(1)
+  expect(SHINY_LEGENDARY_TOASTS).toContain(toasts[0])
 })
 
 test('a plain roll shows no toast', async ($, on) => {
@@ -167,7 +173,9 @@ test('an agent first seen through its tool call is announced too, once the call 
 
   expect(await $.tool.call(readFrom('teammate-1', 'README.md'))).toMatchObject({ result: 'ok' })
 
-  expect(order).toEqual(['call', `👑 A legendary ${LEGENDARY.name} appeared!`])
+  expect(order).toHaveLength(2)
+  expect(order[0]).toBe('call')
+  expect(LEGENDARY_TOASTS).toContain(order[1])
 })
 
 // The mod: the chime, on macOS only
@@ -442,14 +450,15 @@ test('after /clear, a fresh roll that comes up legendary is announced and sparkl
 
   await $.classic.SessionStart({ source: 'clear' })
 
-  expect(toasts).toEqual([`👑 A legendary ${LEGENDARY.name} appeared!`])
+  expect(toasts).toHaveLength(1)
+  expect(LEGENDARY_TOASTS).toContain(toasts[0])
   const fresh = squishyOfAgent(stored, 'agent-b')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Raster', key: 'picture-agent-b' }))?.props.cells).toBe(cellsOf(fresh, 'working', 0, 'full', true))
   expect((await ui.find({ type: 'Raster', key: 'picture-agent-a' }))?.props.cells).toBe(cellsOf(restored, 'working', 0))
   // Forced, the legendary isn't recorded; the restored shiny is, as any rebuilt squishy is
   const dex = squishydexFrom(stored.get(SQUISHYDEX_KEY))
-  expect(dex.legendaries[LEGENDARY.id]).toBeUndefined()
+  expect(Object.keys(dex.legendaries)).toEqual([])
   expect(dex.species[speciesKey(SPECIES)]?.variants).toContain(variantKey({ palette: PALETTE.id, accessory: BARE.id, shiny: true }))
 })
 
@@ -473,7 +482,7 @@ test('a roll forced shiny or legendary still toasts, but is never recorded in th
   const plain = squishyOfAgent(stored, 'agent-3')
   if (plain.kind !== 'assembled' || shiny.kind !== 'assembled') throw new Error('Forced plain and shiny rolls are assembled')
   const dex = squishydexFrom(stored.get(SQUISHYDEX_KEY))
-  expect(dex.legendaries[LEGENDARY.id]).toBeUndefined()
+  expect(Object.keys(dex.legendaries)).toEqual([])
   expect(dex.species[speciesKey(shiny)]?.variants ?? []).not.toContain(variantKey(shiny))
   expect(dex.species[speciesKey(plain)]?.variants).toContain(variantKey(plain))
 })

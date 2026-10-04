@@ -4,7 +4,7 @@
 
 A Claude Code mod that gives every agent your orchestrator starts its own tiny pixel-art squishy, so you can watch, stop and redirect your agents through them.
 
-> **Status:** early development. Every agent gets the same placeholder squishy for now. To try it from a clone, see [Developing the mod](CONTRIBUTING.md#developing-the-mod).
+> **Status:** early development. To try it from a clone, see [Developing the mod](CONTRIBUTING.md#developing-the-mod).
 
 ## Docs
 

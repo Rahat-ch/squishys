@@ -62,9 +62,11 @@
 
 ## Kit art
 
-- A squishy's picture is `SIDE` pixels square (`src/kit.ts`). Code and tests work every size and position out from `SIDE` (and `SIDES` in `src/composer.ts` for the 2x and mini sizes), never a literal, so the size can change in one place. Kit data is drawn at the size it is.
+- A squishy's picture is `PICTURE_SIZE` pixels square (`src/composer.ts`, now 10). Code and tests work every size and position out from it (and `SIDES` for the 2x and mini sizes, `PICTURE_COLUMNS`/`PICTURE_ROWS` in `src/slots.ts`), never a literal, so the size can change in one place. Kit data, in `src/drawn-kit.ts`, is drawn at the size it is, to the layout at the top of that file, so any face and accessory sit on any body.
+- A slot is as wide as its picture or its Name's button (`NAME_COLUMNS`, the longest Name, after a `9: ` hotkey), whichever is wider.
+- Every regular squishy has a Name of its own: every body, face and palette has a syllable (only the `none` accessory goes without), and no two of the kit's combinations spell the same Name, nor any legendary's. `tests/kit.test.ts` builds every Name to check it: building strings is cheap, so it is the one exception to "no test walks every squishy" (that rule is about composing and spawning).
 - A squishy has four colors, as on a Game Boy Color sprite: a palette (or legendary) gives `outline`, `dark`, `base` and `highlight`, and its shiny side gives its own plus a fifth, `sparkle`. Grid keys map onto those colors through `KEY_COLORS` in `src/kit.ts`: eyes (`e`) and mouth (`m`) draw in the outline color, blush (`c`) in the dark one, and a glint (`*`) sparkles only on a shiny. Keep eyes as `e` even though they share the outline's color: the Asleep pose finds them by key.
-- `tests/kit.test.ts` holds the shipped kit to its rarities, pronounceable Names, the color counts, and colors that survive a 256-color terminal and the `Raster`'s 1024 color pairs.
+- `tests/kit.test.ts` holds the shipped kit to its counts and rarities, unique pronounceable Names, the color counts, and colors that survive a 256-color terminal and the `Raster`'s 1024 color pairs.
 
 ## Art preview
 

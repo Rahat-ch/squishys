@@ -4,6 +4,7 @@
 // pane, the band and the tests share it.
 
 import { PICTURE_SIZE } from './composer'
+import { SHINY_MARK } from './roller'
 import { SLOT_GIVING_ORDER, isEnded } from './states'
 import type { SquishyState } from './states'
 
@@ -16,10 +17,11 @@ export const PICTURE_ROWS = Math.ceil(PICTURE_SIZE / 2)
 /** The longest Name the kit spells (tests/kit.test.ts holds it to this). */
 export const NAME_COLUMNS = 13
 /**
- * A slot's width: its squishy's picture, centered, or its Name as its
- * button draws it, `9: ` hotkey and all, whichever is wider.
+ * A slot's width: its squishy's picture, centered, or its longest Name as
+ * its button draws it, a shiny's SHINY_MARK and a `9: ` hotkey before it,
+ * whichever is wider.
  */
-export const SLOT_COLUMNS = Math.max(PICTURE_COLUMNS, buttonColumns('x'.repeat(NAME_COLUMNS), '9'))
+export const SLOT_COLUMNS = Math.max(PICTURE_COLUMNS, buttonColumns(SHINY_MARK + 'x'.repeat(NAME_COLUMNS), '9'))
 /**
  * A slot's height: the picture, then its name, its description and a row
  * for the mark on the squishy of the agent open in the main view.
@@ -30,11 +32,11 @@ export const SLOT_COLUMN_GAP = 2
 /** The rows between rows of slots. */
 export const SLOT_ROW_GAP = 1
 /**
- * The columns a Button takes as drawn: its label, after the `x: ` its
- * hotkey draws before it.
+ * The columns a Button takes as drawn: its label (in terminal columns, see
+ * textColumns), after the `x: ` its hotkey draws before it.
  */
 export function buttonColumns(label: string, hotkey?: string): number {
-  return label.length + (hotkey === undefined ? 0 : hotkey.length + 2)
+  return textColumns(label) + (hotkey === undefined ? 0 : textColumns(hotkey) + 2)
 }
 
 /**

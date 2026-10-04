@@ -224,8 +224,8 @@ test('a slot is as wide as its picture or its longest Name’s button, whichever
 
   expect({ columns: PICTURE_COLUMNS, rows: PICTURE_ROWS }).toEqual({ columns: picture.columns, rows: picture.rows })
   expect(picture.columns).toBe(PICTURE_SIZE)
-  // A Name NAME_COLUMNS long, after its `9: ` hotkey
-  expect(SLOT_COLUMNS).toBe(Math.max(picture.columns, NAME_COLUMNS + 3))
+  // A shiny's Name NAME_COLUMNS long, after its `9: ` hotkey and `✨ ` (the ✨ two columns wide)
+  expect(SLOT_COLUMNS).toBe(Math.max(picture.columns, 3 + 3 + NAME_COLUMNS))
   // Its name, its description and the main view's mark
   expect(SLOT_ROWS).toBe(picture.rows + 3)
 })

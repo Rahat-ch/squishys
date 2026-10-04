@@ -134,7 +134,7 @@ test('while the opened pane is unplaced, the band shows a mini squishy for each 
 
   for (const agentId of ['agent-1', 'agent-2']) {
     const squishy = squishyOfAgent(stored, agentId)
-    expect((await band.find({ type: 'Button', key: `squishy-${agentId}` }))?.props.label).toBe(squishy.name)
+    expect((await band.find({ type: 'Button', key: `squishy-${agentId}` }))?.props.label).toBe(nameCut(squishy.name))
     expect((await band.find({ type: 'Raster', key: pictureKey(agentId, 'mini') }))?.props.cells).toBe(cellsOf(squishy, 'working', 0, 'mini'))
   }
   expect(await band.find({ type: 'Text', text: OPEN_HINT })).toBeDefined()

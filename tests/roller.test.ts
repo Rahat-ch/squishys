@@ -134,10 +134,17 @@ test('odds that rule a squishy out keep it out, even when every other squishy is
 })
 
 test('a roll is never a squishy a live agent already has', () => {
-  // The placeholder kit makes 3^4 parts × 2 + 1 legendary × 2 = 164 squishys
-  const live = rollInTurn(KIT, 160, 7)
+  // Commons only, plain, no legendaries: few enough squishys that rolling
+  // nearly all of them would repeat many if the live ones weren't left out
+  const odds = { legendary: 0, shiny: 0, rarity: { common: 1, uncommon: 0, rare: 0 } }
+  const commons = (parts: readonly { rarity: string }[]) => parts.filter(part => part.rarity === 'common').length
+  const kinds = [KIT.bodies, KIT.faces, KIT.palettes, KIT.accessories]
+  const total = kinds.reduce((product, parts) => product * commons(parts), 1)
+  const rng = seeded(7)
+  const live: Squishy[] = []
+  for (let n = 0; n < total - 5; n += 1) live.push(roll(KIT, { live, rng, odds }))
 
-  expect(new Set(live.map(squishy => squishy.key)).size).toBe(160)
+  expect(new Set(live.map(squishy => squishy.key)).size).toBe(total - 5)
 })
 
 test('when only a shiny is left, the roll is that shiny', () => {

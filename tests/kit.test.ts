@@ -6,6 +6,7 @@ import type { PartBase, Rarity } from '../src/kit'
 import { SHINY_MARK, roll } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { seeded } from '../src/seeded'
+import { NAME_COLUMNS } from '../src/slots'
 import { eachPart } from './pictures'
 
 const RARITIES: readonly Rarity[] = ['common', 'uncommon', 'rare']
@@ -15,6 +16,15 @@ const KINDS = [
   ['palettes', KIT.palettes],
   ['accessories', KIT.accessories],
 ] as const
+
+test('the kit has 6 bodies, 8 faces, 10 palettes, 8 accessories, 5 legendaries and 3 starters', () => {
+  expect(KIT.bodies).toHaveLength(6)
+  expect(KIT.faces).toHaveLength(8)
+  expect(KIT.palettes).toHaveLength(10)
+  expect(KIT.accessories).toHaveLength(8)
+  expect(KIT.legendaries).toHaveLength(5)
+  expect(KIT.starters).toHaveLength(3)
+})
 
 test('every kind of part has common, uncommon and rare parts, each part with an id of its own', () => {
   for (const [kind, parts] of KINDS) {
@@ -51,29 +61,49 @@ test('the three starters are species of the kit, each a different body', () => {
   expect(new Set(KIT.starters.map(starter => starter.body)).size).toBe(3)
 })
 
-// Rolled at the standard odds, so the names are the ones people meet
+// Rolled at the standard odds, as agents get them
 const ROLLED: Squishy[] = (() => {
   const rng = seeded(5)
   return Array.from({ length: 2000 }, () => roll(KIT, { live: [], rng, odds: { legendary: 0 } }))
 })()
 
-/** Syllables of an optional consonant or two, a vowel or two, and maybe a closing n. */
-const PRONOUNCEABLE = /^(?:[bcdfghjkmnprstwyz]{0,2}[aeiou]{1,2}n?)+$/
+/**
+ * Every regular squishy's Name, built from its parts' syllables as the
+ * roller builds it (lowercase). Building the strings is cheap, so this walks
+ * every combination; no test composes or spawns them all.
+ */
+const EVERY_NAME: string[] = KIT.bodies.flatMap(body =>
+  KIT.faces.flatMap(face =>
+    KIT.palettes.flatMap(palette => KIT.accessories.map(accessory => body.syllable + face.syllable + palette.syllable + accessory.syllable)),
+  ),
+)
 
-test('a rolled Name is short, and made of easy syllables', () => {
-  // A shiny's Name starts with SHINY_MARK; the Name proper follows it
-  for (const name of ROLLED.map(squishy => squishy.name.replace(SHINY_MARK, ''))) {
-    if (name.length < 2 || name.length > 13) throw new Error(`"${name}" is too short or too long`)
-    if (!PRONOUNCEABLE.test(name.toLowerCase())) throw new Error(`"${name}" is hard to say`)
-    if (/(.)\1\1/i.test(name)) throw new Error(`"${name}" repeats a letter three times`)
+test('every body, face and palette has a syllable, and of the accessories only none goes without', () => {
+  for (const [kind, parts] of KINDS) {
+    for (const part of parts as readonly PartBase[]) {
+      if (part.syllable === '' && !(kind === 'accessories' && part.id === 'none')) throw new Error(`The ${part.id} part has no syllable`)
+    }
   }
 })
 
-test('every species has a Name of its own', () => {
-  const names = KIT.bodies.flatMap(body => KIT.faces.map(face => body.syllable + face.syllable))
+test('every regular squishy has a Name of its own, and no legendary shares one', () => {
+  const names = new Set(EVERY_NAME.map(name => name.toLowerCase()))
 
-  expect(names.every(name => name !== '')).toBe(true)
-  expect(new Set(names).size).toBe(names.length)
+  expect(names.size).toBe(EVERY_NAME.length)
+  for (const { name } of KIT.legendaries) expect(names.has(name.toLowerCase())).toBe(false)
+})
+
+/** Syllables of an optional consonant or two, a vowel or two, and maybe a closing n. */
+const PRONOUNCEABLE = /^(?:[bcdfghjkmnprstwyz]{0,2}[aeiou]{1,2}n?)+$/
+
+test('every Name fits a slot, and is made of easy syllables', () => {
+  for (const name of EVERY_NAME) {
+    if (name.length > NAME_COLUMNS) throw new Error(`"${name}" is longer than ${NAME_COLUMNS}`)
+    if (!PRONOUNCEABLE.test(name)) throw new Error(`"${name}" is hard to say`)
+    if (/(.)\1\1/.test(name)) throw new Error(`"${name}" repeats a letter three times`)
+  }
+  // The roller spells them the same way, capitalized, after SHINY_MARK on a shiny
+  for (const squishy of ROLLED) expect(EVERY_NAME).toContain(squishy.name.replace(SHINY_MARK, '').toLowerCase())
 })
 
 /** The colors a squishy's still picture uses. */
@@ -87,12 +117,16 @@ test('a squishy is drawn in at most four colors, and a shiny in at most five, th
     const used = colorsIn(squishy)
     if (used.size > (squishy.shiny ? 5 : 4)) throw new Error(`${JSON.stringify(squishy)} uses ${used.size} colors`)
   }
-  for (const palette of KIT.palettes) {
-    // Normal squishys never sparkle
-    for (const squishy of eachPart(KIT).filter(each => !each.shiny)) {
-      if (colorsIn(squishy).has(palette.shiny.sparkle) && !Object.values(palette.colors).includes(palette.shiny.sparkle)) {
-        throw new Error(`${JSON.stringify(squishy)} shows ${palette.id}'s sparkle`)
-      }
+  // A normal squishy never shows its own sparkle color, unless one of its four colors is that color anyway
+  for (const squishy of eachPart(KIT).filter(each => !each.shiny)) {
+    const source =
+      squishy.kind === 'legendary'
+        ? KIT.legendaries.find(each => each.id === squishy.legendary)
+        : KIT.palettes.find(each => each.id === squishy.palette)
+    if (source === undefined) throw new Error(`No colors for ${JSON.stringify(squishy)}`)
+    const sparkle = source.shiny.sparkle
+    if (colorsIn(squishy).has(sparkle) && !Object.values(source.colors).includes(sparkle)) {
+      throw new Error(`${JSON.stringify(squishy)} shows its sparkle`)
     }
   }
 })

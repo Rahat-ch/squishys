@@ -422,7 +422,7 @@ test('a met legendary shows in color and opens a card with the dates first met a
   const stored = stubStore(on, { ...PARTNERED, [SQUISHYDEX_KEY]: { species: {}, legendaries: { [LEGENDARY.id]: { met: MET_AT } } } })
   const ui = await openSquishydex($)
   expect((await ui.find({ type: 'Raster', key: `squishydex-picture-${legendary.key}` }))?.props.cells).toBe(miniCells(legendary))
-  expect(await ui.find({ type: 'Text', text: '???' })).toBeUndefined()
+  expect(await ui.find({ key: `squishydex-unmet-${legendary.key}` })).toBeUndefined()
 
   await $.ui.press({ plugin: 'squishys', key: `squishydex-pick-${legendary.key}` })
 
