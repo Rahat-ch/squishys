@@ -15,6 +15,12 @@ import { moves } from './states'
 
 export const PANE_ID = 'squishys'
 
+/**
+ * What a Button that picks a squishy is keyed: this, then its agent's id.
+ * src/focus.tsx answers a press on any pane Button keyed so (the pick).
+ */
+export const PICK_PREFIX = 'squishy-'
+
 /** How long each animation frame shows, in milliseconds. */
 export const FRAME_MS = 200
 
@@ -41,14 +47,20 @@ let painting = false
  */
 const shown = new Map<string, { agentId: string; size: Size; cells: string }>()
 
+/** The key of the Raster showing an agent's squishy at this size. */
+export function pictureKey(agentId: string, size: Size = 'full'): string {
+  return size === 'full' ? `picture-${agentId}` : `${size}-picture-${agentId}`
+}
+
 /**
  * An agent's squishy in its state's pose at the animation's current frame,
- * for the Raster keyed `key`, which the animator then keeps repainting while
- * the squishy moves. Every mode draws its squishys through this.
+ * for the Raster keyed `pictureKey(agent.id, size)`, which the animator then
+ * keeps repainting while the squishy moves. Every mode draws its squishys
+ * through this.
  */
-export function animatedPicture(agent: Agent, key: string, size: Size = 'full'): RasterCells {
+export function animatedPicture(agent: Agent, size: Size = 'full'): RasterCells {
   const picture = pictureOf(agent, size)
-  shown.set(key, { agentId: agent.id, size, cells: picture.cells })
+  shown.set(pictureKey(agent.id, size), { agentId: agent.id, size, cells: picture.cells })
   return picture
 }
 
@@ -96,7 +108,7 @@ export function registerPane(on: On): void {
     }
     const { Box, Button, Raster, Text } = $.ui.resolve(e)
     // Drawn at the animation's current frame, so a redraw doesn't jump back
-    const slots = (await read($, agents)).map(agent => ({ agent, picture: animatedPicture(agent, `picture-${agent.id}`) }))
+    const slots = (await read($, agents)).map(agent => ({ agent, picture: animatedPicture(agent) }))
     if (!motionReduced) await animateShown($)
     return (
       <Box flexDirection="column" rowGap={1}>
@@ -106,10 +118,10 @@ export function registerPane(on: On): void {
           <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
             {slots.map(({ agent, picture }, index) => (
               <Box key={`slot-${agent.id}`} flexDirection="column" alignItems="center">
-                <Raster key={`picture-${agent.id}`} {...picture} />
+                <Raster key={pictureKey(agent.id)} {...picture} />
                 {/* Its press picks the squishy: src/focus.tsx answers it. */}
                 <Button
-                  key={`squishy-${agent.id}`}
+                  key={`${PICK_PREFIX}${agent.id}`}
                   {...(index < 9 ? { hotkey: String(index + 1) } : {})}
                   plain
                   label={agent.squishy.name}
@@ -152,9 +164,15 @@ async function readMotionSetting($: EngineInterface): Promise<void> {
 
 /** Starts the animator if a squishy just drawn is Working or Thinking. */
 async function animateShown($: EngineInterface): Promise<void> {
-  const known = await read($, agents)
-  const showsMoving = [...shown.values()].some(({ agentId }) => known.some(agent => agent.id === agentId && moves(agent.state)))
-  if (showsMoving) animator ??= $.clock.every(FRAME_MS, () => void nextFrame($))
+  if (movingPictures(await read($, agents)).length > 0) animator ??= $.clock.every(FRAME_MS, () => void nextFrame($))
+}
+
+/** The shown pictures whose squishy is Working or Thinking, each with its agent. */
+function movingPictures(known: readonly Agent[]) {
+  return [...shown].flatMap(([key, each]) => {
+    const agent = known.find(({ id }) => id === each.agentId)
+    return agent !== undefined && moves(agent.state) ? [{ key, agent, ...each }] : []
+  })
 }
 
 function stopAnimating(): void {
@@ -175,11 +193,7 @@ async function nextFrame($: EngineInterface): Promise<void> {
   if (painting) return
   painting = true
   try {
-    const known = await read($, agents)
-    const moving = [...shown].flatMap(([key, each]) => {
-      const agent = known.find(({ id }) => id === each.agentId)
-      return agent !== undefined && moves(agent.state) ? [{ key, agent, ...each }] : []
-    })
+    const moving = movingPictures(await read($, agents))
     if (moving.length === 0 || (await read($, reducedMotion))) return stopAnimating()
     frame += 1
     for (const { key, agent, size, cells } of moving) {

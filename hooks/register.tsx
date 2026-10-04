@@ -9,6 +9,10 @@ import { registerPane } from '../src/pane'
 import { registerSettings } from '../src/settings'
 
 export const register: Register = on => {
+  // The order matters: a plugin's registrations nest in order, first
+  // outermost. The agent tracker records an agent before the focus view's
+  // feed hooks look it up, and the pane's render hook wraps every other
+  // mode's, so it can animate the squishys they draw.
   registerAgentTracking(on)
   registerPane(on)
   registerSettings(on)

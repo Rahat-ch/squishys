@@ -77,8 +77,15 @@ export type ActivityRow =
     }
   | {
       kind: 'answer'
-      /** The agent's final answer, as markdown, cut to what a Markdown draws. */
+      /**
+       * The agent's final answer, as markdown a Markdown can draw. A feed
+       * keeps only its latest.
+       */
       text: string
+    }
+  | {
+      /** A run that ended without a final answer: the user stopped it, or it failed. */
+      kind: 'interrupted' | 'failed'
     }
 
 /**
@@ -97,10 +104,12 @@ declare module 'claude-code' {
       /** The agent whose focus view the pane shows, once one is picked. */
       focusedAgentId: string | null
       /**
-       * Each agent's latest activity, oldest first and newest last, by agent
-       * id; kept after the agent ends.
+       * Each agent's feed, one member per agent id: its latest activity,
+       * oldest first, kept after the agent ends.
        */
-      activity: Record<string, ActivityRow[]>
+      activity: StateFamily<ActivityRow[]>
+      /** The agents that have a feed, so feeds of agents no longer known can be emptied. */
+      fedAgentIds: string[]
       /**
        * Claude Code's `prefersReducedMotion` setting, read at session start
        * and after each /config change: while it's on, nothing animates.
