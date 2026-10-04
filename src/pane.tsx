@@ -4,7 +4,8 @@
 import { atom, read, update } from 'claude-code'
 import type { On } from 'claude-code'
 
-import { PLACEHOLDER_SQUISHY } from './placeholder'
+import { compose } from './composer'
+import { KIT } from './kit'
 import { halfBlocks } from './raster'
 
 export const PANE_ID = 'squishys'
@@ -37,7 +38,6 @@ export function registerPane(on: On): void {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'roster') return next(e)
     const { Box, Button, Raster, Text } = $.ui.resolve(e)
     const seen = await read($, agents)
-    const picture = halfBlocks(PLACEHOLDER_SQUISHY)
     return (
       <Box flexDirection="column" rowGap={1}>
         {seen.length === 0 ? (
@@ -46,9 +46,15 @@ export function registerPane(on: On): void {
           <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
             {seen.map(agent => (
               <Box key={`slot-${agent.id}`} flexDirection="column" alignItems="center">
-                <Raster key={`picture-${agent.id}`} {...picture} />
+                <Raster
+                  key={`picture-${agent.id}`}
+                  {...halfBlocks(compose(KIT, agent.squishy, { state: 'working', frame: 0 }))}
+                />
                 {/* Picking a squishy opens its focus view in a later ticket. */}
                 <Button key={`squishy-${agent.id}`} plain label={agent.squishy.name} onPress={() => {}} />
+                <Text key={`description-${agent.id}`} dimColor>
+                  {agent.description}
+                </Text>
               </Box>
             ))}
           </Box>
