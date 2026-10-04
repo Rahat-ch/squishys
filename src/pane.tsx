@@ -172,9 +172,10 @@ export function registerPane(on: On): void {
     await $.command.register({ name: 'squishys', description: 'Open or close the squishys pane', immediate: true })
     // and so is /squishydex, which src/squishydex.tsx answers
     await $.command.register({ name: 'squishydex', description: 'Open the Squishydex: every squishy you have met', immediate: true })
-    // A hot reload keeps $.state but drops the animator; drawing the roster
-    // again starts it.
-    if ((await read($, agents)).some(agent => moves(agent.state))) $.ui.invalidate('ui.render')
+    // A hot reload keeps $.state but drops the animator and forgets which
+    // squishys sparkle; drawing the roster again works that out from the
+    // agents' `sparkleUntil` and starts it.
+    if ((await read($, agents)).some(agent => moves(agent.state) || agent.sparkleUntil !== undefined)) $.ui.invalidate('ui.render')
     // and starts with the overflow list shut
     await closeOverflowList($)
     return next(e)
@@ -443,14 +444,14 @@ async function readMotionSetting($: EngineInterface): Promise<void> {
 
 /** Starts the animator if a squishy just drawn is Working, Thinking or sparkling. */
 async function animateShown($: EngineInterface): Promise<void> {
-  if (movingPictures(await read($, agents)).length > 0) animator ??= $.clock.every(FRAME_MS, () => void nextFrame($))
+  if (movingPictures(await read($, agents), sparkling).length > 0) animator ??= $.clock.every(FRAME_MS, () => void nextFrame($))
 }
 
 /**
  * The shown pictures whose squishy is Working, Thinking or one of
  * `sparklers`, each with its agent.
  */
-function movingPictures(known: readonly Agent[], sparklers: ReadonlySet<string> = sparkling) {
+function movingPictures(known: readonly Agent[], sparklers: ReadonlySet<string>) {
   return [...shown].flatMap(([key, each]) => {
     const agent = known.find(({ id }) => id === each.agentId)
     return agent !== undefined && moves(agent.state, sparklers.has(agent.id)) ? [{ key, agent, ...each }] : []

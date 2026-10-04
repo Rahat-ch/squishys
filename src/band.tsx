@@ -7,7 +7,7 @@ import { atom, read } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import { PANE_ID, PICK_PREFIX, animatedPicture, pictureKey } from './pane'
-import { BAND_GAP, BAND_NAME_COLUMNS, layoutBand } from './slots'
+import { BAND_GAP, layoutBand, nameCut } from './slots'
 
 /** What the band says about opening the pane. */
 export const OPEN_HINT = 'Run /squishys to open the pane'
@@ -57,7 +57,3 @@ async function paneUnplaced($: EngineInterface): Promise<boolean> {
   }
 }
 
-/** A Name cut to BAND_NAME_COLUMNS, ending in … when it's longer. */
-function nameCut(name: string): string {
-  return name.length > BAND_NAME_COLUMNS ? `${name.slice(0, BAND_NAME_COLUMNS - 1)}…` : name
-}

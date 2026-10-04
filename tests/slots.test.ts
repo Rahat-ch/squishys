@@ -13,6 +13,8 @@ import { MAX_SLOTS } from '../src/settings'
 import {
   BAND_GAP,
   BAND_NAME_COLUMNS,
+  nameCut,
+  textColumns,
   BAND_PICTURE_COLUMNS,
   BAND_PICTURE_ROWS,
   PICTURE_COLUMNS,
@@ -343,4 +345,13 @@ test('the roll pool leaves out the partner’s squishy', () => {
   const live = liveSquishys([agent('agent-1')], ['agent-1'], PARTNER)
 
   expect(live.map(squishy => squishy.key)).toEqual(['squishy-of-agent-1', 'squishy-of-partner'])
+})
+
+test('a Name is cut to the band’s columns by what it takes on screen, a shiny’s ✨ two of them', () => {
+  expect(nameCut('Mochibun')).toBe('Mochibun')
+  expect(nameCut('Mochibunbao')).toBe('Mochibunb…')
+  // ✨ takes two columns: "✨ Mochibu" fills all ten
+  expect(nameCut('✨ Mochibu')).toBe('✨ Mochibu')
+  expect(nameCut('✨ Mochibun')).toBe('✨ Mochib…')
+  expect(textColumns(nameCut('✨ Mochibunbao'))).toBe(BAND_NAME_COLUMNS)
 })

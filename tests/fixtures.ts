@@ -1,6 +1,5 @@
 // Inputs Claude Code would hand the mod, shared by the test files.
 
-import { mock } from 'claude-code/testing'
 import type { AgentStatus, On } from 'claude-code'
 
 import { KIT } from '../src/kit'
@@ -9,6 +8,7 @@ import { PARTNER_KEY } from '../src/partner'
 import { FOOTER_COLUMN_GAP, FOOTER_COLUMNS, FOOTER_ROW_GAP, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP, footerRows } from '../src/slots'
 import type { RosterSize } from '../src/slots'
 import { speciesSquishy } from '../src/roller'
+import type { ForcedRoll } from '../src/roller'
 import { SQUISHYDEX_KEY, squishydexFrom, withMet } from '../src/squishydex-record'
 
 // What Claude Code passes to the pane's ui.render hook, apart from the surface
@@ -55,15 +55,30 @@ export const PARTNERED: Readonly<Record<string, unknown>> = {
   [SQUISHYDEX_KEY]: withMet(squishydexFrom(undefined), STARTER ? [STARTER] : [], 0),
 }
 
-// What a test can force the mod's rolls to be, through SQUISHYS_FORCE_ROLL
-export type ForcedRoll = 'plain' | 'shiny' | 'legendary' | 'shiny-legendary'
+// Forces what the mod's rolls come up as, through SQUISHYS_FORCE_ROLL
+// (docs/adr/0002-forced-rolls-env-seam.md): the mod's randomness can't be
+// seeded from a test, and a stray shiny would sparkle, toast and chime in
+// a test about something else. stubSpawns and stubSessionStart force plain
+// rolls unless a test asks for a Moment. A plugin hooks an event once, so
+// the first call answers the variable and a later one that names a roll
+// changes it; the test can change it too, through what this returns.
+const forcedRolls = new WeakMap<On, { roll: ForcedRoll }>()
+export function forceRolls(on: On, roll?: ForcedRoll): { roll: ForcedRoll } {
+  const forced = forcedRolls.get(on)
+  if (forced !== undefined) {
+    if (roll !== undefined) forced.roll = roll
+    return forced
+  }
+  const answer = { roll: roll ?? 'plain' }
+  forcedRolls.set(on, answer)
+  on('env.get', ($, e) => ({ value: e.name === 'SQUISHYS_FORCE_ROLL' ? answer.roll : undefined }))
+  return answer
+}
 
-// Answers each agent.spawn as Claude Code would, with ids agent-1, agent-2…
-// It forces the mod's rolls (plain unless a test asks for a moment), since
-// the mod's randomness can't be seeded from a test: a stray shiny would
-// sparkle, toast and chime in a test about something else.
-export function stubSpawns(on: On, roll: ForcedRoll = 'plain'): void {
-  mock.env(on, { SQUISHYS_FORCE_ROLL: roll })
+// Answers each agent.spawn as Claude Code would, with ids agent-1, agent-2…,
+// and forces the rolls (forceRolls)
+export function stubSpawns(on: On, roll?: ForcedRoll): void {
+  forceRolls(on, roll)
   let spawned = 0
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `agent-${++spawned}` }))
 }
@@ -171,8 +186,10 @@ export function stubAgentList(on: On, agents: Map<string, AgentStatus> | readonl
   return () => lookups
 }
 
-// What Claude Code answers classic.SessionStart with, beneath the mod
-export function stubSessionStart(on: On): void {
+// What Claude Code answers classic.SessionStart with, beneath the mod, and
+// forces the rebuild's fresh rolls (forceRolls)
+export function stubSessionStart(on: On, roll?: ForcedRoll): void {
+  forceRolls(on, roll)
   on('classic.SessionStart', () => ({}))
 }
 

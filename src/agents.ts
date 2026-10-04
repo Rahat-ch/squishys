@@ -9,12 +9,12 @@ import type { Agent, Squishy, SquishyState } from '../types'
 import { KIT } from './kit'
 import { OPEN_PANE, PANE_ID, squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
-import { rememberSquishys } from './rebuild'
-import { momentToast, sparkleUntil } from './moments'
+import { forcedMoment, rememberSquishys, takeFreshRolls } from './rebuild'
+import type { Rolled } from './rebuild'
+import { momentToast, sparkleUntil, withSparklesTidied } from './moments'
 import { cryptoRandom, forcedOdds, roll } from './roller'
 import { recordMet } from './squishydex-record'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
-import type { Settings } from './settings'
 import { liveSquishys } from './slots'
 import { answered, endedState, isEnded, stateAfterRun, stateAtStop } from './states'
 import { STOPPED_BY_USER, disarmed, entryNamed, forgetStops, isHeldBack, refusalOf, resumed, runEnded, wasStoppedByUser } from './stop'
@@ -44,17 +44,23 @@ export function registerAgentTracking(on: On): void {
     agentCheck?.cancel()
     agentCheck = undefined
     if ((await read($, agents)).some(agent => !isEnded(agent.state))) keepChecking($)
+    // and the timer ending a sparkle: a sparkle that passed meanwhile is cleared now
+    sparkleEnd?.cancel()
+    sparkleEnd = undefined
+    await tidySparkles($)
     return next(e)
   })
 
   // After /clear, /resume, a branch or compaction, rebuild.ts's hook rebuilds
   // the roster before passing the event on, and this one checks after it:
-  // the agent list is checked while any rebuilt agent runs.
+  // the agent list is checked while any rebuilt agent runs, and a fresh
+  // roll that came up shiny or legendary is announced, as from a spawn.
   // Stop forgets every agent but after compaction, which keeps the session.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork', 'compact'] }, async ($, e, next) => {
     if (e.source !== 'compact') forgetStops()
     const started = await next(e)
     if ((await read($, agents)).some(agent => !isEnded(agent.state))) keepChecking($)
+    for (const { agent } of takeFreshRolls()) await announce($, agent)
     return started
   })
 
@@ -68,11 +74,11 @@ export function registerAgentTracking(on: On): void {
     } catch {}
     const started = await next(withModelDefault(e, settings))
     if (started.agentId === undefined) return started
-    const assigned = await assignSquishy($, started.agentId, e.description, started.model)
-    // Met: the Squishydex records it
-    if (assigned !== undefined) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [assigned.squishy])
+    const rolled = await assignSquishy($, started.agentId, e.description, started.model)
+    // Met: the Squishydex records it, unless the roll was forced
+    if (rolled !== undefined && !rolled.forced) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [rolled.agent.squishy])
     // A shiny or legendary is announced once the agent has started, so it never holds up the spawn
-    if (assigned !== undefined) await announce($, assigned, settings)
+    if (rolled !== undefined) await announce($, rolled.agent)
     return started
   })
 
@@ -87,18 +93,18 @@ export function registerAgentTracking(on: On): void {
   on('tool.call', async ($, e, next) => {
     const { agentId } = e
     if (agentId !== undefined && isHeldBack(agentId)) return { deny: STOPPED_BY_USER }
-    let assigned: Agent | undefined
+    let rolled: Rolled | undefined
     if (agentId !== undefined && !notAgents.has(agentId) && !hasSquishy(await read($, agents), agentId)) {
       const listed = (await $.agent.list()).find(agent => agent.id === agentId)
-      if (listed !== undefined) assigned = await assignSquishy($, agentId, listed.description)
+      if (listed !== undefined) rolled = await assignSquishy($, agentId, listed.description)
       else notAgents.add(agentId)
     }
     if (agentId !== undefined) await setState($, agentId, 'working')
     const result = await next(e)
     // Met: the Squishydex records it once the call has gone on, so recording never holds the call up
-    if (assigned !== undefined) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [assigned.squishy])
+    if (rolled !== undefined && !rolled.forced) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [rolled.agent.squishy])
     // and a shiny or legendary is announced, as from a spawn
-    if (assigned !== undefined) await announce($, assigned)
+    if (rolled !== undefined) await announce($, rolled.agent)
     // A prompt the call raised has been answered once its result is in. This
     // dispatch's reads predate the prompt, so `asking` says whether one came.
     if (agentId !== undefined && asking.has(agentId)) await setState($, agentId, answered, { current: true })
@@ -311,15 +317,16 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
  * agent takes it (see liveSquishys). An ended agent that wakes
  * keeps its own squishy, even if another agent has rolled it since: an
  * agent's identity wins over keeping squishys apart. Nor does it repeat
- * the partner's. Returns the agent it gave a squishy, if any.
+ * the partner's. Returns the agent it gave a squishy, if any, and whether
+ * SQUISHYS_FORCE_ROLL forced it to come up shiny or legendary (Rolled).
  */
-async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<Agent | undefined> {
+async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<Rolled | undefined> {
   let partner: Squishy | undefined
   try {
     partner = partnerFrom(await $.store.get(PARTNER_KEY))
   } catch {}
   // SQUISHYS_FORCE_ROLL forces what the roll is (src/roller.ts): how the
-  // tests, and a person trying the mod out, see a shiny or legendary moment
+  // tests, and a person trying the mod out, see a Moment
   let odds: ReturnType<typeof forcedOdds>
   try {
     odds = forcedOdds(await $.env.get('SQUISHYS_FORCE_ROLL'))
@@ -338,31 +345,57 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   // Kept in the store too, so it comes back after /clear or /resume
   if (assigned === undefined) return undefined
   await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, [assigned])
-  return assigned
+  return { agent: assigned, forced: forcedMoment(odds, assigned.squishy) }
 }
 
 /**
- * Announces an agent's squishy just rolled when it's a moment
+ * Announces an agent's squishy just rolled when it's a Moment
  * (src/moments.ts): a toast names a shiny or legendary, its slot sparkles
  * for SPARKLE_MS from now, and with the chime setting on, the chime plays.
- * `settings` are those the hook read already, if it did; a store that
- * can't be read means no chime, and a clock that can't be read no sparkle.
- * The chime isn't awaited, so it never holds the hook while it plays, and
- * one that can't play is let be.
+ * A clock that can't be read means no sparkle, and a store that can't be
+ * read no chime. The chime isn't awaited, so it never holds the hook while
+ * it plays, and one that can't play is let be.
  */
-async function announce($: EngineInterface, { id, squishy }: Agent, settings?: Settings): Promise<void> {
+async function announce($: EngineInterface, { id, squishy }: Agent): Promise<void> {
   const toast = momentToast(squishy)
   if (toast === undefined) return
   $.ui.toast(toast)
   try {
     const until = sparkleUntil(squishy, await $.clock.now())
     if (until !== undefined) await update($, agents, known => known.map(agent => (agent.id === id ? { ...agent, sparkleUntil: until } : agent)))
+    await tidySparkles($)
   } catch {}
-  let chime = settings?.chime === true
-  if (settings === undefined) {
-    try {
-      chime = settingsFrom(await $.store.get(SETTINGS_KEY)).chime === true
-    } catch {}
-  }
+  let chime = false
+  try {
+    chime = settingsFrom(await $.store.get(SETTINGS_KEY)).chime === true
+  } catch {}
   if (chime) $.audio.play({ asset: 'sounds/chime.wav' }).catch(() => {})
+}
+
+/** The timer that clears the next sparkle to end, while one is still to come. */
+let sparkleEnd: Timer | undefined
+
+/**
+ * Clears every sparkle that has passed from `agents`, so the pane stops
+ * reading the clock for it, and sets the timer for the next one to end.
+ * Called as a sparkle starts, by that timer, and at session start, which a
+ * hot reload (dropping the timer) fires again. A clock that can't be read
+ * leaves the sparkles be.
+ */
+async function tidySparkles($: EngineInterface): Promise<void> {
+  if (!(await read($, agents)).some(agent => agent.sparkleUntil !== undefined)) return
+  let now: number
+  try {
+    now = await $.clock.now()
+  } catch {
+    return
+  }
+  let nextEnd: number | undefined
+  await update($, agents, known => {
+    const tidied = withSparklesTidied(known, now)
+    nextEnd = tidied.nextEnd
+    return tidied.agents === known ? known : [...tidied.agents]
+  })
+  sparkleEnd?.cancel()
+  sparkleEnd = nextEnd === undefined ? undefined : $.clock.after(nextEnd - now, () => void tidySparkles($))
 }

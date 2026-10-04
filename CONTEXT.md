@@ -53,7 +53,7 @@ A very rare roll that gives any squishy a special palette and sparkle, independe
 _Avoid_: golden, special
 
 **Moment**:
-The arrival of a shiny or legendary squishy, which the mod announces with a toast, a sparkle in its slot and, if the user turned it on, a chime. It shows as NEW in the Squishydex until viewed.
+A shiny or legendary squishy turning up for an agent. The first time the user meets that squishy, the Squishydex marks it NEW until they view it.
 _Avoid_: event, alert, drop
 
 **Partner**:

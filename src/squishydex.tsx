@@ -17,7 +17,7 @@ import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
 import { bareAccessory, legendaryKey, speciesSquishy, squishyOf } from './roller'
 import type { AssembledSquishy, LegendarySquishy } from './roller'
-import { BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, PICTURE_ROWS, buttonColumns, linedUp } from './slots'
+import { BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, PICTURE_ROWS, buttonColumns, linedUp, nameCut } from './slots'
 import { SQUISHYDEX_KEY, isNewIn, partnerPalettes, progressOf, recordMet, recordViewed, speciesKey, squishydexFrom, variantOfKey } from './squishydex-record'
 import type { DexPlace, MetLegendary, MetSpecies, Squishydex } from './squishydex-record'
 
@@ -90,10 +90,6 @@ function drawnSpecies(species: Species, met: MetSpecies | undefined, palette?: s
   return speciesSquishy(KIT, species, palette ?? first)
 }
 
-/** A Name cut to fit a place, ending in … when it's longer. */
-function nameCut(name: string): string {
-  return name.length > BAND_NAME_COLUMNS ? `${name.slice(0, BAND_NAME_COLUMNS - 1)}…` : name
-}
 
 /** A number in the Squishydex as it reads: #007. */
 function numbered(number: number): string {

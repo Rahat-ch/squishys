@@ -312,10 +312,10 @@ function changed(under: ReturnType<typeof compose>, over: ReturnType<typeof comp
   return { at, colors }
 }
 
-const GLINT_GOLD = 0xffaa00
+const GLINT_WARM = 0xffaa00
 const SPARKLY_KIT: Kit = {
   ...TEST_KIT,
-  palettes: TEST_KIT.palettes.map(palette => ({ ...palette, shiny: { ...palette.shiny, sparkle: GLINT_GOLD } })),
+  palettes: TEST_KIT.palettes.map(palette => ({ ...palette, shiny: { ...palette.shiny, sparkle: GLINT_WARM } })),
 }
 
 test('a sparkling squishy shows glints over its picture that move from frame to frame, in SPARKLE_COLOR where its colors give none', () => {
@@ -335,10 +335,10 @@ test('a sparkling squishy shows glints over its picture that move from frame to 
 test('a shiny’s glints take its palette’s sparkle color when it has one', () => {
   const { colors } = changed(compose(SPARKLY_KIT, SHINY, { state: 'asleep', frame: 0 }), compose(SPARKLY_KIT, SHINY, { state: 'asleep', frame: 0, sparkle: true }))
 
-  expect([...colors]).toEqual([GLINT_GOLD])
+  expect([...colors]).toEqual([GLINT_WARM])
 })
 
-test('glints are drawn at the picture’s own size: two pluses at full size, twice as long at 2×, lone pixels on the mini', () => {
+test('glints are drawn at the picture’s own size: two pluses at full size, twice as long at 2×, lone pixels that twinkle on the mini', () => {
   const glintsAt = (size: Size, frame: number) =>
     changed(compose(TEST_KIT, SHINY, { state: 'asleep', frame, size }), compose(TEST_KIT, SHINY, { state: 'asleep', frame, size, sparkle: true })).at.length
 
@@ -346,7 +346,8 @@ test('glints are drawn at the picture’s own size: two pluses at full size, twi
   expect(glintsAt('full', 0)).toBe(2)
   expect(glintsAt('full', 1)).toBe(2 * 5)
   expect(glintsAt('double', 1)).toBe(2 * 9)
-  expect(glintsAt('mini', 1)).toBe(2)
+  expect(glintsAt('mini', 0)).toBe(2)
+  expect(glintsAt('mini', 1)).toBe(0)
 })
 
 test('a sparkling squishy that Needs you keeps its “!” bubble on top of the glints', () => {

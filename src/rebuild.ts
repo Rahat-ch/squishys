@@ -12,7 +12,9 @@ import type { Agent, Squishy } from '../types'
 import { KIT } from './kit'
 import { squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
-import { cryptoRandom, roll, squishyOf } from './roller'
+import { isMoment } from './moments'
+import { cryptoRandom, forcedOdds, roll, squishyOf } from './roller'
+import type { Odds } from './roller'
 import { liveSquishys } from './slots'
 import { recordMet } from './squishydex-record'
 import type { StoreCalls } from './squishydex-record'
@@ -59,6 +61,35 @@ export function withRemembered(remembered: Remembered, seen: readonly Pick<Agent
   return [...older, ...latest].slice(-REMEMBERED_AGENTS)
 }
 
+/**
+ * An agent just given a freshly rolled squishy, and whether
+ * SQUISHYS_FORCE_ROLL forced it to come up shiny or legendary: such a roll
+ * still toasts, sparkles and chimes, but the Squishydex never records it.
+ * A roll forced plain counts as any other, since it reaches nothing the
+ * standard odds don't (and it's what keeps the mod's tests from stray shinies).
+ */
+export type Rolled = { agent: Agent; forced: boolean }
+
+/** Whether a roll made with these odds was forced to come up shiny or legendary. */
+export function forcedMoment(odds: Partial<Odds> | undefined, squishy: Squishy): boolean {
+  return odds !== undefined && isMoment(squishy)
+}
+
+/**
+ * The agents the last rebuild gave fresh rolls, for the agent tracker's
+ * classic.SessionStart hook (outside this one) to announce a shiny or
+ * legendary among them, as it does a spawn's: `$` stays in each hook's file,
+ * so they're handed over as plain data. Restored squishys are never here.
+ */
+let freshRolls: Rolled[] = []
+
+/** The agents the last rebuild gave fresh rolls, handed over once. */
+export function takeFreshRolls(): readonly Rolled[] {
+  const taken = freshRolls
+  freshRolls = []
+  return taken
+}
+
 /** The last write to REMEMBERED_KEY this process has queued. */
 let remembering: Promise<void> = Promise.resolve()
 
@@ -87,9 +118,10 @@ export function registerRebuild(on: On): void {
     const added = await rebuild($)
     const started = await next(e)
     // Met: the Squishydex records the rebuilt squishys once the event has
-    // gone on. It keeps a squishy's first-met date, so a restored one
-    // changes nothing.
-    await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, added)
+    // gone on, all but forced rolls. It keeps a squishy's first-met date,
+    // so a restored one changes nothing.
+    const met = added.filter(({ forced }) => !forced).map(({ agent }) => agent.squishy)
+    await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, met)
     return started
   })
 }
@@ -101,9 +133,13 @@ export function registerRebuild(on: On): void {
  * a fresh roll that repeats no live squishy (see liveSquishys), no
  * restored one and not the partner's.
  * A store that can't be read means fresh rolls, never no roster.
- * Returns the squishys of the agents it added.
+ * SQUISHYS_FORCE_ROLL forces the fresh rolls, as it does the tracker's.
+ * Returns the agents it added, each with whether its roll was forced (a
+ * restored squishy's never was), and keeps the fresh rolls for the
+ * tracker to announce (takeFreshRolls).
  */
-async function rebuild($: EngineInterface): Promise<Squishy[]> {
+async function rebuild($: EngineInterface): Promise<Rolled[]> {
+  freshRolls = []
   let listed: AgentInfo[]
   try {
     listed = await $.agent.list()
@@ -117,6 +153,10 @@ async function rebuild($: EngineInterface): Promise<Squishy[]> {
     remembered = rememberedFrom(await $.store.get(REMEMBERED_KEY))
     partner = partnerFrom(await $.store.get(PARTNER_KEY))
   } catch {}
+  let odds: ReturnType<typeof forcedOdds>
+  try {
+    odds = forcedOdds(await $.env.get('SQUISHYS_FORCE_ROLL'))
+  } catch {}
   const keyOf = new Map(remembered)
   const restored = new Map<string, Squishy>()
   for (const info of listed) {
@@ -124,6 +164,7 @@ async function rebuild($: EngineInterface): Promise<Squishy[]> {
     if (squishy !== undefined) restored.set(info.id, squishy)
   }
   let added: Agent[] = []
+  const fresh = new Set<string>()
   // Against the roster as it is now, which a spawn may have joined meanwhile
   await update($, agents, current => {
     const missing = listed.filter(info => !current.some(agent => agent.id === info.id))
@@ -132,8 +173,9 @@ async function rebuild($: EngineInterface): Promise<Squishy[]> {
     added = missing.map((info): Agent => {
       let squishy = restored.get(info.id)
       if (squishy === undefined) {
-        squishy = roll(KIT, { live, rng: cryptoRandom })
+        squishy = roll(KIT, { live, rng: cryptoRandom, ...(odds !== undefined ? { odds } : {}) })
         live.push(squishy)
+        fresh.add(info.id)
       }
       return { id: info.id, description: info.description, squishy, state: stateOfStatus(info.status) }
     })
@@ -141,5 +183,7 @@ async function rebuild($: EngineInterface): Promise<Squishy[]> {
   })
   if (added.length === 0) return []
   await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, added)
-  return added.map(agent => agent.squishy)
+  const rolled = added.map(agent => ({ agent, forced: fresh.has(agent.id) && forcedMoment(odds, agent.squishy) }))
+  freshRolls = rolled.filter(({ agent }) => fresh.has(agent.id))
+  return rolled
 }

@@ -47,9 +47,11 @@ const LEANING_ROWS = 7
  * picture once it is at its final size, so the mark keeps its shape there.
  */
 export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full', sparkle = false }: Pose): Pixels {
-  const picture = posedPicture(kit, squishy, state, frame)
+  const { grids, colors } = gridsOf(kit, squishy)
+  const picture = posedPicture(grids, colors, state, frame)
   const sized = size === 'double' ? doubled(picture) : size === 'mini' ? halved(picture) : picture
-  const sparkled = sparkle ? withGlints(sized, frame, sparkleColor(kit, squishy)) : sized
+  // A shiny's colors may give its glints their own color
+  const sparkled = sparkle ? withGlints(sized, frame, colors.sparkle ?? SPARKLE_COLOR) : sized
   return state === 'needsYou' ? withBubble(sparkled) : sparkled
 }
 
@@ -61,8 +63,7 @@ export function stillPixels(kit: Kit, squishy: Squishy): Pixels {
   return compose(kit, squishy, { state: 'working', frame: 0 })
 }
 
-function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: number): Pixels {
-  const { grids, colors } = gridsOf(kit, squishy)
+function posedPicture(grids: readonly Grid[], colors: Colors, state: SquishyState, frame: number): Pixels {
   const still = painted(grids, colors)
   switch (state) {
     case 'working':
@@ -137,7 +138,7 @@ function withBubble(pixels: Pixels): Pixels {
 
 /**
  * The color of a sparkle's glints where the squishy's colors give none: a
- * warm gold. A shiny's palette may give its own, as `sparkle`.
+ * warm yellow. A shiny's colors may give their own, as `sparkle`.
  */
 export const SPARKLE_COLOR = 0xffd23f
 
@@ -158,20 +159,18 @@ const GLINTS_AT_ONCE = 2
 const GLINT_STEP = GLINT_SPOTS.length / GLINTS_AT_ONCE
 const EIGHTHS = 8
 
-/** The color a squishy's glints show in: its shiny colors' `sparkle` when it has one. */
-function sparkleColor(kit: Kit, squishy: Squishy): number {
-  return (squishy.shiny ? gridsOf(kit, squishy).colors.sparkle : undefined) ?? SPARKLE_COLOR
-}
-
 /**
  * The picture, at whatever size, with its glints at this frame. Each glint
  * shows for two frames, a lone pixel and then a plus whose arms are as
- * long as one pixel of the kit's art at this size (none on the mini), then
- * the glints move on to the next spots.
+ * long as one pixel of the kit's art at this size, then the glints move on
+ * to the next spots. On the mini, where a pixel of the art is less than
+ * one, the plus is nothing: the glint twinkles out.
  */
 function withGlints(pixels: Pixels, frame: number, color: number): Pixels {
   const side = pixels.length
-  const arm = frame % 2 === 0 ? 0 : Math.floor(side / PICTURE_SIZE)
+  const reach = Math.floor(side / PICTURE_SIZE)
+  if (frame % 2 === 1 && reach === 0) return pixels
+  const arm = frame % 2 === 0 ? 0 : reach
   const lit = new Set<number>()
   for (let glint = 0; glint < GLINTS_AT_ONCE; glint += 1) {
     const spot = GLINT_SPOTS[(Math.floor(frame / 2) + glint * GLINT_STEP) % GLINT_SPOTS.length]

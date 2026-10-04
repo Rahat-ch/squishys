@@ -89,6 +89,30 @@ const MINI_COLUMNS = Math.floor(PICTURE_COLUMNS / 2)
 const MINI_ROWS = Math.ceil(MINI_COLUMNS / 2)
 /** The most of a squishy's Name the band shows. */
 export const BAND_NAME_COLUMNS = 10
+/**
+ * The columns text takes in a terminal: an emoji (a shiny's ✨ among them)
+ * takes two, any other character one.
+ */
+export function textColumns(text: string): number {
+  return [...text].reduce((columns, character) => columns + (isWide(character) ? 2 : 1), 0)
+}
+
+function isWide(character: string): boolean {
+  const code = character.codePointAt(0) ?? 0
+  return (code >= 0x2600 && code <= 0x27bf) || code >= 0x1f000
+}
+
+/** A Name cut to BAND_NAME_COLUMNS columns, ending in … when it's longer. */
+export function nameCut(name: string): string {
+  if (textColumns(name) <= BAND_NAME_COLUMNS) return name
+  let cut = ''
+  for (const character of name) {
+    if (textColumns(cut + character) > BAND_NAME_COLUMNS - 1) break
+    cut += character
+  }
+  return `${cut}…`
+}
+
 /** A squishy's place in the band, with its mini picture over its Name. */
 export const BAND_PICTURE_COLUMNS = Math.max(MINI_COLUMNS, BAND_NAME_COLUMNS)
 /** The rows the band needs for its mini pictures; in fewer it shows the Names alone. */

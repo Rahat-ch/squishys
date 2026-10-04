@@ -10,6 +10,7 @@ import type { Size } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Kit } from '../src/kit'
 import { halfBlocks } from '../src/raster'
+import { SHINY_MARK } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { SQUISHY_STATES, moves } from '../src/states'
 import type { SquishyState } from '../src/states'
@@ -59,11 +60,14 @@ export function stateIn(cells: unknown, squishy: Squishy): SquishyState | undefi
  * tried.
  */
 export function squishyIn(cells: unknown, name: string, state: SquishyState = 'working'): Squishy {
-  const wanted = name.toLowerCase()
+  // A shiny's Name starts with SHINY_MARK
+  const shiny = name.startsWith(SHINY_MARK)
+  const bare = shiny ? name.slice(SHINY_MARK.length) : name
+  const wanted = bare.toLowerCase()
   const fits = (sofar: string, syllable: string) => wanted.startsWith(sofar + syllable)
   const candidates: Squishy[] = []
-  for (const shiny of [false, true]) {
-    for (const legendary of KIT.legendaries.filter(each => each.name === name)) {
+  {
+    for (const legendary of KIT.legendaries.filter(each => each.name === bare)) {
       candidates.push({ kind: 'legendary', legendary: legendary.id, shiny, name, key: legendary.id })
     }
     for (const body of KIT.bodies.filter(part => fits('', part.syllable))) {

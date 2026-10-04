@@ -5,6 +5,7 @@
 
 import { everySpecies } from './kit'
 import type { Kit, Species } from './kit'
+import { isMoment } from './moments'
 import type { Squishy } from './roller'
 
 /** Where the store keeps the Squishydex. */
@@ -104,13 +105,13 @@ export function hasMet(dex: Squishydex, squishy: Squishy): boolean {
  * A shiny or legendary met for the first time (a new shiny variant, a new
  * legendary, a legendary's first shiny) marks its place NEW until its card
  * is viewed (withViewed). A plain squishy never does, even of a new
- * species: NEW is for the rare moments, and the partner is never one.
+ * species: NEW is for Moments, and the partner is never one.
  */
 export function withMet(dex: Squishydex, met: readonly Squishy[], now: number): Squishydex {
   const species = { ...dex.species }
   const legendaries = { ...dex.legendaries }
   for (const squishy of met) {
-    const isNew = (squishy.shiny || squishy.kind === 'legendary') && !hasMet({ species, legendaries }, squishy)
+    const isNew = isMoment(squishy) && !hasMet({ species, legendaries }, squishy)
     if (squishy.kind === 'legendary') {
       const known = legendaries[squishy.legendary]
       const shiny = known?.shiny ?? (squishy.shiny ? now : undefined)
@@ -141,16 +142,17 @@ export function isNewIn(dex: Squishydex, place: DexPlace): boolean {
 
 /** The Squishydex with a place's card viewed: no longer NEW. */
 export function withViewed(dex: Squishydex, place: DexPlace): Squishydex {
-  if ('species' in place) {
-    const known = dex.species[place.species]
-    if (known === undefined) return dex
-    const { isNew: _, ...entry } = known
-    return { ...dex, species: { ...dex.species, [place.species]: entry } }
-  }
-  const known = dex.legendaries[place.legendary]
-  if (known === undefined) return dex
+  return 'species' in place
+    ? { ...dex, species: viewedIn(dex.species, place.species) }
+    : { ...dex, legendaries: viewedIn(dex.legendaries, place.legendary) }
+}
+
+/** The entries with one entry's NEW mark taken off. */
+function viewedIn<E extends { isNew?: true }>(entries: Record<string, E>, key: string): Record<string, E> {
+  const known = entries[key]
+  if (known === undefined) return entries
   const { isNew: _, ...entry } = known
-  return { ...dex, legendaries: { ...dex.legendaries, [place.legendary]: entry } }
+  return { ...entries, [key]: entry as E }
 }
 
 /**
