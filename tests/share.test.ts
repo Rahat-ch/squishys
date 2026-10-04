@@ -14,7 +14,8 @@ import { legendaryKey, speciesSquishy, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { REPO_URL, SHARE_LINK_LABEL, agentShareKey, cardFileName, speciesShareKey } from '../src/share'
 import { speciesKey } from '../src/squishydex-record'
-import { PANE, PARTNERED, finishOf, spawnOf, stubAgentList, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
+import { DEX_COLUMN_GAP, DEX_PLACE_COLUMNS, DEX_PLACE_ROWS } from '../src/squishydex'
+import { PANE, PARTNERED, finishOf, paneSized, spawnOf, stubAgentList, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { decodePng } from './png-reader'
 
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
@@ -300,7 +301,10 @@ test('a legendary’s Squishydex card has no Share', async ($, on) => {
   const [legendary] = KIT.legendaries
   if (legendary === undefined) throw new Error('The kit needs a legendary')
   stubStore(on, { ...PARTNERED, squishydex: { species: {}, legendaries: { [legendary.id]: { met: 0 } } } })
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Room for every place on one page, the legendaries after all the species
+  const places = everySpecies(KIT).length + KIT.legendaries.length
+  const roomy = paneSized({ placement: 'dock', bodyColumns: places * (DEX_PLACE_COLUMNS + DEX_COLUMN_GAP), bodyRows: places * DEX_PLACE_ROWS })
+  const ui = await $.ui.mount({ ...roomy, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'squishydex' })
   await $.ui.press({ plugin: 'squishys', key: `squishydex-pick-${legendaryKey(legendary.id)}` })
 

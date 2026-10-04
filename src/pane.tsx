@@ -30,6 +30,7 @@ import {
   buttonColumns,
   layoutRoster,
   linedUp,
+  slotLabel,
 } from './slots'
 import { moves } from './states'
 
@@ -316,15 +317,16 @@ export function registerPane(on: On): void {
           <Box key={`slot-row-${rowIndex}`} flexDirection="row" columnGap={SLOT_COLUMN_GAP}>
             {row.map((slot, column) => {
               const index = rowIndex * columns + column
+              const hotkey = index < 9 ? String(index + 1) : undefined
               return (
                 <Box key={`slot-${slot.id}`} flexDirection="column" alignItems="center" width={SLOT_COLUMNS}>
                   <Raster key={slot.pictureKey} {...slot.picture} />
                   {/* An agent's press picks its squishy: src/focus.tsx answers it. The partner's leaves the roster be. */}
                   <Button
                     key={slot.pickKey}
-                    {...(index < 9 ? { hotkey: String(index + 1) } : {})}
+                    {...(hotkey === undefined ? {} : { hotkey })}
                     plain
-                    label={slot.name}
+                    label={slotLabel(slot.name, hotkey)}
                     onPress={() => {}}
                   />
                   <Text key={`description-${slot.id}`} dimColor wrap="truncate-end">

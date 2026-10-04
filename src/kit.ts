@@ -3,25 +3,66 @@
 // Pure: nothing here touches Claude Code, so tools outside the mod (the art
 // preview) can read the kit too.
 
-import { PLACEHOLDER_KIT } from './placeholder-kit'
+import { DRAWN_KIT } from './drawn-kit'
 
 /** How seldom a part turns up. */
 export type Rarity = 'common' | 'uncommon' | 'rare'
 
 /**
- * A 16x16 pixel grid: 16 rows, top to bottom, of 16 characters each. Each
- * character is a color key looked up in a palette, and `.` is see-through
- * (in a face or accessory, `.` leaves the part beneath showing).
- *
- * The keys every palette colors:
- * `o` outline, `b` body, `h` highlight, `s` shade,
- * `e` eyes, `c` cheeks, `m` mouth,
- * `a` accessory, `d` accessory shade.
+ * A square pixel grid, PICTURE_SIZE (composer.ts) rows top to bottom, of
+ * as many characters each. Each character is a key for one of the
+ * squishy's colors, and `.` is see-through (in a face or accessory, `.`
+ * leaves the part beneath showing). See KEY_COLORS for the keys.
  */
 export type Grid = readonly string[]
 
-/** The color of each key a grid uses, as 0xRRGGBB. */
-export type Colors = Readonly<Record<string, number>>
+/**
+ * A squishy's four colors, as in a Game Boy Color palette, each 0xRRGGBB.
+ * Eyes and mouth are drawn in the outline color and blush in the dark one.
+ */
+export type Colors = Readonly<{ outline: number; dark: number; base: number; highlight: number }>
+
+/**
+ * A shiny's colors: its own three shades (the outline usually stays), and a
+ * fifth color, sparkle, for its glints.
+ */
+export type ShinyColors = Colors & Readonly<{ sparkle: number }>
+
+/**
+ * Which color each key a grid may use draws in. Accessories use the same
+ * keys, so they come in the squishy's colors too.
+ *
+ * `o` outline, `e` eye and `m` mouth: the outline color. The composer finds
+ * the eyes by their key (to shut them, for one).
+ * `d` dark and `c` cheek (blush): the dark color.
+ * `b` base, the body's fill: the base color.
+ * `h` highlight: the highlight color.
+ * `*` glint: the sparkle color on a shiny, the highlight color otherwise.
+ */
+export const KEY_COLORS = {
+  o: 'outline',
+  e: 'outline',
+  m: 'outline',
+  d: 'dark',
+  c: 'dark',
+  b: 'base',
+  h: 'highlight',
+  '*': 'sparkle',
+} as const satisfies Readonly<Record<string, keyof ShinyColors>>
+
+/** A key a grid may use (besides `.`, see-through). */
+export type GridKey = keyof typeof KEY_COLORS
+
+/** The eyes' key: the composer finds the eyes by it. */
+export const EYE_KEY: GridKey = 'e'
+
+/** The body's fill key: what an eye drawn on nothing gives way to when shut. */
+export const FILL_KEY: GridKey = 'b'
+
+/** The color a key draws in, from a squishy's colors; undefined for a key the kit doesn't use. */
+export function keyColor(colors: ShinyColors, key: string): number | undefined {
+  return Object.hasOwn(KEY_COLORS, key) ? colors[KEY_COLORS[key as GridKey]] : undefined
+}
 
 /** What every part has: an id, a rarity and its fragment of a Name. */
 export type PartBase = {
@@ -41,8 +82,8 @@ export type Face = PartBase & { grid: Grid }
 /** An accessory, drawn over the face. The "none" accessory is all `.`. */
 export type Accessory = PartBase & { grid: Grid }
 
-/** A palette: colors for every key, and the colors a shiny gets instead. */
-export type Palette = PartBase & { colors: Colors; shiny: Colors }
+/** A palette: a squishy's four colors, and the colors a shiny gets instead. */
+export type Palette = PartBase & { colors: Colors; shiny: ShinyColors }
 
 /** A legendary: drawn whole, with a fixed Name and its own colors. */
 export type Legendary = {
@@ -50,7 +91,7 @@ export type Legendary = {
   name: string
   grid: Grid
   colors: Colors
-  shiny: Colors
+  shiny: ShinyColors
 }
 
 /**
@@ -68,8 +109,8 @@ export type Kit = {
   starters: readonly Species[]
 }
 
-/** The kit the mod ships: placeholder art until the real kit is drawn. */
-export const KIT: Kit = PLACEHOLDER_KIT
+/** The kit the mod ships. */
+export const KIT: Kit = DRAWN_KIT
 
 /** Every species the kit can make: each body with each face, in kit order. */
 export function everySpecies(kit: Kit): Species[] {

@@ -2,14 +2,16 @@ import { expect, test } from 'claude-code/testing'
 
 import { PICTURE_SIZE } from '../src/composer'
 import { tinyFace } from '../src/face'
-import type { Grid, Kit } from '../src/kit'
+import type { Colors, Grid, Kit } from '../src/kit'
 import type { Squishy } from '../src/roller'
 
 const BODY = 0x808080
 const EYE = 0x000000
 const CHEEK = 0xff8899
-const MOUTH = 0x993344
 const LEAF = 0x00ff00
+
+// Eyes and mouth share the outline color, blush is the dark shade, and the leaf the highlight
+const GREYS: Colors = { outline: EYE, dark: CHEEK, base: BODY, highlight: LEAF }
 
 /** A grid of one key, apart from the rows given, by row number, each laid in from column `left`. */
 function grid(fill: string, rows: Readonly<Record<number, string>> = {}, left = 0): Grid {
@@ -21,7 +23,7 @@ function grid(fill: string, rows: Readonly<Record<number, string>> = {}, left = 
 
 // Where the test faces sit in the picture
 const TOP = PICTURE_SIZE / 2
-const LEFT = PICTURE_SIZE / 4
+const LEFT = Math.floor(PICTURE_SIZE / 4)
 
 const TEST_KIT: Kit = {
   bodies: [{ id: 'block', rarity: 'common', syllable: 'mo', grid: grid('b') }],
@@ -33,11 +35,11 @@ const TEST_KIT: Kit = {
     { id: 'blank', rarity: 'common', syllable: 'mu', grid: grid('.') },
   ],
   palettes: [
-    { id: 'grey', rarity: 'common', syllable: '', colors: { b: BODY, e: EYE, c: CHEEK, m: MOUTH, a: LEAF }, shiny: { b: BODY, e: EYE, c: CHEEK, m: MOUTH, a: LEAF } },
+    { id: 'grey', rarity: 'common', syllable: '', colors: GREYS, shiny: { ...GREYS, sparkle: LEAF } },
   ],
   // Drawn beside the face, so a crop that strays shows it
-  accessories: [{ id: 'leaf', rarity: 'common', syllable: '', grid: grid('.', { [TOP]: 'aa' }, LEFT - 2) }],
-  legendaries: [{ id: 'mochi', name: 'Mochi', grid: grid('b'), colors: { b: BODY }, shiny: { b: BODY } }],
+  accessories: [{ id: 'leaf', rarity: 'common', syllable: '', grid: grid('.', { [TOP]: 'hh' }, LEFT - 2) }],
+  legendaries: [{ id: 'mochi', name: 'Mochi', grid: grid('b'), colors: GREYS, shiny: { ...GREYS, sparkle: LEAF } }],
   starters: [],
 }
 
@@ -51,7 +53,7 @@ test('the tiny face is the picture where its face part is drawn, shrunk to one r
   expect(tinyFace(TEST_KIT, squishy('smile'))).toEqual([
     [
       { glyph: '▀', color: '#000000', backgroundColor: '#ff8899' },
-      { glyph: '▀', color: '#808080', backgroundColor: '#993344' },
+      { glyph: '▀', color: '#808080', backgroundColor: '#000000' },
       { glyph: '▀', color: '#000000', backgroundColor: '#ff8899' },
     ],
   ])
@@ -61,7 +63,7 @@ test('a face that already fits one row is drawn pixel for pixel', () => {
   expect(tinyFace(TEST_KIT, squishy('dots'))).toEqual([
     [
       { glyph: '▀', color: '#000000', backgroundColor: '#808080' },
-      { glyph: '▀', color: '#808080', backgroundColor: '#993344' },
+      { glyph: '▀', color: '#808080', backgroundColor: '#000000' },
     ],
   ])
 })
@@ -73,7 +75,7 @@ const DARK = 0x806070
 const BASE = 0xf0d0c0
 const ART = 10
 const AT = (PICTURE_SIZE - ART) / 2
-const FOUR_COLORS = { o: OUTLINE, s: DARK, b: BASE, h: 0xffffff, e: OUTLINE, m: OUTLINE, c: DARK }
+const FOUR_COLORS: Colors = { outline: OUTLINE, dark: DARK, base: BASE, highlight: 0xffffff }
 const FOUR_COLOR_KIT: Kit = {
   bodies: [
     {
@@ -85,7 +87,7 @@ const FOUR_COLOR_KIT: Kit = {
   ],
   // Each eye beside a blush, so an eye and a blush share a shrunk block
   faces: [{ id: 'blush', rarity: 'common', syllable: 'chi', grid: grid('.', { [AT + 4]: 'ec....ce', [AT + 5]: 'ec....ce', [AT + 6]: '...mm...' }, AT + 1) }],
-  palettes: [{ id: 'gbc', rarity: 'common', syllable: '', colors: FOUR_COLORS, shiny: FOUR_COLORS }],
+  palettes: [{ id: 'gbc', rarity: 'common', syllable: '', colors: FOUR_COLORS, shiny: { ...FOUR_COLORS, sparkle: 0xffff00 } }],
   accessories: [{ id: 'none', rarity: 'common', syllable: '', grid: grid('.') }],
   legendaries: [],
   starters: [],

@@ -3,9 +3,9 @@
 
 import { expect, test } from 'claude-code/testing'
 
-import { CROWN_COLOR, INK_COLOR, drawCard, shareCard } from '../src/card'
+import { CROWN_COLOR, INK_COLOR, SPARKLE_COLOR, drawCard, shareCard } from '../src/card'
 import type { Card } from '../src/card'
-import { SPARKLE_COLOR, stillPixels } from '../src/composer'
+import { stillPixels } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Pixels } from '../src/raster'
 import { assembledKey, legendaryKey, speciesSquishy, squishyOf } from '../src/roller'

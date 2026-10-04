@@ -3,7 +3,8 @@
 // and never touches Claude Code, so tools outside the mod (the art preview)
 // draw squishys exactly as the mod does.
 
-import type { Colors, Grid, Kit } from './kit'
+import { EYE_KEY, FILL_KEY, KEY_COLORS, keyColor } from './kit'
+import type { Colors, Grid, GridKey, Kit, ShinyColors } from './kit'
 import type { Pixel, Pixels } from './raster'
 import type { Squishy } from './roller'
 import type { SquishyState } from './states'
@@ -12,10 +13,21 @@ import type { SquishyState } from './states'
 export type { SquishyState } from './states'
 
 /**
- * How big to draw: `full` is the 16x16 roster picture, `double` the 32x32
- * focus-view picture, `mini` the 8x8 band picture.
+ * A squishy picture's side in pixels, before any resizing: what the kit
+ * draws, and what every size and pose is worked out from. It is even, so
+ * the mini picture halves it.
+ */
+export const PICTURE_SIZE = 10
+
+/**
+ * How big to draw: `full` is the PICTURE_SIZE square roster picture,
+ * `double` the focus-view picture at twice that, `mini` the band picture
+ * at half.
  */
 export type Size = 'full' | 'double' | 'mini'
+
+/** How many pixels across and down a picture of each size is. */
+export const SIDES: Readonly<Record<Size, number>> = { full: PICTURE_SIZE, double: PICTURE_SIZE * 2, mini: PICTURE_SIZE / 2 }
 
 export type Pose = {
   state: SquishyState
@@ -29,16 +41,16 @@ export type Pose = {
 /** The key that draws nothing in a part's grid, letting what lies beneath show. */
 export const SEE_THROUGH = '.'
 
-/** A squishy picture's side in pixels, before any resizing: what the kit draws. */
-export const PICTURE_SIZE = 16
+/** How many rows from the top lean as a Working squishy wiggles: those above the middle. */
+const LEANING_ROWS = PICTURE_SIZE / 2 - 1
 
-/** How many rows from the top lean as a Working squishy wiggles. */
-const LEANING_ROWS = 7
+/** How wide an Asleep squishy's shut eye is, at least. */
+export const SHUT_EYE_WIDTH = Math.ceil(PICTURE_SIZE / 6)
 
 /**
  * The squishy's picture in a pose. Each pose is made from the squishy's
- * still 16x16 picture, by moving its pixels and drawing over them, so every
- * part and legendary has every pose without art of its own.
+ * still PICTURE_SIZE x PICTURE_SIZE picture, by moving its pixels and drawing over them, so
+ * every part and legendary has every pose without art of its own.
  *
  * `frame` counts the animator's ticks: a Working squishy's wiggle moves
  * every second frame, and a Thinking squishy's bounce every frame.
@@ -46,12 +58,12 @@ const LEANING_ROWS = 7
  * A squishy that Needs you holds still, with its "!" bubble drawn over the
  * picture once it is at its final size, so the mark keeps its shape there.
  */
-export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full', sparkle = false }: Pose): Pixels {
-  const { grids, colors } = gridsOf(kit, squishy)
-  const picture = posedPicture(grids, colors, state, frame)
-  const sized = size === 'double' ? doubled(picture) : size === 'mini' ? halved(picture) : picture
-  // A shiny's colors may give its glints their own color
-  const sparkled = sparkle ? withGlints(sized, frame, colors.sparkle ?? SPARKLE_COLOR) : sized
+export function compose(kit: Kit, squishy: Squishy, pose: Pose): Pixels {
+  const { state, frame, size = 'full', sparkle = false } = pose
+  const painting = paintingOf(kit, squishy)
+  const sized =
+    size === 'mini' ? mini(painting, pose) : size === 'double' ? doubled(posedPicture(painting, pose)) : posedPicture(painting, pose)
+  const sparkled = sparkle ? withGlints(sized, frame, glintColor(painting.colors, squishy.shiny)) : sized
   return state === 'needsYou' ? withBubble(sparkled) : sparkled
 }
 
@@ -63,8 +75,40 @@ export function stillPixels(kit: Kit, squishy: Squishy): Pixels {
   return compose(kit, squishy, { state: 'working', frame: 0 })
 }
 
-function posedPicture(grids: readonly Grid[], colors: Colors, state: SquishyState, frame: number): Pixels {
-  const still = painted(grids, colors)
+/**
+ * Stands in for the eye color in a picture drawn only to find where the
+ * eyes went; it is no color, so it never reaches a picture shown.
+ */
+const EYE_MARK = 0x1000000
+
+/** The z an Asleep squishy shows in the mini: a pixel, top right. */
+const MINI_Z: Grid = ['#'.padStart(PICTURE_SIZE / 2, '.')]
+
+/**
+ * The band's half-size picture, shrunk from the pose the way a pixel artist
+ * would: see shrunk. The eyes are found by drawing the pose a second time
+ * with the eyes marked.
+ */
+function mini(painting: Painting, pose: Pose): Pixels {
+  const { colors } = painting
+  const posed = posedPicture(painting, pose, { showZ: false })
+  const marked = posedPicture(painting, pose, { showZ: false, eyeColor: EYE_MARK })
+  const small = shrunk(posed, marked, colors.outline, colors[KEY_COLORS[EYE_KEY]])
+  return pose.state === 'asleep' ? overlaid(small, MINI_Z, { '#': ZZZ_COLOR }) : small
+}
+
+/** What a pose is drawn with besides the squishy's own art. */
+type PoseMarks = {
+  /** The eyes' color, in place of their own: EYE_MARK, to find where they went. */
+  eyeColor?: number
+  /** Whether an Asleep squishy shows its z; it does unless told not to. */
+  showZ?: boolean
+}
+
+function posedPicture({ grids, colors }: Painting, { state, frame }: Pose, { eyeColor, showZ = true }: PoseMarks = {}): Pixels {
+  // Colors that stand in for their keys' own, by key
+  const overrides: KeyOverrides = eyeColor === undefined ? {} : { [EYE_KEY]: eyeColor }
+  const still = painted(grids, colors, { overrides })
   switch (state) {
     case 'working':
       // A 2-frame wiggle, upright then leaning, each frame held for two ticks
@@ -74,8 +118,10 @@ function posedPicture(grids: readonly Grid[], colors: Colors, state: SquishyStat
       // squishy differs from a Working one even standing still. The art keeps
       // its bottom row clear more often than its top one, so down loses less.
       return frame % 2 === 0 ? lowered(still, 1) : still
-    case 'asleep':
-      return overlaid(shutEyes(grids, colors), Z_GLYPH, { '#': ZZZ_COLOR })
+    case 'asleep': {
+      const shut = shutEyes(grids, colors, overrides)
+      return showZ ? overlaid(shut, Z_GLYPH, { '#': ZZZ_COLOR }) : shut
+    }
     case 'squished':
       return flattened(still)
     default:
@@ -97,12 +143,8 @@ function flattened(pixels: Pixels): Pixels {
 /** The color of an Asleep squishy's z, the same for every palette. */
 export const ZZZ_COLOR = 0x88aaee
 
-/** The z an Asleep squishy shows, top right: `#` is drawn. */
-const Z_GLYPH: Grid = [
-  '............###.',
-  '.............#..',
-  '............###.',
-]
+/** The z an Asleep squishy shows, top right, a pixel in from the edge: `#` is drawn. */
+const Z_GLYPH: Grid = ['###.', '.#..', '###.'].map(row => row.padStart(PICTURE_SIZE, '.'))
 
 /**
  * The colors of a squishy's "!" bubble when it Needs you, the same for every
@@ -124,8 +166,9 @@ const BUBBLE_COLORS: Readonly<Record<string, number>> = { k: RING_COLOR, w: BUBB
 const BUBBLE: Grid = ['kkkkk', 'kw!wk', 'kw!wk', 'kwwwk', 'kw!wk', 'kkkkk']
 const COMPACT_BUBBLE: Grid = ['kkk', 'k!k', 'kkk', 'k!k', 'kkk']
 const TINY_BUBBLE: Grid = ['kkk', 'k!k', 'kkk']
-const BUBBLE_FROM = 16
-const COMPACT_BUBBLE_FROM = 8
+// In PICTURE_SIZE terms: the whole bubble at 2x, the compact one at full size, the dot on the mini
+const BUBBLE_FROM = SIDES.double
+const COMPACT_BUBBLE_FROM = SIDES.full
 
 /** The picture, at whatever size, with the "!" bubble of a squishy that Needs you. */
 function withBubble(pixels: Pixels): Pixels {
@@ -137,10 +180,16 @@ function withBubble(pixels: Pixels): Pixels {
 }
 
 /**
- * The color of a sparkle's glints where the squishy's colors give none: a
- * warm yellow. A shiny's colors may give their own, as `sparkle`.
+ * The color of a glint over each pixel, the one place that tells a shiny's
+ * glints from any other's. A shiny's are its fifth color, sparkle. Anything
+ * else that sparkles (a legendary, as it appears) keeps to its four colors:
+ * its highlight, or its base where it lands on its highlight (the Great
+ * Xiaolongbao's crown, say), so a glint never vanishes into what's beneath.
  */
-export const SPARKLE_COLOR = 0xffd23f
+function glintColor(colors: ShinyColors, shiny: boolean): (beneath: Pixel) => number {
+  if (shiny) return () => colors.sparkle
+  return beneath => (beneath === colors.highlight ? colors.base : colors.highlight)
+}
 
 /**
  * Where glints show, as eighths of the picture's side (row, column):
@@ -166,7 +215,7 @@ const EIGHTHS = 8
  * to the next spots. On the mini, where a pixel of the art is less than
  * one, the plus is nothing: the glint twinkles out.
  */
-function withGlints(pixels: Pixels, frame: number, color: number): Pixels {
+function withGlints(pixels: Pixels, frame: number, colorOver: (beneath: Pixel) => number): Pixels {
   const side = pixels.length
   const reach = Math.floor(side / PICTURE_SIZE)
   if (frame % 2 === 1 && reach === 0) return pixels
@@ -183,7 +232,7 @@ function withGlints(pixels: Pixels, frame: number, color: number): Pixels {
       lit.add(row * side + column + by)
     }
   }
-  return pixels.map((line, row) => line.map((pixel, column) => (lit.has(row * side + column) ? color : pixel)))
+  return pixels.map((line, row) => line.map((pixel, column) => (lit.has(row * side + column) ? colorOver(pixel) : pixel)))
 }
 
 /** Each key of a glyph as a `by` x `by` block. */
@@ -204,17 +253,23 @@ function overlaid(pixels: Pixels, glyph: Grid, colors: Readonly<Record<string, n
 /**
  * The picture with its eyes shut: wherever an eye shows, what lies beneath
  * it shows instead (the body color where nothing does, as on a legendary),
- * and each eye becomes a line along its bottom row, at least three wide.
+ * and each eye becomes a line along its bottom row, at least SHUT_EYE_WIDTH
+ * wide, widening away from the middle so two eyes stay apart.
  */
-function shutEyes(grids: readonly Grid[], colors: Colors): Pixels {
-  const lidded = painted(grids, colors, { eyesShut: true })
-  const eye = colors.e
-  if (eye === undefined) return lidded
+function shutEyes(grids: readonly Grid[], colors: ShinyColors, overrides: KeyOverrides): Pixels {
+  const lidded = painted(grids, colors, { eyesShut: true, overrides })
+  const eye = overrides[EYE_KEY] ?? colors[KEY_COLORS[EYE_KEY]]
+  const middle = (PICTURE_SIZE - 1) / 2
   const lines = eyesOf(grids).map(cells => {
     const row = Math.max(...cells.map(([at]) => at))
     let left = Math.min(...cells.map(([, column]) => column))
     let right = Math.max(...cells.map(([, column]) => column))
-    if (left === right) [left, right] = [left - 1, right + 1]
+    // Widen a pixel at a time, outward first, then inward, and so on
+    const leftOfMiddle = (left + right) / 2 < middle
+    for (let outward = true; right - left + 1 < SHUT_EYE_WIDTH; outward = !outward) {
+      if (outward === leftOfMiddle) left -= 1
+      else right += 1
+    }
     return { row, left, right }
   })
   return lidded.map((pixels, row) =>
@@ -228,7 +283,7 @@ type Cell = readonly [row: number, column: number]
 
 /** Each eye: the pixels where an eye shows, grouped into touching sets (corners count). */
 function eyesOf(grids: readonly Grid[]): Cell[][] {
-  const showing = (row: number, column: number) => topKey(grids, row, column) === 'e'
+  const showing = (row: number, column: number) => topKey(grids, row, column) === EYE_KEY
   // Which pixels are in an eye found so far, by row * PICTURE_SIZE + column
   const seen: boolean[] = []
   const eyes: Cell[][] = []
@@ -260,12 +315,12 @@ const NEIGHBORS: readonly Cell[] = [
   [1, -1], [1, 0], [1, 1],
 ]
 
-/** The key that shows at a pixel: the topmost grid's that isn't `.`. */
+/** The key that shows at a pixel: the topmost grid's that isn't see-through. */
 function topKey(grids: readonly Grid[], row: number, column: number): string {
-  let shown = '.'
+  let shown = SEE_THROUGH
   for (const grid of grids) {
-    const key = grid[row]?.[column] ?? '.'
-    if (key !== '.') shown = key
+    const key = grid[row]?.[column] ?? SEE_THROUGH
+    if (key !== SEE_THROUGH) shown = key
   }
   return shown
 }
@@ -281,10 +336,12 @@ function lowered(pixels: Pixels, by: number): Pixels {
 }
 
 /**
- * What the 16x16 picture is painted from: body, then face, then accessory
- * (or a legendary's one grid), and the squishy's colors.
+ * What a squishy's pictures are painted from: body, then face, then
+ * accessory (or a legendary's one grid), and its colors.
  */
-function gridsOf(kit: Kit, squishy: Squishy): { grids: readonly Grid[]; colors: Colors } {
+type Painting = { grids: readonly Grid[]; colors: ShinyColors }
+
+function paintingOf(kit: Kit, squishy: Squishy): Painting {
   if (squishy.kind === 'legendary') {
     const legendary = partOf(kit.legendaries, squishy.legendary, 'legendary')
     return { grids: [legendary.grid], colors: colorsFor(legendary, squishy.shiny) }
@@ -296,9 +353,12 @@ function gridsOf(kit: Kit, squishy: Squishy): { grids: readonly Grid[]; colors: 
   return { grids: [body.grid, face.grid, accessory.grid], colors: colorsFor(palette, squishy.shiny) }
 }
 
-/** A palette's or legendary's colors, or its shiny ones for a shiny squishy. */
-function colorsFor(source: { colors: Colors; shiny: Colors }, shiny: boolean): Colors {
-  return shiny ? source.shiny : source.colors
+/**
+ * A palette's or legendary's colors, or its shiny ones for a shiny squishy.
+ * Only a shiny sparkles: elsewhere a glint is just highlight.
+ */
+function colorsFor(source: { colors: Colors; shiny: ShinyColors }, shiny: boolean): ShinyColors {
+  return shiny ? source.shiny : { ...source.colors, sparkle: source.colors.highlight }
 }
 
 function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind: string): T {
@@ -307,15 +367,24 @@ function partOf<T extends { id: string }>(parts: readonly T[], id: string, kind:
   return part
 }
 
+/** Colors that stand in for some keys' own (KEY_COLORS), by key. */
+type KeyOverrides = Readonly<Partial<Record<GridKey, number>>>
+
 /**
- * Lays grids over one another, the last on top; `.` lets the one beneath
- * show. Art it can't draw (a grid of the wrong size, a key the colors don't
- * cover) throws, so the kit's tests catch it rather than a gap in a picture.
+ * Lays grids over one another, the last on top; see-through lets the one
+ * beneath show. Each key draws in its color from KEY_COLORS, or its color in
+ * `overrides`. Art it can't draw (a grid of the wrong size, a key the kit
+ * doesn't use) throws, so the kit's tests catch it rather than a gap in a
+ * picture.
  *
- * With `eyesShut`, eye pixels (`e`) are passed over like `.`, and where only
- * eyes were drawn the body color fills in.
+ * With `eyesShut`, eye pixels are passed over like see-through, and where
+ * only eyes were drawn the body's fill shows instead.
  */
-function painted(grids: readonly Grid[], colors: Colors, { eyesShut = false } = {}): Pixels {
+function painted(
+  grids: readonly Grid[],
+  colors: ShinyColors,
+  { eyesShut = false, overrides = {} }: { eyesShut?: boolean; overrides?: KeyOverrides } = {},
+): Pixels {
   for (const grid of grids) {
     if (grid.length !== PICTURE_SIZE || grid.some(line => line.length !== PICTURE_SIZE)) {
       throw new Error(`A grid is not ${PICTURE_SIZE}x${PICTURE_SIZE}: ${JSON.stringify(grid)}`)
@@ -325,10 +394,10 @@ function painted(grids: readonly Grid[], colors: Colors, { eyesShut = false } = 
     Array.from({ length: PICTURE_SIZE }, (_, column) => {
       let pixel: Pixel = null
       for (const grid of grids) {
-        let key = grid[row]?.[column] ?? '.'
-        if (key === 'e' && eyesShut) key = pixel === null ? 'b' : '.'
-        if (key === '.') continue
-        const color = colors[key]
+        let key = grid[row]?.[column] ?? SEE_THROUGH
+        if (key === EYE_KEY && eyesShut) key = pixel === null ? FILL_KEY : SEE_THROUGH
+        if (key === SEE_THROUGH) continue
+        const color = overrides[key as GridKey] ?? keyColor(colors, key)
         if (color === undefined) throw new Error(`The colors have no color for "${key}"`)
         pixel = color
       }
@@ -346,26 +415,48 @@ function doubled(pixels: Pixels): Pixels {
 }
 
 /**
- * Each 2x2 block as one pixel: drawn where at least half the block is,
- * in the block's most common color (the first met on a tie).
+ * The picture at half size, each 2x2 block one pixel, redrawn the way a
+ * pixel artist would shrink it, since at this size a face is a pixel or
+ * two: a pixel is drawn where at least half its block is; the edge of the
+ * drawn shape is outlined again; a block holding any of an eye (where
+ * `marked` has EYE_MARK) keeps the eye; and the rest takes the block's most
+ * common fill color, the lighter on a tie, so a mouth or a line in the
+ * outline color gives way to the fill.
  */
-function halved(pixels: Pixels): Pixels {
-  return Array.from({ length: pixels.length / 2 }, (_, row) =>
-    Array.from({ length: (pixels[0]?.length ?? 0) / 2 }, (_, column) => {
-      const block = [
-        pixels[row * 2]?.[column * 2],
-        pixels[row * 2]?.[column * 2 + 1],
-        pixels[row * 2 + 1]?.[column * 2],
-        pixels[row * 2 + 1]?.[column * 2 + 1],
-      ].filter((pixel): pixel is number => typeof pixel === 'number')
-      if (block.length < 2) return null
-      let best = block[0] ?? null
-      let bestCount = 0
-      for (const pixel of block) {
-        const count = block.filter(other => other === pixel).length
-        if (count > bestCount) [best, bestCount] = [pixel, count]
-      }
-      return best
+function shrunk(pixels: Pixels, marked: Pixels, outline: number, eye: number): Pixels {
+  const half = pixels.length / 2
+  const blockOf = (from: Pixels, row: number, column: number): Pixel[] =>
+    [from[row * 2], from[row * 2 + 1]].flatMap(line => [line?.[column * 2] ?? null, line?.[column * 2 + 1] ?? null])
+  const drawn = Array.from({ length: half }, (_, row) =>
+    Array.from({ length: half }, (_, column) => blockOf(pixels, row, column).filter(pixel => pixel !== null).length >= 2),
+  )
+  const isDrawn = (row: number, column: number) => drawn[row]?.[column] === true
+  return drawn.map((line, row) =>
+    line.map((on, column) => {
+      if (!on) return null
+      const edge = !isDrawn(row - 1, column) || !isDrawn(row + 1, column) || !isDrawn(row, column - 1) || !isDrawn(row, column + 1)
+      if (edge) return outline
+      if (blockOf(marked, row, column).includes(EYE_MARK)) return eye
+      const fills = blockOf(pixels, row, column).filter((pixel): pixel is number => pixel !== null && pixel !== outline)
+      return mostCommon(fills) ?? outline
     }),
   )
+}
+
+/** The color that turns up most often, the lighter on a tie; undefined for none. */
+function mostCommon(colors: readonly number[]): number | undefined {
+  let best: number | undefined
+  let bestCount = 0
+  for (const color of colors) {
+    const count = colors.filter(other => other === color).length
+    if (count > bestCount || (count === bestCount && best !== undefined && lightness(color) > lightness(best))) {
+      ;[best, bestCount] = [color, count]
+    }
+  }
+  return best
+}
+
+/** How light a color looks: its luma, weighting green most and blue least. */
+function lightness(color: number): number {
+  return 0.299 * ((color >> 16) & 0xff) + 0.587 * ((color >> 8) & 0xff) + 0.114 * (color & 0xff)
 }

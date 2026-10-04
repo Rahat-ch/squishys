@@ -13,8 +13,14 @@ import type { SquishyState } from './states'
  */
 export const PICTURE_COLUMNS = PICTURE_SIZE
 export const PICTURE_ROWS = Math.ceil(PICTURE_SIZE / 2)
-/** A slot's width: its squishy's picture. */
-export const SLOT_COLUMNS = PICTURE_COLUMNS
+/** The narrowest a slot is, so its Name has room even beside a small picture. */
+export const SLOT_MIN_COLUMNS = 14
+/**
+ * A slot's width: its squishy's picture, centered, but at least
+ * SLOT_MIN_COLUMNS. A Name too long for it is cut to fit (`slotLabel`); the
+ * focus view and the Squishydex card show it whole.
+ */
+export const SLOT_COLUMNS = Math.max(PICTURE_COLUMNS, SLOT_MIN_COLUMNS)
 /**
  * A slot's height: the picture, then its name, its description and a row
  * for the mark on the squishy of the agent open in the main view.
@@ -25,11 +31,11 @@ export const SLOT_COLUMN_GAP = 2
 /** The rows between rows of slots. */
 export const SLOT_ROW_GAP = 1
 /**
- * The columns a Button takes as drawn: its label, after the `x: ` its
- * hotkey draws before it.
+ * The columns a Button takes as drawn: its label (in terminal columns, see
+ * textColumns), after the `x: ` its hotkey draws before it.
  */
 export function buttonColumns(label: string, hotkey?: string): number {
-  return label.length + (hotkey === undefined ? 0 : hotkey.length + 2)
+  return textColumns(label) + (hotkey === undefined ? 0 : textColumns(hotkey) + 2)
 }
 
 /**
@@ -102,15 +108,26 @@ function isWide(character: string): boolean {
   return (code >= 0x2600 && code <= 0x27bf) || code >= 0x1f000
 }
 
-/** A Name cut to BAND_NAME_COLUMNS columns, ending in … when it's longer. */
-export function nameCut(name: string): string {
-  if (textColumns(name) <= BAND_NAME_COLUMNS) return name
+/**
+ * A Name cut to `columns` terminal columns (BAND_NAME_COLUMNS unless given),
+ * ending in … when it's longer.
+ */
+export function nameCut(name: string, columns: number = BAND_NAME_COLUMNS): string {
+  if (textColumns(name) <= columns) return name
   let cut = ''
   for (const character of name) {
-    if (textColumns(cut + character) > BAND_NAME_COLUMNS - 1) break
+    if (textColumns(cut + character) > columns - 1) break
     cut += character
   }
   return `${cut}…`
+}
+
+/**
+ * A roster slot's button label: its Name, cut so the button, `x: ` hotkey
+ * and all, fits the slot's SLOT_COLUMNS.
+ */
+export function slotLabel(name: string, hotkey?: string): string {
+  return nameCut(name, SLOT_COLUMNS - buttonColumns('', hotkey))
 }
 
 /** A squishy's place in the band, with its mini picture over its Name. */

@@ -14,6 +14,7 @@ import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { assembledKey, bareAccessory, forcedOdds, legendaryKey, roll, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { seeded } from '../src/seeded'
+import { slotLabel } from '../src/slots'
 import { PANE, PARTNERED, finishOf, forceRolls, paneSized, readFrom, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf } from './pictures'
 
@@ -32,6 +33,7 @@ const GREAT: Squishy = { kind: 'legendary', legendary: 'xiaolongbao', shiny: fal
 
 const [LEGENDARY] = KIT.legendaries
 if (LEGENDARY === undefined) throw new Error('The kit needs a legendary')
+
 
 // Reads back every toast the mod shows
 function stubToasts(on: On): string[] {
@@ -118,25 +120,31 @@ test('a shiny roll shows a toast naming it', async ($, on) => {
 })
 
 test('a legendary roll shows a toast naming it', async ($, on) => {
-  stubStore(on, PARTNERED)
+  const stored = stubStore(on, PARTNERED)
   mock.clock(on)
   stubSpawns(on, 'legendary')
   const toasts = stubToasts(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
 
-  expect(toasts).toEqual([`👑 A legendary ${LEGENDARY.name} appeared!`])
+  // Whichever of the kit's legendaries came up
+  const rolled = squishyOfAgent(stored, 'agent-1')
+  expect(rolled.kind).toBe('legendary')
+  expect(toasts).toEqual([`👑 A legendary ${rolled.name} appeared!`])
 })
 
 test('a shiny legendary roll gets a line of its own', async ($, on) => {
-  stubStore(on, PARTNERED)
+  const stored = stubStore(on, PARTNERED)
   mock.clock(on)
   stubSpawns(on, 'shiny-legendary')
   const toasts = stubToasts(on)
 
   await $.agent.spawn(spawnOf('toolu_1'))
 
-  expect(toasts).toEqual([`🌟 Whoa! A shiny legendary ✨ ${LEGENDARY.name} appeared!`])
+  const rolled = squishyOfAgent(stored, 'agent-1')
+  expect(rolled).toMatchObject({ kind: 'legendary', shiny: true })
+  const legendary = KIT.legendaries.find(each => rolled.kind === 'legendary' && each.id === rolled.legendary)
+  expect(toasts).toEqual([`🌟 Whoa! A shiny legendary ✨ ${legendary?.name} appeared!`])
 })
 
 test('a plain roll shows no toast', async ($, on) => {
@@ -151,7 +159,7 @@ test('a plain roll shows no toast', async ($, on) => {
 })
 
 test('an agent first seen through its tool call is announced too, once the call has gone on', async ($, on) => {
-  stubStore(on, PARTNERED)
+  const stored = stubStore(on, PARTNERED)
   mock.clock(on)
   forceRolls(on, 'legendary')
   on('agent.list', () => ({ value: [{ id: 'teammate-1', description: 'Review the docs', type: 'teammate', status: 'running' }] }))
@@ -167,7 +175,7 @@ test('an agent first seen through its tool call is announced too, once the call 
 
   expect(await $.tool.call(readFrom('teammate-1', 'README.md'))).toMatchObject({ result: 'ok' })
 
-  expect(order).toEqual(['call', `👑 A legendary ${LEGENDARY.name} appeared!`])
+  expect(order).toEqual(['call', `👑 A legendary ${squishyOfAgent(stored, 'teammate-1').name} appeared!`])
 })
 
 // The mod: the chime, on macOS only
@@ -275,7 +283,8 @@ test('a shiny’s slot sparkles, even Asleep, under its ✨ Name, with glints th
   const picture = async () => (await ui.find({ type: 'Raster', key: 'picture-agent-1' }))?.props.cells
 
   expect(squishy.name.startsWith('✨ ')).toBe(true)
-  expect((await ui.find({ type: 'Button', key: 'squishy-agent-1' }))?.props.label).toBe(squishy.name)
+  // The slot's button, hotkey 1, shows the Name, cut to fit the slot
+  expect((await ui.find({ type: 'Button', key: 'squishy-agent-1' }))?.props.label).toBe(slotLabel(squishy.name, '1'))
   expect(await picture()).toBe(cellsOf(squishy, 'asleep', 0, 'full', true))
   await clock.advance(FRAME_MS * 2)
   expect(blits).toEqual([
@@ -442,14 +451,14 @@ test('after /clear, a fresh roll that comes up legendary is announced and sparkl
 
   await $.classic.SessionStart({ source: 'clear' })
 
-  expect(toasts).toEqual([`👑 A legendary ${LEGENDARY.name} appeared!`])
   const fresh = squishyOfAgent(stored, 'agent-b')
+  expect(toasts).toEqual([`👑 A legendary ${fresh.name} appeared!`])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Raster', key: 'picture-agent-b' }))?.props.cells).toBe(cellsOf(fresh, 'working', 0, 'full', true))
   expect((await ui.find({ type: 'Raster', key: 'picture-agent-a' }))?.props.cells).toBe(cellsOf(restored, 'working', 0))
   // Forced, the legendary isn't recorded; the restored shiny is, as any rebuilt squishy is
   const dex = squishydexFrom(stored.get(SQUISHYDEX_KEY))
-  expect(dex.legendaries[LEGENDARY.id]).toBeUndefined()
+  expect(Object.keys(dex.legendaries)).toEqual([])
   expect(dex.species[speciesKey(SPECIES)]?.variants).toContain(variantKey({ palette: PALETTE.id, accessory: BARE.id, shiny: true }))
 })
 
@@ -473,7 +482,7 @@ test('a roll forced shiny or legendary still toasts, but is never recorded in th
   const plain = squishyOfAgent(stored, 'agent-3')
   if (plain.kind !== 'assembled' || shiny.kind !== 'assembled') throw new Error('Forced plain and shiny rolls are assembled')
   const dex = squishydexFrom(stored.get(SQUISHYDEX_KEY))
-  expect(dex.legendaries[LEGENDARY.id]).toBeUndefined()
+  expect(Object.keys(dex.legendaries)).toEqual([])
   expect(dex.species[speciesKey(shiny)]?.variants ?? []).not.toContain(variantKey(shiny))
   expect(dex.species[speciesKey(plain)]?.variants).toContain(variantKey(plain))
 })

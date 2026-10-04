@@ -1,18 +1,21 @@
 import { expect, test } from 'claude-code/testing'
 
+import { PICTURE_SIZE } from '../src/composer'
 import { KIT } from '../src/kit'
-import type { Kit } from '../src/kit'
+import type { Colors, Kit, ShinyColors } from '../src/kit'
 import { roll, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { seeded } from '../src/seeded'
 
-const BLANK = Array.from({ length: 16 }, () => '................')
+const BLANK = Array.from({ length: PICTURE_SIZE }, () => '.'.repeat(PICTURE_SIZE))
+const NO_COLORS: Colors = { outline: 0, dark: 0, base: 0, highlight: 0 }
+const NO_SHINY: ShinyColors = { ...NO_COLORS, sparkle: 0 }
 
 // A kit of one part of each kind, so every roll is the same squishy
 const ONE_OF_EACH: Kit = {
   bodies: [{ id: 'round', rarity: 'common', syllable: 'mo', grid: BLANK }],
   faces: [{ id: 'smile', rarity: 'common', syllable: 'chi', grid: BLANK }],
-  palettes: [{ id: 'cream', rarity: 'common', syllable: '', colors: {}, shiny: {} }],
+  palettes: [{ id: 'cream', rarity: 'common', syllable: '', colors: NO_COLORS, shiny: NO_SHINY }],
   accessories: [{ id: 'none', rarity: 'common', syllable: '', grid: BLANK }],
   legendaries: [],
   starters: [],
@@ -122,7 +125,7 @@ test('a rarity’s share is split evenly among its parts', () => {
 })
 
 test('odds that rule a squishy out keep it out, even when every other squishy is live', () => {
-  const kit: Kit = { ...ONE_OF_EACH, legendaries: [{ id: 'king', name: 'King Bao', grid: BLANK, colors: {}, shiny: {} }] }
+  const kit: Kit = { ...ONE_OF_EACH, legendaries: [{ id: 'king', name: 'King Bao', grid: BLANK, colors: NO_COLORS, shiny: NO_SHINY }] }
   const odds = { legendary: 0, shiny: 0 }
   const only = roll(kit, { live: [], rng: seeded(3), odds })
 
@@ -130,18 +133,35 @@ test('odds that rule a squishy out keep it out, even when every other squishy is
   expect(roll(kit, { live: [only], rng: seeded(4), odds })).toMatchObject({ kind: 'assembled', key: only.key })
 })
 
-test('a roll is never a squishy a live agent already has', () => {
-  // The placeholder kit makes 3^4 parts × 2 + 1 legendary × 2 = 164 squishys
-  const live = rollInTurn(KIT, 160, 7)
+test('a roll is never a squishy a live agent already has, shiny and legendary ones included', () => {
+  // Two of each part and two legendaries, each plain or shiny: 2^4 × 2 + 2 × 2 = 36 squishys
+  const two = <T extends { id: string; syllable: string }>(parts: readonly T[]): T[] =>
+    parts.flatMap(part => [part, { ...part, id: `${part.id}-2`, syllable: `${part.syllable}2` }])
+  const kit: Kit = {
+    ...ONE_OF_EACH,
+    bodies: two(ONE_OF_EACH.bodies),
+    faces: two(ONE_OF_EACH.faces),
+    palettes: two(ONE_OF_EACH.palettes),
+    accessories: two(ONE_OF_EACH.accessories),
+    legendaries: ['king', 'queen'].map(id => ({ id, name: `${id} bao`, grid: BLANK, colors: NO_COLORS, shiny: NO_SHINY })),
+  }
+  // Shinies and legendaries common enough to be among the live ones
+  const odds = { legendary: 0.2, shiny: 0.5 }
+  const rng = seeded(7)
+  const live: Squishy[] = []
+  for (let n = 0; n < 34; n += 1) live.push(roll(kit, { live, rng, odds }))
 
-  expect(new Set(live.map(squishy => squishy.key)).size).toBe(160)
+  expect(new Set(live.map(squishy => squishy.key)).size).toBe(34)
+  expect(live.some(squishy => squishy.shiny)).toBe(true)
+  expect(live.some(squishy => squishy.kind === 'legendary' && !squishy.shiny)).toBe(true)
+  expect(live.some(squishy => squishy.kind === 'legendary' && squishy.shiny)).toBe(true)
 })
 
 test('when only a shiny is left, the roll is that shiny', () => {
   // Two palettes, each plain or shiny: four squishys in all
   const kit: Kit = {
     ...ONE_OF_EACH,
-    palettes: [...ONE_OF_EACH.palettes, { id: 'peach', rarity: 'rare', syllable: 'ko', colors: {}, shiny: {} }],
+    palettes: [...ONE_OF_EACH.palettes, { id: 'peach', rarity: 'rare', syllable: 'ko', colors: NO_COLORS, shiny: NO_SHINY }],
   }
   const forced = (palette: 'common' | 'rare', shiny: number) =>
     roll(kit, {
@@ -190,7 +210,7 @@ test('a shiny keeps its name, marked ✨ in front, and has a key of its own', ()
 test('a legendary always carries its fixed name, marked ✨ in front when shiny', () => {
   const kit: Kit = {
     ...ONE_OF_EACH,
-    legendaries: [{ id: 'grand-bao', name: 'Grand Bao', grid: BLANK, colors: {}, shiny: {} }],
+    legendaries: [{ id: 'grand-bao', name: 'Grand Bao', grid: BLANK, colors: NO_COLORS, shiny: NO_SHINY }],
   }
 
   for (const shiny of [0, 1]) {
@@ -223,7 +243,7 @@ test('a squishy’s key gives the same squishy back, assembled or legendary, pla
 test('a key whose parts the kit no longer has gives no squishy', () => {
   const kit: Kit = {
     ...ONE_OF_EACH,
-    legendaries: [{ id: 'grand-bao', name: 'Grand Bao', grid: BLANK, colors: {}, shiny: {} }],
+    legendaries: [{ id: 'grand-bao', name: 'Grand Bao', grid: BLANK, colors: NO_COLORS, shiny: NO_SHINY }],
   }
 
   expect(squishyOf(kit, 'round/smile/cream/none')).toMatchObject({ name: 'Mochi' })

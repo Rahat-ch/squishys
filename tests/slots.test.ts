@@ -7,7 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import { PICTURE_SIZE, compose } from '../src/composer'
 import { KIT } from '../src/kit'
 import { halfBlocks } from '../src/raster'
-import { roll } from '../src/roller'
+import { SHINY_MARK, roll } from '../src/roller'
 import { seeded } from '../src/seeded'
 import { MAX_SLOTS } from '../src/settings'
 import {
@@ -20,10 +20,13 @@ import {
   PICTURE_COLUMNS,
   PICTURE_ROWS,
   SLOT_COLUMNS,
+  SLOT_MIN_COLUMNS,
   SLOT_ROWS,
+  buttonColumns,
   layoutBand,
   layoutRoster,
   liveSquishys,
+  slotLabel,
 } from '../src/slots'
 import type { RosterAgent, RosterSize } from '../src/slots'
 import type { SquishyState } from '../src/states'
@@ -218,14 +221,31 @@ test('before the roster is first drawn, every agent’s squishy is live', () => 
   expect(liveSquishys(known, undefined)).toHaveLength(2)
 })
 
-test('a slot is as wide as a composed squishy picture and as tall as its half-block rows, with three lines under it', () => {
+test('a slot is as wide as its picture, but at least SLOT_MIN_COLUMNS, and as tall as its half-block rows with three lines under it', () => {
   const picture = halfBlocks(compose(KIT, roll(KIT, { live: [], rng: seeded(1) }), { state: 'working', frame: 0 }))
 
   expect({ columns: PICTURE_COLUMNS, rows: PICTURE_ROWS }).toEqual({ columns: picture.columns, rows: picture.rows })
   expect(picture.columns).toBe(PICTURE_SIZE)
-  expect(SLOT_COLUMNS).toBe(picture.columns)
+  expect(SLOT_COLUMNS).toBe(Math.max(picture.columns, SLOT_MIN_COLUMNS))
   // Its name, its description and the main view's mark
   expect(SLOT_ROWS).toBe(picture.rows + 3)
+})
+
+test('a slot’s Name is cut so its button, hotkey and all, fits the slot, and every Name and legendary’s fits once cut', () => {
+  const fits = (label: string, hotkey?: string) => buttonColumns(label, hotkey) <= SLOT_COLUMNS
+  const fullWidth = 'x'.repeat(SLOT_COLUMNS - buttonColumns('', '9'))
+
+  // A Name that just fits stays whole; one a column longer is cut, ending in …
+  expect(slotLabel(fullWidth, '9')).toBe(fullWidth)
+  expect(slotLabel(`${fullWidth}y`, '9')).toBe(`${fullWidth.slice(1)}…`)
+  // Without a hotkey there's room for more
+  expect(slotLabel(`${fullWidth}y`)).toBe(`${fullWidth}y`)
+  // The longest Names there are, shiny, with and without a hotkey
+  const legendary = KIT.legendaries.map(each => `${SHINY_MARK}${each.name}`)
+  for (const name of [...legendary, `${SHINY_MARK}${'x'.repeat(SLOT_COLUMNS)}`]) {
+    expect(fits(slotLabel(name, '9'), '9')).toBe(true)
+    expect(fits(slotLabel(name))).toBe(true)
+  }
 })
 
 // The band: the room for `across` places side by side, then the overflow
