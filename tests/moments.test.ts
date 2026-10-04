@@ -14,6 +14,7 @@ import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { assembledKey, bareAccessory, forcedOdds, legendaryKey, roll, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { seeded } from '../src/seeded'
+import { slotLabel } from '../src/slots'
 import { PANE, PARTNERED, finishOf, forceRolls, paneSized, readFrom, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf } from './pictures'
 
@@ -283,7 +284,8 @@ test('a shiny’s slot sparkles, even Asleep, under its ✨ Name, with glints th
   const picture = async () => (await ui.find({ type: 'Raster', key: 'picture-agent-1' }))?.props.cells
 
   expect(squishy.name.startsWith('✨ ')).toBe(true)
-  expect((await ui.find({ type: 'Button', key: 'squishy-agent-1' }))?.props.label).toBe(squishy.name)
+  // The slot's button, hotkey 1, shows the Name, cut to fit the slot
+  expect((await ui.find({ type: 'Button', key: 'squishy-agent-1' }))?.props.label).toBe(slotLabel(squishy.name, '1'))
   expect(await picture()).toBe(cellsOf(squishy, 'asleep', 0, 'full', true))
   await clock.advance(FRAME_MS * 2)
   expect(blits).toEqual([

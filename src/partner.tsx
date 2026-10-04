@@ -14,7 +14,7 @@ import { halfBlocks } from './raster'
 import type { RasterCells } from './raster'
 import { speciesSquishy } from './roller'
 import type { AssembledSquishy } from './roller'
-import { SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROW_GAP, slotsThatFit } from './slots'
+import { SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROW_GAP, slotLabel, slotsThatFit } from './slots'
 import { recordMet } from './squishydex-record'
 
 /**
@@ -100,7 +100,7 @@ export function registerPartner(on: On): void {
                       key={`starter-${number}`}
                       hotkey={String(number)}
                       plain
-                      label={squishy.name}
+                      label={slotLabel(squishy.name, String(number))}
                       onPress={() => void choosePartner($, squishy)}
                     />
                   </Box>

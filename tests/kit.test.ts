@@ -6,7 +6,6 @@ import type { PartBase, Rarity } from '../src/kit'
 import { SHINY_MARK, roll } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { seeded } from '../src/seeded'
-import { NAME_COLUMNS } from '../src/slots'
 import { eachPart } from './pictures'
 
 const RARITIES: readonly Rarity[] = ['common', 'uncommon', 'rare']
@@ -95,10 +94,12 @@ test('every regular squishy has a Name of its own, and no legendary shares one',
 
 /** Syllables of an optional consonant or two, a vowel or two, and maybe a closing n. */
 const PRONOUNCEABLE = /^(?:[bcdfghjkmnprstwyz]{0,2}[aeiou]{1,2}n?)+$/
+/** The most letters a Name has, so it stays a cute 3 or 4 syllables (a slot cuts what doesn't fit it). */
+const MOST_LETTERS = 13
 
-test('every Name fits a slot, and is made of easy syllables', () => {
+test('every Name is short, and made of easy syllables', () => {
   for (const name of EVERY_NAME) {
-    if (name.length > NAME_COLUMNS) throw new Error(`"${name}" is longer than ${NAME_COLUMNS}`)
+    if (name.length > MOST_LETTERS) throw new Error(`"${name}" is longer than ${MOST_LETTERS}`)
     if (!PRONOUNCEABLE.test(name)) throw new Error(`"${name}" is hard to say`)
     if (/(.)\1\1/.test(name)) throw new Error(`"${name}" repeats a letter three times`)
   }

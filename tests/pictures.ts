@@ -55,37 +55,39 @@ export function stateIn(cells: unknown, squishy: Squishy): SquishyState | undefi
 
 /**
  * Which squishy a picture shows in this pose at frame 0 (a newly spawned
- * squishy's is Working), among those the Name on its button fits. A Name is
- * its parts' syllables, so only parts whose syllable comes next in it are
- * tried.
+ * squishy's is Working), among those the Name on its button fits: the whole
+ * Name, or its start when the button cut it to fit its slot (ending in …).
+ * A Name is its parts' syllables, so only parts whose syllable comes next in
+ * it are tried.
  */
-export function squishyIn(cells: unknown, name: string, state: SquishyState = 'working'): Squishy {
+export function squishyIn(cells: unknown, label: string, state: SquishyState = 'working'): Squishy {
   // A shiny's Name starts with SHINY_MARK
-  const shiny = name.startsWith(SHINY_MARK)
-  const bare = shiny ? name.slice(SHINY_MARK.length) : name
-  const wanted = bare.toLowerCase()
-  const fits = (sofar: string, syllable: string) => wanted.startsWith(sofar + syllable)
+  const shiny = label.startsWith(SHINY_MARK)
+  const cut = label.endsWith('…')
+  const bare = (shiny ? label.slice(SHINY_MARK.length) : label).replace(/…$/, '').toLowerCase()
+  const whole = (name: string) => (cut ? name.startsWith(bare) : name === bare)
+  // Whether a Name that starts with `sofar` can still be the one the label shows
+  const fits = (sofar: string) => (cut ? sofar.startsWith(bare) || bare.startsWith(sofar) : bare.startsWith(sofar))
+  const named = (name: string) => (shiny ? SHINY_MARK : '') + name.charAt(0).toUpperCase() + name.slice(1)
   const candidates: Squishy[] = []
-  {
-    for (const legendary of KIT.legendaries.filter(each => each.name === bare)) {
-      candidates.push({ kind: 'legendary', legendary: legendary.id, shiny, name, key: legendary.id })
-    }
-    for (const body of KIT.bodies.filter(part => fits('', part.syllable))) {
-      const b = body.syllable
-      for (const face of KIT.faces.filter(part => fits(b, part.syllable))) {
-        const bf = b + face.syllable
-        for (const palette of KIT.palettes.filter(part => fits(bf, part.syllable))) {
-          const bfp = bf + palette.syllable
-          for (const accessory of KIT.accessories.filter(part => bfp + part.syllable === wanted)) {
-            const parts = { body: body.id, face: face.id, palette: palette.id, accessory: accessory.id }
-            candidates.push({ kind: 'assembled', ...parts, rarity: 'common', shiny, name, key: '' })
-          }
+  for (const legendary of KIT.legendaries.filter(each => whole(each.name.toLowerCase()))) {
+    candidates.push({ kind: 'legendary', legendary: legendary.id, shiny, name: named(legendary.name), key: legendary.id })
+  }
+  for (const body of KIT.bodies.filter(part => fits(part.syllable))) {
+    const b = body.syllable
+    for (const face of KIT.faces.filter(part => fits(b + part.syllable))) {
+      const bf = b + face.syllable
+      for (const palette of KIT.palettes.filter(part => fits(bf + part.syllable))) {
+        const bfp = bf + palette.syllable
+        for (const accessory of KIT.accessories.filter(part => whole(bfp + part.syllable))) {
+          const parts = { body: body.id, face: face.id, palette: palette.id, accessory: accessory.id }
+          candidates.push({ kind: 'assembled', ...parts, rarity: 'common', shiny, name: named(bfp + accessory.syllable), key: '' })
         }
       }
     }
   }
   const squishy = candidates.find(each => cellsOf(each, state) === cells)
-  if (squishy === undefined) throw new Error(`No squishy named ${name} draws that picture ${state}`)
+  if (squishy === undefined) throw new Error(`No squishy named ${label} draws that picture ${state}`)
   return squishy
 }
 
