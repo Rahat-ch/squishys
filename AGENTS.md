@@ -4,6 +4,7 @@
 - **Single test file:** `claude plugin test` has no file filter; it always runs every `*.test.ts` under the folder. The whole suite takes about a second, so run it.
 - **Full suite:** `npm test` (same as `claude plugin test .`).
 - **Load in a session:** `claude --plugin-dir .` (hot-reloads on save). Then `/squishys` toggles the pane.
+- **Art preview:** `npm run preview` writes `out/art-preview.html` (gitignored) from the current kit. Publish it as an Artifact with `capabilities: { db: {} }`; see "Art preview" below.
 - **Validate before a PR:** `claude plugin validate .` (the marketplace) and `claude plugin validate .claude-plugin/plugin.json` (the manifest, hooks and `$.state` contract).
 
 ## Mod conventions
@@ -19,6 +20,12 @@
 - The pure modules (`src/kit.ts`, `src/roller.ts`, `src/composer.ts`, `src/raster.ts` and the kit data) never import from `claude-code`, so tools outside the mod (the art preview) use them as they are. The mod rolls with `crypto.getRandomValues`; tests pass `seeded(n)` from `tests/seeded.ts`.
 - `claude plugin validate` wants `types/index.d.ts` self-contained (no imports), so a type it shares with a pure module (`Squishy`, `Rarity`) is written out in both. Change both together: the mod hands values both ways between them, so the typecheck fails if they drift.
 - The version lives only in `.claude-plugin/plugin.json`.
+
+## Art preview
+
+- `tools/preview/` is development only and the mod never loads it. `items.ts` lists the items and draws them through `compose` and `roll` (tested in `tests/preview.test.ts`), `page.ts` writes the HTML, `client.js` is the page script, and `build.mjs` runs it all under Node's built-in type stripping, with a resolve hook that adds the `.ts` the mod's imports leave off. It imports only the pure modules, never `claude-code`.
+- Item ids are stable: `body/<id>`, `face/<id>`, `palette/<id>`, `accessory/<id>`, `sample/<squishy key>` (seed 1), `legendary/<id>` and `starter/<n>` (from 1).
+- Verdicts live in the published page's database, collection `verdicts`, one document per item: `{ item, verdict: 'keep' | 'redo' | null, notes, updatedAt }`. The document id is the item id with `/` as `:`. Read them back with the `ArtifactData` tool (`list` on `verdicts`). Republish to the same artifact URL after redrawing, so the verdicts stay with the page. Opened without the database (as a local file), the page keeps verdicts in the browser and shows them as JSON at its foot to paste back.
 
 ## Agent skills
 

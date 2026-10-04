@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "node -e \"require('fs').existsSync('.claude-plugin/types/claude-code/index.d.ts') || (console.error('No engine types yet. Load the mod once with: claude --plugin-dir .'), process.exit(1))\" && tsc --noEmit -p .",
-    "test": "claude plugin test ."
+    "test": "claude plugin test .",
+    "preview": "node tools/preview/build.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

@@ -1,5 +1,5 @@
 {
   "//": "Claude Code writes .claude-plugin/types/ (engine types and the base config) each time it loads the mod.",
   "extends": "./.claude-plugin/types/tsconfig.json",
-  "include": ["hooks", "src", "types", "tests"]
+  "include": ["hooks", "src", "types", "tests", "tools"]
 }
