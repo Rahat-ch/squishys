@@ -9,9 +9,9 @@ import type { Agent, Squishy, SquishyState } from '../types'
 import { KIT } from './kit'
 import { OPEN_PANE, PANE_ID, squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
-import { REMEMBERED_KEY, rememberSquishys } from './rebuild'
+import { rememberSquishys } from './rebuild'
 import { cryptoRandom, roll } from './roller'
-import { SQUISHYDEX_KEY, recordMet } from './squishydex'
+import { recordMet } from './squishydex-record'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
 import { liveSquishys } from './slots'
 import { answered, endedState, isEnded, stateAfterRun, stateAtStop } from './states'
@@ -65,7 +65,10 @@ export function registerAgentTracking(on: On): void {
       settings = settingsFrom(await $.store.get(SETTINGS_KEY))
     } catch {}
     const started = await next(withModelDefault(e, settings))
-    if (started.agentId !== undefined) await assignSquishy($, started.agentId, e.description, started.model)
+    if (started.agentId === undefined) return started
+    const assigned = await assignSquishy($, started.agentId, e.description, started.model)
+    // Met: the Squishydex records it
+    if (assigned !== undefined) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [assigned.squishy])
     return started
   })
 
@@ -80,13 +83,16 @@ export function registerAgentTracking(on: On): void {
   on('tool.call', async ($, e, next) => {
     const { agentId } = e
     if (agentId !== undefined && isHeldBack(agentId)) return { deny: STOPPED_BY_USER }
+    let assigned: Agent | undefined
     if (agentId !== undefined && !notAgents.has(agentId) && !hasSquishy(await read($, agents), agentId)) {
       const listed = (await $.agent.list()).find(agent => agent.id === agentId)
-      if (listed !== undefined) await assignSquishy($, agentId, listed.description)
+      if (listed !== undefined) assigned = await assignSquishy($, agentId, listed.description)
       else notAgents.add(agentId)
     }
     if (agentId !== undefined) await setState($, agentId, 'working')
     const result = await next(e)
+    // Met: the Squishydex records it once the call has gone on, so recording never holds the call up
+    if (assigned !== undefined) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [assigned.squishy])
     // A prompt the call raised has been answered once its result is in. This
     // dispatch's reads predate the prompt, so `asking` says whether one came.
     if (agentId !== undefined && asking.has(agentId)) await setState($, agentId, answered, { current: true })
@@ -299,9 +305,9 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
  * agent takes it (see liveSquishys). An ended agent that wakes
  * keeps its own squishy, even if another agent has rolled it since: an
  * agent's identity wins over keeping squishys apart. Nor does it repeat
- * the partner's.
+ * the partner's. Returns the agent it gave a squishy, if any.
  */
-async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<void> {
+async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<Agent | undefined> {
   let partner: Squishy | undefined
   try {
     partner = partnerFrom(await $.store.get(PARTNER_KEY))
@@ -318,8 +324,7 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   keepChecking($)
   if (first) await openPaneUnasked($)
   // Kept in the store too, so it comes back after /clear or /resume
-  if (assigned === undefined) return
-  await rememberSquishys({ get: () => $.store.get(REMEMBERED_KEY), set: remembered => $.store.set(REMEMBERED_KEY, remembered) }, [assigned])
-  // and met: the Squishydex records it
-  await recordMet({ get: () => $.store.get(SQUISHYDEX_KEY), set: dex => $.store.set(SQUISHYDEX_KEY, dex) }, [assigned.squishy], await $.clock.now())
+  if (assigned === undefined) return undefined
+  await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, [assigned])
+  return assigned
 }

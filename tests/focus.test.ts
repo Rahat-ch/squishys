@@ -118,8 +118,6 @@ test('the first tool call of an agent first seen through it is in its feed', asy
     value: [{ id: 'teammate-1', description: 'Review the docs', type: 'teammate', status: 'running' }],
   }))
   on('tool.call', () => ({ result: 'ok' }))
-  // The roll is dated for the Squishydex before the call goes on
-  mock.clock(on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await $.tool.call(readFrom('teammate-1', 'README.md'))

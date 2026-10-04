@@ -15,6 +15,7 @@ import type { RasterCells } from './raster'
 import { speciesSquishy } from './roller'
 import type { AssembledSquishy } from './roller'
 import { SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROW_GAP, slotsThatFit } from './slots'
+import { recordMet } from './squishydex-record'
 
 /**
  * Where the store keeps the partner: its species (`body`, `face`), so it can
@@ -59,8 +60,12 @@ export function registerPartner(on: On): void {
   // The pane's own session.start hook is the unmatched one, so this one
   // matches every session.
   on('session.start', { isInteractive: [true, false] }, async ($, e, next) => {
-    await pickWithoutPartner($)
-    return next(e)
+    const partner = await pickWithoutPartner($)
+    const started = await next(e)
+    // The partner counts as met: a partner saved before the Squishydex kept
+    // one is recorded now (nothing is written once it is)
+    if (partner !== undefined) await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [partner])
+    return started
   })
 
   // /clear, /resume and a branch put the pane back on the roster; compaction
@@ -109,25 +114,33 @@ export function registerPartner(on: On): void {
   })
 }
 
-/** Puts the pane on the starters when no partner is saved; a store that can't be read leaves it be. */
-async function pickWithoutPartner($: EngineInterface): Promise<void> {
+/**
+ * Puts the pane on the starters when no partner is saved; a store that
+ * can't be read leaves it be. Returns the saved partner.
+ */
+async function pickWithoutPartner($: EngineInterface): Promise<Squishy | undefined> {
   let stored: unknown
   try {
     stored = await $.store.get(PARTNER_KEY)
   } catch {
-    return // a pick that couldn't be saved would only come back next time
+    return undefined // a pick that couldn't be saved would only come back next time
   }
-  if (partnerFrom(stored) === undefined) await update($, mode, () => 'starter')
+  const partner = partnerFrom(stored)
+  if (partner === undefined) await update($, mode, () => 'starter')
+  return partner
 }
 
 /**
  * Saves a starter as the partner (its species and the palette it shows),
- * and shows the roster. A store that can't be written still lets the user
- * on: they pick again next time.
+ * shows the roster, and records it in the Squishydex. A store that can't be
+ * written still lets the user on: they pick again next time.
  */
-async function choosePartner($: EngineInterface, { body, face, palette }: AssembledSquishy): Promise<void> {
+async function choosePartner($: EngineInterface, starter: AssembledSquishy): Promise<void> {
+  const { body, face, palette } = starter
   try {
     await $.store.set(PARTNER_KEY, { body, face, palette })
   } catch {}
   await update($, mode, () => 'roster')
+  // The partner counts as met
+  await recordMet({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value), now: () => $.clock.now() }, [starter])
 }

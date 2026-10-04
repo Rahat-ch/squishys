@@ -5,8 +5,10 @@ import type { AgentStatus, On } from 'claude-code'
 import { KIT } from '../src/kit'
 import { PANE_ID } from '../src/pane'
 import { PARTNER_KEY } from '../src/partner'
-import { FOOTER_COLUMN_GAP, FOOTER_COLUMNS, FOOTER_ROW_GAP, FOOTER_ROWS, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP } from '../src/slots'
+import { FOOTER_COLUMN_GAP, FOOTER_COLUMNS, FOOTER_ROW_GAP, SLOT_COLUMN_GAP, SLOT_COLUMNS, SLOT_ROWS, SLOT_ROW_GAP, footerRows } from '../src/slots'
 import type { RosterSize } from '../src/slots'
+import { speciesSquishy } from '../src/roller'
+import { SQUISHYDEX_KEY, squishydexFrom, withMet } from '../src/squishydex-record'
 
 // What Claude Code passes to the pane's ui.render hook, apart from the surface
 export const PANE = {
@@ -26,16 +28,14 @@ export const PANE = {
 
 // A pane body with just room for `across` by `down` slots, plus `spare`
 // columns and rows (negative for short of it): slots SLOT_COLUMN_GAP
-// columns and SLOT_ROW_GAP rows apart, and the footer (+N, Settings)
-// FOOTER_ROW_GAP under them docked, or FOOTER_COLUMN_GAP beside them inline.
+// columns and SLOT_ROW_GAP rows apart, and the footer (+N, Settings,
+// Squishydex) FOOTER_ROW_GAP under them docked, in the rows its buttons
+// need at that width, or FOOTER_COLUMN_GAP beside them inline.
 export function roomFor(placement: RosterSize['placement'], across: number, down: number, spare = { columns: 0, rows: 0 }): RosterSize {
-  const footer =
-    placement === 'inline' ? { columns: FOOTER_COLUMN_GAP + FOOTER_COLUMNS, rows: 0 } : { columns: 0, rows: FOOTER_ROW_GAP + FOOTER_ROWS }
-  return {
-    placement,
-    bodyColumns: across * SLOT_COLUMNS + (across - 1) * SLOT_COLUMN_GAP + footer.columns + spare.columns,
-    bodyRows: down * SLOT_ROWS + (down - 1) * SLOT_ROW_GAP + footer.rows + spare.rows,
-  }
+  const slotColumns = across * SLOT_COLUMNS + (across - 1) * SLOT_COLUMN_GAP
+  const bodyColumns = slotColumns + (placement === 'inline' ? FOOTER_COLUMN_GAP + FOOTER_COLUMNS : 0) + spare.columns
+  const footerRowCount = placement === 'inline' ? 0 : FOOTER_ROW_GAP + footerRows(bodyColumns)
+  return { placement, bodyColumns, bodyRows: down * SLOT_ROWS + (down - 1) * SLOT_ROW_GAP + footerRowCount + spare.rows }
 }
 
 // The pane's render input at another size: where Claude Code seated it, and
@@ -45,9 +45,14 @@ export function paneSized({ placement, bodyColumns, bodyRows }: RosterSize) {
 }
 
 // What a store holds once the user has picked a partner (the kit's first
-// starter, in the first palette): a test that starts a session without one
-// gets the starter pick
-export const PARTNERED: Readonly<Record<string, unknown>> = { [PARTNER_KEY]: { ...KIT.starters[0], palette: KIT.palettes[0]?.id } }
+// starter, in the first palette), with the partner in the Squishydex, as
+// picking it leaves it: a test that starts a session without one gets the
+// starter pick
+const STARTER = KIT.starters[0] && speciesSquishy(KIT, KIT.starters[0], KIT.palettes[0]?.id)
+export const PARTNERED: Readonly<Record<string, unknown>> = {
+  [PARTNER_KEY]: { ...KIT.starters[0], palette: KIT.palettes[0]?.id },
+  [SQUISHYDEX_KEY]: withMet(squishydexFrom(undefined), STARTER ? [STARTER] : [], 0),
+}
 
 // Answers each agent.spawn as Claude Code would, with ids agent-1, agent-2…
 export function stubSpawns(on: On): void {
@@ -179,6 +184,14 @@ export function stubBlits(on: On, refused: readonly string[] = []): { key: strin
 // The user typing /squishys at the prompt of a fullscreen terminal
 export const SQUISHYS_COMMAND = {
   command: 'squishys',
+  args: '',
+  origin: { kind: 'composer' },
+  presentation: { isFullscreen: true, columns: 160 },
+} as const
+
+// The user typing /squishydex at the prompt of a fullscreen terminal
+export const SQUISHYDEX_COMMAND = {
+  command: 'squishydex',
   args: '',
   origin: { kind: 'composer' },
   presentation: { isFullscreen: true, columns: 160 },

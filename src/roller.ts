@@ -2,7 +2,8 @@
 // the squishys already live and a source of randomness, and never touches
 // Claude Code, so its tests seed the randomness and call it directly.
 
-import type { Kit, PartBase, Rarity, Species } from './kit'
+import { SEE_THROUGH } from './composer'
+import type { Accessory, Kit, PartBase, Rarity, Species } from './kit'
 
 /** A squishy assembled from the kit's parts. */
 export type AssembledSquishy = {
@@ -91,6 +92,19 @@ export function roll(kit: Kit, { live, rng, odds: given }: RollOptions): Squishy
 }
 
 /**
+ * The key of the squishy made of these parts: what squishyOf reads back.
+ * `body/face/palette/accessory`, and `/shiny` for a shiny.
+ */
+export function assembledKey(parts: { body: string; face: string; palette: string; accessory: string }, shiny = false): string {
+  return [parts.body, parts.face, parts.palette, parts.accessory].join('/') + (shiny ? '/shiny' : '')
+}
+
+/** The key of a legendary's squishy: what squishyOf reads back. `legendary/<id>`, and `/shiny` for a shiny. */
+export function legendaryKey(id: string, shiny = false): string {
+  return `legendary/${id}` + (shiny ? '/shiny' : '')
+}
+
+/**
  * The squishy a key stands for, so a squishy can be kept as its key alone.
  * Undefined when the kit no longer has one of its parts.
  */
@@ -124,10 +138,15 @@ export function speciesSquishy(kit: Kit, { body, face }: Species, palette?: stri
     body: kit.bodies.find(part => part.id === body),
     face: kit.faces.find(part => part.id === face),
     palette: kit.palettes.find(part => part.id === palette) ?? kit.palettes[0],
-    accessory: kit.accessories.find(part => part.grid.every(row => /^\.*$/.test(row))) ?? kit.accessories[0],
+    accessory: bareAccessory(kit) ?? kit.accessories[0],
   }
   if (!parts.body || !parts.face || !parts.palette || !parts.accessory) return undefined
   return assembledOf({ body: parts.body, face: parts.face, palette: parts.palette, accessory: parts.accessory }, false)
+}
+
+/** The kit's bare accessory: the one that draws nothing, all see-through. */
+export function bareAccessory(kit: Kit): Accessory | undefined {
+  return kit.accessories.find(part => part.grid.every(row => [...row].every(key => key === SEE_THROUGH)))
 }
 
 function rollOnce(kit: Kit, odds: Odds, rng: Rng): Squishy {
@@ -155,7 +174,7 @@ function assembledOf({ body, face, palette, accessory }: Parts, shiny: boolean):
   const parts = [body, face, palette, accessory]
   const rarity = RARITIES[Math.max(...parts.map(part => RARITIES.indexOf(part.rarity)))] ?? 'common'
   const name = capitalized(parts.map(part => part.syllable).join(''))
-  const key = [body.id, face.id, palette.id, accessory.id].join('/') + (shiny ? '/shiny' : '')
+  const key = assembledKey({ body: body.id, face: face.id, palette: palette.id, accessory: accessory.id }, shiny)
   return {
     kind: 'assembled',
     body: body.id,
@@ -170,7 +189,7 @@ function assembledOf({ body, face, palette, accessory }: Parts, shiny: boolean):
 }
 
 function legendaryOf(legendary: { id: string; name: string }, shiny: boolean): LegendarySquishy {
-  const key = `legendary/${legendary.id}` + (shiny ? '/shiny' : '')
+  const key = legendaryKey(legendary.id, shiny)
   return { kind: 'legendary', legendary: legendary.id, shiny, name: legendary.name, key }
 }
 

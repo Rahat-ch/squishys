@@ -178,8 +178,14 @@ declare module 'claude-code' {
       overflowOpen: boolean
       /** Which page of its species the Squishydex shows, from 0. */
       squishydexPage: number
-      /** The species whose detail the Squishydex shows, by `body/face`; none for its pages. */
-      squishydexSpecies: string | null
+      /**
+       * The species or legendary whose card the Squishydex shows, by its
+       * place's key (a species key, or a legendary's squishy key); none for
+       * its pages.
+       */
+      squishydexPicked: string | null
+      /** The palette picked on a species' card for making it the partner; none for the first met. */
+      squishydexPalette: string | null
     }
   }
 }
