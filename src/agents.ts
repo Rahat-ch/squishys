@@ -1,7 +1,6 @@
 // The agent tracker: turns Claude Code's events into the session's agents,
-// each with the squishy that stands for it and the state its squishy shows
-// (Needs you comes later, with the permission prompts). The state rules
-// themselves live in states.ts.
+// each with the squishy that stands for it and the state its squishy shows.
+// The state rules themselves live in states.ts.
 
 import { atom, read, update } from 'claude-code'
 import type { AgentStatus, EngineInterface, On, Timer } from 'claude-code'
@@ -10,7 +9,7 @@ import type { Agent, SquishyState } from '../types'
 import { KIT } from './kit'
 import { roll } from './roller'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
-import { endedState, isEnded, stateAfterRun } from './states'
+import { answered, endedState, isEnded, stateAfterRun } from './states'
 
 /**
  * How often, in milliseconds, the agent list is checked for agents that
@@ -65,7 +64,10 @@ export function registerAgentTracking(on: On): void {
       else notAgents.add(agentId)
     }
     if (agentId !== undefined) await setState($, agentId, 'working')
-    return next(e)
+    const result = await next(e)
+    // A prompt the call raised has been answered once its result is in
+    if (agentId !== undefined) await clearNeedsYou($, agentId)
+    return result
   })
 
   // A squishy is Thinking from the first piece of its agent's response to
@@ -75,6 +77,7 @@ export function registerAgentTracking(on: On): void {
     const { agentId } = e
     const response = next(e)
     if (agentId === undefined) return yield* response
+    await clearNeedsYou($, agentId)
     let streaming = false
     try {
       for await (const chunk of response) {
@@ -98,6 +101,28 @@ export function registerAgentTracking(on: On): void {
     const completed = await next(e)
     if (e.agentId !== undefined) await setState($, e.agentId, stateAfterRun(e.reason))
     return completed
+  })
+
+  // An agent blocked on a permission prompt Needs you, unless a settings
+  // hook answered the request so no prompt shows. A prompt from the
+  // orchestrator carries no agent_id and marks nothing.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const asked = await next(e)
+    if (e.agent_id === undefined || asked.decision !== undefined) return asked
+    await setState($, e.agent_id, 'needsYou')
+    if (hasSquishy(await read($, agents), e.agent_id)) asking.add(e.agent_id)
+    return asked
+  })
+
+  // Nothing fires when the user answers a prompt; the agent's next sign of
+  // life says they did.
+  on('classic.PostToolUse', async ($, e, next) => {
+    if (e.agent_id !== undefined) await clearNeedsYou($, e.agent_id)
+    return next(e)
+  })
+  on('classic.PermissionDenied', async ($, e, next) => {
+    if (e.agent_id !== undefined) await clearNeedsYou($, e.agent_id)
+    return next(e)
   })
 
   // An agent that stopped: the agent list says whether it finished, failed
@@ -128,6 +153,26 @@ async function setState(
   if (!(await read($, agents)).some(changes)) return
   await update($, agents, known => known.map(agent => (changes(agent) ? { ...agent, state } : agent)))
   if (!isEnded(state)) keepChecking($)
+}
+
+/**
+ * The agents a permission prompt put in Needs you. Every read in one
+ * dispatch sees the moment it began, so after `await next(e)` the tool.call
+ * hook can't read that a prompt its call raised marked the agent; this says
+ * so. A reload empties it, and the agent's next model request clears Needs
+ * you then.
+ */
+const asking = new Set<string>()
+
+/** Moves an agent's squishy on from Needs you, by the rule in states.ts. */
+async function clearNeedsYou($: EngineInterface, agentId: string): Promise<void> {
+  if (asking.delete(agentId)) {
+    // update writes on the value as it stands now, not as this dispatch read it
+    await update($, agents, known => known.map(agent => (agent.id === agentId ? { ...agent, state: answered(agent.state) } : agent)))
+    return
+  }
+  const agent = (await read($, agents)).find(each => each.id === agentId)
+  if (agent !== undefined) await setState($, agentId, answered(agent.state))
 }
 
 /** The agent list check's timer, set while any agent is running. */

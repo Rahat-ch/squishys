@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ZZZ_COLOR, compose } from '../src/composer'
+import { BUBBLE_COLOR, MARK_COLOR, ZZZ_COLOR, compose } from '../src/composer'
 import type { Size } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Grid, Kit } from '../src/kit'
@@ -109,7 +109,7 @@ test('every part and legendary composes to a well-formed grid at every size, sta
   }
 })
 
-test('with every part and legendary, a squishy moves when Working or Thinking, sleeps with a z and lies flat when Squished', () => {
+test('with every part and legendary, a squishy moves when Working or Thinking, sleeps with a z, shows a “!” when it Needs you and lies flat when Squished', () => {
   for (const squishy of eachPart(KIT)) {
     const at = (state: SquishyState, frame: number) => compose(KIT, squishy, { state, frame })
     const still = at('working', 0)
@@ -119,6 +119,10 @@ test('with every part and legendary, a squishy moves when Working or Thinking, s
     if (JSON.stringify(at('thinking', 0)) === JSON.stringify(still)) throw new Error(`${what} looks Working when Thinking`)
     const asleep = at('asleep', 0)
     if (!(asleep[0]?.[12] === ZZZ_COLOR && asleep[1]?.[13] === ZZZ_COLOR)) throw new Error(`${what} has no z asleep`)
+    const needsYou = at('needsYou', 0)
+    if (!(needsYou[1]?.[14] === MARK_COLOR && needsYou[4]?.[14] === MARK_COLOR && needsYou[0]?.[14] === BUBBLE_COLOR)) {
+      throw new Error(`${what} has no “!” when it Needs you`)
+    }
     const squished = at('squished', 0)
     if (rowsDrawn(squished).some(row => row < 7)) throw new Error(`${what} is not flat when Squished`)
     const bottom = Math.max(...rowsDrawn(still))
@@ -202,6 +206,27 @@ test('an Asleep squishy shuts its eyes to a line along their bottom, and a z flo
   expect([z(0), z(1), z(2)]).toEqual([[12, 13, 14], [13], [12, 13, 14]])
   // Asleep holds still
   expect(posed(kitWith(grid('b'), EYES), 'asleep', 1)).toEqual(asleep)
+})
+
+test('a squishy that Needs you holds still with a “!” in a bubble up top right, over its picture', () => {
+  const needsYou = posed(kitWith(grid('b')), 'needsYou', 0)
+  const still = posed(kitWith(grid('b')), 'working', 0)
+
+  const bubble = (row: number) => (needsYou[row] ?? []).slice(12).map(pixel => (pixel === GREY ? '.' : pixel === MARK_COLOR ? '!' : 'o'))
+  expect([0, 1, 2, 3, 4, 5, 6].map(row => bubble(row).join(''))).toEqual([
+    '.ooo',
+    '.o!o',
+    '.o!o',
+    '.ooo',
+    '.o!o',
+    '.ooo',
+    'o...',
+  ])
+  expect(needsYou[0]?.[13]).toBe(BUBBLE_COLOR)
+  // Everywhere else it is the still picture
+  expect(needsYou.slice(7)).toEqual(still.slice(7))
+  expect(needsYou[0]?.slice(0, 12)).toEqual(still[0]?.slice(0, 12))
+  expect(posed(kitWith(grid('b')), 'needsYou', 1)).toEqual(needsYou)
 })
 
 test('a Squished squishy lies flat: half as tall, every other row kept, still standing on its bottom row', () => {

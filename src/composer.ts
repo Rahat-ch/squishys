@@ -56,8 +56,11 @@ function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: nu
       // squishy differs from a Working one even standing still. The art keeps
       // its bottom row clear more often than its top one, so down loses less.
       return frame % 2 === 0 ? lowered(still, 1) : still
+    case 'needsYou':
+      // Held still, so the bubble reads as a call rather than activity
+      return overlaid(still, BUBBLE_GLYPH, { o: BUBBLE_COLOR, '!': MARK_COLOR })
     case 'asleep':
-      return overlaid(shutEyes(grids, colors), Z_GLYPH, ZZZ_COLOR)
+      return overlaid(shutEyes(grids, colors), Z_GLYPH, { '#': ZZZ_COLOR })
     case 'squished':
       return flattened(still)
     default:
@@ -86,9 +89,33 @@ const Z_GLYPH: Grid = [
   '............###.',
 ]
 
-/** Pixels drawn over a picture in one color where the glyph has `#`. */
-function overlaid(pixels: Pixels, glyph: Grid, color: number): Pixels {
-  return pixels.map((row, index) => row.map((pixel, column) => (glyph[index]?.[column] === '#' ? color : pixel)))
+/**
+ * The bubble and mark of a squishy that Needs you, the same for every
+ * palette: a white bubble with a red "!" stands out on any art.
+ */
+export const BUBBLE_COLOR = 0xffffff
+export const MARK_COLOR = 0xd02040
+
+/**
+ * The "!" bubble a squishy that Needs you shows, top right, where an Asleep
+ * squishy's z goes: `o` is the bubble, `!` the mark, and the tail points
+ * down at the squishy.
+ */
+const BUBBLE_GLYPH: Grid = [
+  '.............ooo',
+  '.............o!o',
+  '.............o!o',
+  '.............ooo',
+  '.............o!o',
+  '.............ooo',
+  '............o...',
+]
+
+/** Pixels drawn over a picture where the glyph has a key of `colors`, in that color. */
+function overlaid(pixels: Pixels, glyph: Grid, colors: Readonly<Record<string, number>>): Pixels {
+  return pixels.map((row, index) =>
+    row.map((pixel, column) => colors[glyph[index]?.[column] ?? '.'] ?? pixel),
+  )
 }
 
 /**
