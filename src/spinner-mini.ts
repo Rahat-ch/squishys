@@ -3,7 +3,7 @@
 // (src/spinner.tsx), where no Raster goes. Pure: it takes the kit and a
 // squishy as plain data and never touches Claude Code.
 
-import { compose } from './composer'
+import { stillMiniPixels } from './composer'
 import type { Kit } from './kit'
 import { halfBlockRows, hexColor } from './raster'
 import type { Squishy } from './roller'
@@ -15,12 +15,11 @@ export type MiniCell = { glyph: string; color?: string; backgroundColor?: string
 export type MiniRow = readonly MiniCell[]
 
 /**
- * The squishy's mini picture at rest (frame 0 of Working, at the mini size,
- * as the band and the Squishydex draw it), two pixels to a row of text:
- * see `halfBlockRows`. Every `#rrggbb` comes from `hexColor`.
+ * The squishy's mini picture at rest (`stillMiniPixels`), two pixels to a
+ * row of text: see `halfBlockRows`. Every `#rrggbb` comes from `hexColor`.
  */
 export function miniRows(kit: Kit, squishy: Squishy): MiniRow[] {
-  return halfBlockRows(compose(kit, squishy, { state: 'working', frame: 0, size: 'mini' })).map(row =>
+  return halfBlockRows(stillMiniPixels(kit, squishy)).map(row =>
     row.map(({ glyph, foreground, background }) => ({
       glyph,
       ...(foreground === null ? {} : { color: hexColor(foreground) }),

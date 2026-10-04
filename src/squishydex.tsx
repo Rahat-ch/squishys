@@ -8,7 +8,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Squishy } from '../types'
-import { compose } from './composer'
+import { stillMiniPixels } from './composer'
 import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
 import { OPEN_PANE_ASKED, PANE_ID, notePaneOpened, openRefused } from './pane'
@@ -82,7 +82,7 @@ function silhouette(pixels: Pixels): Pixels {
 
 /** A squishy's mini picture, at rest. */
 function miniPixels(squishy: Squishy): Pixels {
-  return compose(KIT, squishy, { state: 'working', frame: 0, size: 'mini' })
+  return stillMiniPixels(KIT, squishy)
 }
 
 /** A species as the Squishydex draws it: in `palette`, else the palette it was first met in. */

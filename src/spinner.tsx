@@ -1,17 +1,17 @@
 // The spinner: squishys in Claude Code's own spinner line. Some turns, the
 // word Claude Code sampled for the turn gives way to a squishy verb
 // (src/verbs.ts), and the orchestrator's spinner carries the partner's mini
-// (src/face.ts) right after the verb, standing on the spinner line.
+// (src/spinner-mini.ts) right after the verb, standing on the spinner line.
 
 import { atom, read } from 'claude-code'
 import type { EngineInterface, On, RenderPropsOf } from 'claude-code'
 
-import { miniRows } from './face'
-import type { MiniRow } from './face'
 import { KIT } from './kit'
 import { PARTNER_KEY, partnerFrom } from './partner'
 import { cryptoRandom } from './roller'
 import { textColumns } from './slots'
+import { miniRows } from './spinner-mini'
+import type { MiniRow } from './spinner-mini'
 import { pickVerb } from './verbs'
 
 /** What the Box holding the partner's mini is keyed. */
@@ -26,6 +26,14 @@ export const SPINNER_LINE_ROW = 1
 
 /** The columns of the spinner line before the word: Claude Code's spinner glyph and a space. */
 export const GLYPH_COLUMNS = 2
+
+/**
+ * The columns kept for Claude Code's stats after the suffix, which no prop
+ * carries: a space and as long as they run in a long turn,
+ * ` (12m 34s · ↓ 123.4k tokens · still thinking with high effort)`
+ * (Claude Code 2.1.289 says "still thinking" after a while).
+ */
+export const STATS_COLUMNS = 62
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -53,7 +61,8 @@ function verbFor(spinnerId: string, word: string): string | undefined {
  * Room on the spinner line for a mini `columns` wide: the suffix that makes
  * it (Claude Code's ellipsis, then a space and as many blank columns as the
  * mini takes, which Claude Code's stats follow after a space of their own),
- * and the column the mini starts at.
+ * the column the mini starts at, and the columns the whole line then needs
+ * (STATS_COLUMNS kept for the stats).
  *
  * Claude Code's drawing of the Spinner is one engine node: the glyph, the
  * word, the suffix, the stats and the tip can't be taken apart, and no Box
@@ -64,10 +73,8 @@ function roomForMini({ word, message, suffix }: RenderPropsOf['Spinner'], column
   const text = message ?? word
   // Claude Code leaves its ellipsis off a text that already ends in one
   const ellipsis = text.endsWith('…') ? '' : suffix
-  return {
-    suffix: `${ellipsis} ${' '.repeat(columns)}`,
-    left: GLYPH_COLUMNS + textColumns(text) + textColumns(ellipsis) + 1,
-  }
+  const left = GLYPH_COLUMNS + textColumns(text) + textColumns(ellipsis) + 1
+  return { suffix: `${ellipsis} ${' '.repeat(columns)}`, left, lineColumns: left + columns + STATS_COLUMNS }
 }
 
 export function registerSpinner(on: On): void {
@@ -86,6 +93,9 @@ export function registerSpinner(on: On): void {
     if (mini.length === 0) return next(asked)
     const { Box, Text } = $.ui.resolve(e)
     const room = roomForMini(asked.props, mini[0]?.length ?? 0)
+    // Only where the line, mini and stats fit across, so it never wraps;
+    // nowhere the terminal hasn't measured
+    if (room.lineColumns > (e.viewport?.columns ?? 0)) return next(asked)
     // The mini stands on the spinner line: its last row is the line's, and
     // the rows above it are the drawing's blank first row and as many more
     // as it needs, so it never covers the tip below the line.

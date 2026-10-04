@@ -375,3 +375,10 @@ test('a Name is cut to the band’s columns by what it takes on screen, a shiny�
   expect(nameCut('✨ Mochibun')).toBe('✨ Mochib…')
   expect(textColumns(nameCut('✨ Mochibunbao'))).toBe(BAND_NAME_COLUMNS)
 })
+
+test('only emoji drawn as emoji and wide characters take two columns: ✓, ★ and the spinner’s ✶ take one', () => {
+  expect(textColumns('✓★✶…')).toBe(4)
+  expect(textColumns('✨⭐✅')).toBe(6)
+  expect(textColumns('もち')).toBe(4)
+  expect(textColumns('Squishing…')).toBe(10)
+})
