@@ -178,15 +178,16 @@ test('the same parts always make the same name and key, and different ones a dif
   expect(new Set(keysByLook.values()).size).toBe(keysByLook.size)
 })
 
-test('a shiny keeps its name but has a key of its own', () => {
+test('a shiny keeps its name, marked ✨ in front, and has a key of its own', () => {
   const plain = roll(ONE_OF_EACH, { live: [], rng: seeded(3), odds: { shiny: 0 } })
   const shiny = roll(ONE_OF_EACH, { live: [], rng: seeded(3), odds: { shiny: 1 } })
 
-  expect(shiny).toMatchObject({ shiny: true, name: plain.name })
+  expect(plain.name).toBe('Mochi')
+  expect(shiny).toMatchObject({ shiny: true, name: '✨ Mochi' })
   expect(shiny.key).not.toBe(plain.key)
 })
 
-test('a legendary always carries its fixed name, shiny or not', () => {
+test('a legendary always carries its fixed name, marked ✨ in front when shiny', () => {
   const kit: Kit = {
     ...ONE_OF_EACH,
     legendaries: [{ id: 'grand-bao', name: 'Grand Bao', grid: BLANK, colors: {}, shiny: {} }],
@@ -194,7 +195,7 @@ test('a legendary always carries its fixed name, shiny or not', () => {
 
   for (const shiny of [0, 1]) {
     const squishy = roll(kit, { live: [], rng: seeded(4), odds: { legendary: 1, shiny } })
-    expect(squishy).toMatchObject({ kind: 'legendary', legendary: 'grand-bao', name: 'Grand Bao', shiny: shiny === 1 })
+    expect(squishy).toMatchObject({ kind: 'legendary', legendary: 'grand-bao', name: shiny === 1 ? '✨ Grand Bao' : 'Grand Bao', shiny: shiny === 1 })
   }
 })
 

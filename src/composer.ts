@@ -22,6 +22,8 @@ export type Pose = {
   /** Which frame of the state's animation, counting up from 0. */
   frame: number
   size?: Size
+  /** Whether it sparkles, as a shiny or legendary does for a while after it appears. */
+  sparkle?: boolean
 }
 
 /** The key that draws nothing in a part's grid, letting what lies beneath show. */
@@ -44,10 +46,13 @@ const LEANING_ROWS = 7
  * A squishy that Needs you holds still, with its "!" bubble drawn over the
  * picture once it is at its final size, so the mark keeps its shape there.
  */
-export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full' }: Pose): Pixels {
-  const picture = posedPicture(kit, squishy, state, frame)
+export function compose(kit: Kit, squishy: Squishy, { state, frame, size = 'full', sparkle = false }: Pose): Pixels {
+  const { grids, colors } = gridsOf(kit, squishy)
+  const picture = posedPicture(grids, colors, state, frame)
   const sized = size === 'double' ? doubled(picture) : size === 'mini' ? halved(picture) : picture
-  return state === 'needsYou' ? withBubble(sized) : sized
+  // A shiny's colors may give its glints their own color
+  const sparkled = sparkle ? withGlints(sized, frame, colors.sparkle ?? SPARKLE_COLOR) : sized
+  return state === 'needsYou' ? withBubble(sparkled) : sparkled
 }
 
 /**
@@ -58,8 +63,7 @@ export function stillPixels(kit: Kit, squishy: Squishy): Pixels {
   return compose(kit, squishy, { state: 'working', frame: 0 })
 }
 
-function posedPicture(kit: Kit, squishy: Squishy, state: SquishyState, frame: number): Pixels {
-  const { grids, colors } = gridsOf(kit, squishy)
+function posedPicture(grids: readonly Grid[], colors: Colors, state: SquishyState, frame: number): Pixels {
   const still = painted(grids, colors)
   switch (state) {
     case 'working':
@@ -130,6 +134,56 @@ function withBubble(pixels: Pixels): Pixels {
     side >= BUBBLE_FROM ? scaled(BUBBLE, Math.floor(side / BUBBLE_FROM)) : side >= COMPACT_BUBBLE_FROM ? COMPACT_BUBBLE : TINY_BUBBLE
   const left = '.'.repeat(Math.max(0, side - (bubble[0]?.length ?? 0)))
   return overlaid(pixels, bubble.map(row => left + row), BUBBLE_COLORS)
+}
+
+/**
+ * The color of a sparkle's glints where the squishy's colors give none: a
+ * warm yellow. A shiny's colors may give their own, as `sparkle`.
+ */
+export const SPARKLE_COLOR = 0xffd23f
+
+/**
+ * Where glints show, as eighths of the picture's side (row, column):
+ * around the squishy's edges, taken GLINT_STEP apart so the glints shown
+ * together are spread out.
+ */
+const GLINT_SPOTS: readonly (readonly [row: number, column: number])[] = [
+  [1, 1],
+  [3, 7],
+  [6, 6],
+  [1, 5],
+  [7, 2],
+  [4, 0],
+]
+const GLINTS_AT_ONCE = 2
+const GLINT_STEP = GLINT_SPOTS.length / GLINTS_AT_ONCE
+const EIGHTHS = 8
+
+/**
+ * The picture, at whatever size, with its glints at this frame. Each glint
+ * shows for two frames, a lone pixel and then a plus whose arms are as
+ * long as one pixel of the kit's art at this size, then the glints move on
+ * to the next spots. On the mini, where a pixel of the art is less than
+ * one, the plus is nothing: the glint twinkles out.
+ */
+function withGlints(pixels: Pixels, frame: number, color: number): Pixels {
+  const side = pixels.length
+  const reach = Math.floor(side / PICTURE_SIZE)
+  if (frame % 2 === 1 && reach === 0) return pixels
+  const arm = frame % 2 === 0 ? 0 : reach
+  const lit = new Set<number>()
+  for (let glint = 0; glint < GLINTS_AT_ONCE; glint += 1) {
+    const spot = GLINT_SPOTS[(Math.floor(frame / 2) + glint * GLINT_STEP) % GLINT_SPOTS.length]
+    if (spot === undefined) continue
+    // Inset by an arm, so a plus is never cut off at the edge
+    const [row, column] = spot.map(eighths => Math.min(side - 1 - arm, Math.max(arm, Math.floor((eighths * side) / EIGHTHS))))
+    if (row === undefined || column === undefined) continue
+    for (let by = -arm; by <= arm; by += 1) {
+      lit.add((row + by) * side + column)
+      lit.add(row * side + column + by)
+    }
+  }
+  return pixels.map((line, row) => line.map((pixel, column) => (lit.has(row * side + column) ? color : pixel)))
 }
 
 /** Each key of a glyph as a `by` x `by` block. */

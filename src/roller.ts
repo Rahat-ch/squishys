@@ -53,6 +53,43 @@ export const ODDS: Odds = {
   rarity: { common: 0.7, uncommon: 0.25, rare: 0.05 },
 }
 
+/**
+ * What a roll came up as, apart from its parts: plain, shiny, legendary or
+ * both. A shiny or legendary is a Moment (src/moments.ts).
+ */
+export type RollKind = 'plain' | 'shiny' | 'legendary' | 'shiny-legendary'
+
+/** What a squishy came up as. */
+export function rollKind(squishy: Pick<Squishy, 'kind' | 'shiny'>): RollKind {
+  if (squishy.kind === 'legendary') return squishy.shiny ? 'shiny-legendary' : 'legendary'
+  return squishy.shiny ? 'shiny' : 'plain'
+}
+
+/**
+ * What `SQUISHYS_FORCE_ROLL` can force the mod's rolls to come up as (see
+ * docs/adr/0002-forced-rolls-env-seam.md): the mod's tests force plain
+ * rolls, so a stray shiny's sparkle never shows up in a test about
+ * something else, and shiny or legendary ones to see a Moment; so can a
+ * person trying the mod out.
+ */
+export type ForcedRoll = RollKind
+
+/** The odds each forced roll takes. */
+const FORCED_ODDS: Readonly<Record<ForcedRoll, Partial<Odds>>> = {
+  plain: { legendary: 0, shiny: 0 },
+  shiny: { legendary: 0, shiny: 1 },
+  legendary: { legendary: 1, shiny: 0 },
+  'shiny-legendary': { legendary: 1, shiny: 1 },
+}
+
+/** The odds `SQUISHYS_FORCE_ROLL` forces; undefined (the standard odds) when it's unset or names nothing known. */
+export function forcedOdds(value: string | undefined): Partial<Odds> | undefined {
+  return value !== undefined && Object.hasOwn(FORCED_ODDS, value) ? FORCED_ODDS[value as ForcedRoll] : undefined
+}
+
+/** What a shiny's Name starts with, so a shiny shows as one wherever its Name does. */
+export const SHINY_MARK = '✨ '
+
 /** A source of randomness: each call returns a number in [0, 1). */
 export type Rng = () => number
 
@@ -173,7 +210,7 @@ const RARITIES: readonly Rarity[] = ['common', 'uncommon', 'rare']
 function assembledOf({ body, face, palette, accessory }: Parts, shiny: boolean): AssembledSquishy {
   const parts = [body, face, palette, accessory]
   const rarity = RARITIES[Math.max(...parts.map(part => RARITIES.indexOf(part.rarity)))] ?? 'common'
-  const name = capitalized(parts.map(part => part.syllable).join(''))
+  const name = named(capitalized(parts.map(part => part.syllable).join('')), shiny)
   const key = assembledKey({ body: body.id, face: face.id, palette: palette.id, accessory: accessory.id }, shiny)
   return {
     kind: 'assembled',
@@ -190,7 +227,12 @@ function assembledOf({ body, face, palette, accessory }: Parts, shiny: boolean):
 
 function legendaryOf(legendary: { id: string; name: string }, shiny: boolean): LegendarySquishy {
   const key = legendaryKey(legendary.id, shiny)
-  return { kind: 'legendary', legendary: legendary.id, shiny, name: legendary.name, key }
+  return { kind: 'legendary', legendary: legendary.id, shiny, name: named(legendary.name, shiny), key }
+}
+
+/** A Name as it shows: with SHINY_MARK first for a shiny. */
+function named(name: string, shiny: boolean): string {
+  return shiny ? SHINY_MARK + name : name
 }
 
 function capitalized(name: string): string {

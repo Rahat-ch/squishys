@@ -17,9 +17,9 @@ import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
 import { bareAccessory, legendaryKey, speciesSquishy, squishyOf } from './roller'
 import type { AssembledSquishy, LegendarySquishy } from './roller'
-import { BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, PICTURE_ROWS, buttonColumns, linedUp } from './slots'
-import { SQUISHYDEX_KEY, partnerPalettes, progressOf, recordMet, speciesKey, squishydexFrom, variantOfKey } from './squishydex-record'
-import type { MetLegendary, MetSpecies, Squishydex } from './squishydex-record'
+import { BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, PICTURE_ROWS, buttonColumns, linedUp, nameCut } from './slots'
+import { SQUISHYDEX_KEY, isNewIn, partnerPalettes, progressOf, recordMet, recordViewed, speciesKey, squishydexFrom, variantOfKey } from './squishydex-record'
+import type { DexPlace, MetLegendary, MetSpecies, Squishydex } from './squishydex-record'
 
 /**
  * One place in the Squishydex's pages: a species of the kit, then a
@@ -29,6 +29,11 @@ import type { MetLegendary, MetSpecies, Squishydex } from './squishydex-record'
 type Place =
   | { kind: 'species'; number: number; key: string; species: Species }
   | { kind: 'legendary'; number: number; key: string; legendary: LegendarySquishy }
+
+/** A place as the record names it, for its NEW mark. */
+function dexPlaceOf(place: Place): DexPlace {
+  return place.kind === 'species' ? { species: place.key } : { legendary: place.legendary.legendary }
+}
 
 /** Every place in the Squishydex, in order. */
 function placesOf(kit: Kit): Place[] {
@@ -85,10 +90,6 @@ function drawnSpecies(species: Species, met: MetSpecies | undefined, palette?: s
   return speciesSquishy(KIT, species, palette ?? first)
 }
 
-/** A Name cut to fit a place, ending in … when it's longer. */
-function nameCut(name: string): string {
-  return name.length > BAND_NAME_COLUMNS ? `${name.slice(0, BAND_NAME_COLUMNS - 1)}…` : name
-}
 
 /** A number in the Squishydex as it reads: #007. */
 function numbered(number: number): string {
@@ -237,9 +238,18 @@ export function registerSquishydex(on: On): void {
         {...((digit += 1) <= 9 ? { hotkey: String(digit) } : {})}
         plain
         label={nameCut(name)}
-        onPress={() => void openCard($, place.key)}
+        onPress={() => void openCard($, place)}
       />
     )
+    // A place met shiny or legendary since its card was last viewed says so, over its picture's corner
+    const newMark = (place: Place) =>
+      isNewIn(dex, dexPlaceOf(place)) ? (
+        <Box key={`squishydex-new-${place.key}`} position="absolute" top={0} left={0}>
+          <Text bold color="yellow">
+            NEW
+          </Text>
+        </Box>
+      ) : null
     const placeOf = (place: Place) => {
       if (place.kind === 'legendary') {
         const met = dex.legendaries[place.legendary.legendary] !== undefined
@@ -253,6 +263,7 @@ export function registerSquishydex(on: On): void {
               </Box>
             )}
             {met ? pick(place, place.legendary.name) : <Text dimColor>{numbered(place.number)}</Text>}
+            {newMark(place)}
           </Box>
         )
       }
@@ -264,6 +275,7 @@ export function registerSquishydex(on: On): void {
         <Box key={`squishydex-place-${place.number}`} flexDirection="column" alignItems="center" width={DEX_PLACE_COLUMNS}>
           <Raster key={`squishydex-picture-${place.key}`} {...halfBlocks(met !== undefined ? pixels : silhouette(pixels))} />
           {met !== undefined ? pick(place, squishy.name) : <Text dimColor>{numbered(place.number)}</Text>}
+          {newMark(place)}
         </Box>
       )
     }
@@ -363,10 +375,14 @@ async function showPages($: EngineInterface): Promise<void> {
   await update($, mode, () => 'squishydex')
 }
 
-/** Shows a place's card, its palette pick back on the first met. */
-async function openCard($: EngineInterface, key: string): Promise<void> {
+/**
+ * Shows a place's card, its palette pick back on the first met, and marks
+ * it viewed, so it's no longer NEW.
+ */
+async function openCard($: EngineInterface, place: Place): Promise<void> {
+  await recordViewed({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, dexPlaceOf(place))
   await update($, squishydexPalette, () => null)
-  await update($, squishydexPicked, () => key)
+  await update($, squishydexPicked, () => place.key)
 }
 
 async function turnTo($: EngineInterface, page: number): Promise<void> {

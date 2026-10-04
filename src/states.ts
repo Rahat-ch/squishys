@@ -25,9 +25,13 @@ export function isEnded(state: SquishyState): boolean {
  */
 export const SLOT_GIVING_ORDER: readonly SquishyState[] = ['asleep', 'squished']
 
-/** Whether a squishy in this state animates. */
-export function moves(state: SquishyState): boolean {
-  return state === 'working' || state === 'thinking'
+/**
+ * Whether a squishy in this state animates: Working and Thinking do, and
+ * one that's `sparkling` (a shiny or legendary just after it appears, see
+ * src/moments.ts) does in any state.
+ */
+export function moves(state: SquishyState, sparkling = false): boolean {
+  return sparkling || state === 'working' || state === 'thinking'
 }
 
 /**

@@ -5,20 +5,28 @@
 
 import { everySpecies } from './kit'
 import type { Kit, Species } from './kit'
+import { isMoment } from './moments'
 import type { Squishy } from './roller'
 
 /** Where the store keeps the Squishydex. */
 export const SQUISHYDEX_KEY = 'squishydex'
 
 /**
- * One species met: when first, and each variant seen in it, by variant key
- * (see variantKey), the first seen first. An object rather than a bare
- * date, so more can be kept per species later (a NEW mark, say).
+ * One species met: when first, each variant seen in it, by variant key
+ * (see variantKey), the first seen first, and `isNew` from the first time
+ * it's met shiny until its card is viewed (see withMet).
  */
-export type MetSpecies = { met: number; variants: string[] }
+export type MetSpecies = { met: number; variants: string[]; isNew?: true }
 
-/** One legendary met: when first, and when first shiny, once it has been. */
-export type MetLegendary = { met: number; shiny?: number }
+/**
+ * One legendary met: when first, when first shiny, once it has been, and
+ * `isNew` from the first time it's met, and the first time it's met shiny,
+ * until its card is viewed.
+ */
+export type MetLegendary = { met: number; shiny?: number; isNew?: true }
+
+/** A place in the Squishydex whose card can be viewed: a species, by species key, or a legendary, by id. */
+export type DexPlace = { species: string } | { legendary: string }
 
 /**
  * The Squishydex as the store keeps it: compact, since every session on the
@@ -63,11 +71,19 @@ export function squishydexFrom(stored: unknown): Squishydex {
   const dex: Squishydex = { species: {}, legendaries: {} }
   for (const [key, entry] of Object.entries(isRecord(species) ? species : {})) {
     if (!isRecord(entry) || typeof entry.met !== 'number' || !Array.isArray(entry.variants)) continue
-    dex.species[key] = { met: entry.met, variants: entry.variants.filter((variant): variant is string => typeof variant === 'string') }
+    dex.species[key] = {
+      met: entry.met,
+      variants: entry.variants.filter((variant): variant is string => typeof variant === 'string'),
+      ...(entry.isNew === true ? { isNew: true } : {}),
+    }
   }
   for (const [id, entry] of Object.entries(isRecord(legendaries) ? legendaries : {})) {
     if (!isRecord(entry) || typeof entry.met !== 'number') continue
-    dex.legendaries[id] = { met: entry.met, ...(typeof entry.shiny === 'number' ? { shiny: entry.shiny } : {}) }
+    dex.legendaries[id] = {
+      met: entry.met,
+      ...(typeof entry.shiny === 'number' ? { shiny: entry.shiny } : {}),
+      ...(entry.isNew === true ? { isNew: true } : {}),
+    }
   }
   return dex
 }
@@ -85,15 +101,25 @@ export function hasMet(dex: Squishydex, squishy: Squishy): boolean {
  * The Squishydex with these squishys met at `now`: a species or legendary
  * already met keeps its first-met date, and a variant already seen isn't
  * added again.
+ *
+ * A shiny or legendary met for the first time (a new shiny variant, a new
+ * legendary, a legendary's first shiny) marks its place NEW until its card
+ * is viewed (withViewed). A plain squishy never does, even of a new
+ * species: NEW is for Moments, and the partner is never one.
  */
 export function withMet(dex: Squishydex, met: readonly Squishy[], now: number): Squishydex {
   const species = { ...dex.species }
   const legendaries = { ...dex.legendaries }
   for (const squishy of met) {
+    const isNew = isMoment(squishy) && !hasMet({ species, legendaries }, squishy)
     if (squishy.kind === 'legendary') {
       const known = legendaries[squishy.legendary]
       const shiny = known?.shiny ?? (squishy.shiny ? now : undefined)
-      legendaries[squishy.legendary] = { met: known?.met ?? now, ...(shiny !== undefined ? { shiny } : {}) }
+      legendaries[squishy.legendary] = {
+        met: known?.met ?? now,
+        ...(shiny !== undefined ? { shiny } : {}),
+        ...(isNew || known?.isNew ? { isNew: true } : {}),
+      }
       continue
     }
     const key = speciesKey(squishy)
@@ -102,9 +128,31 @@ export function withMet(dex: Squishydex, met: readonly Squishy[], now: number): 
     species[key] = {
       met: known?.met ?? now,
       variants: known === undefined ? [variant] : known.variants.includes(variant) ? known.variants : [...known.variants, variant],
+      ...(isNew || known?.isNew ? { isNew: true } : {}),
     }
   }
   return { species, legendaries }
+}
+
+/** Whether a place is marked NEW: met shiny or legendary since its card was last viewed. */
+export function isNewIn(dex: Squishydex, place: DexPlace): boolean {
+  const entry = 'species' in place ? dex.species[place.species] : dex.legendaries[place.legendary]
+  return entry?.isNew === true
+}
+
+/** The Squishydex with a place's card viewed: no longer NEW. */
+export function withViewed(dex: Squishydex, place: DexPlace): Squishydex {
+  return 'species' in place
+    ? { ...dex, species: viewedIn(dex.species, place.species) }
+    : { ...dex, legendaries: viewedIn(dex.legendaries, place.legendary) }
+}
+
+/** The entries with one entry's NEW mark taken off. */
+function viewedIn<E extends { isNew?: true }>(entries: Record<string, E>, key: string): Record<string, E> {
+  const known = entries[key]
+  if (known === undefined) return entries
+  const { isNew: _, ...entry } = known
+  return { ...entries, [key]: entry as E }
 }
 
 /**
@@ -162,6 +210,21 @@ export function recordMet({ get, set, now }: StoreCalls & { now: () => Promise<n
       const dex = squishydexFrom(await get(SQUISHYDEX_KEY))
       if (met.every(squishy => hasMet(dex, squishy))) return
       await set(SQUISHYDEX_KEY, withMet(dex, met, await now()))
+    } catch {}
+  })
+  return recording
+}
+
+/**
+ * Marks a place's card viewed, so it's no longer NEW: on the same queue as
+ * recordMet, so a sighting and a viewing never lose each other. Nothing is
+ * written when it wasn't NEW; a store that fails leaves it NEW.
+ */
+export function recordViewed({ get, set }: StoreCalls, place: DexPlace): Promise<void> {
+  recording = recording.then(async () => {
+    try {
+      const dex = squishydexFrom(await get(SQUISHYDEX_KEY))
+      if (isNewIn(dex, place)) await set(SQUISHYDEX_KEY, withViewed(dex, place))
     } catch {}
   })
   return recording

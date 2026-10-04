@@ -161,9 +161,10 @@ test('a species met before keeps its first-met date and gains the new variant; a
   expect(stored.get(SQUISHYDEX_KEY)).toEqual({
     species: {
       [speciesKey(MET)]: { met: EARLIER, variants: [bare(OTHER_PALETTE.id), variantKey({ palette: PALETTE.id, accessory: DRESSED.id, shiny: false })] },
-      [speciesKey(OTHER)]: { met: MET_AT, variants: [variantKey({ palette: PALETTE.id, accessory: DRESSED.id, shiny: true })] },
+      // A shiny or legendary met for the first time is NEW until its card is viewed
+      [speciesKey(OTHER)]: { met: MET_AT, variants: [variantKey({ palette: PALETTE.id, accessory: DRESSED.id, shiny: true })], isNew: true },
     },
-    legendaries: { [LEGENDARY.id]: { met: MET_AT, shiny: MET_AT } },
+    legendaries: { [LEGENDARY.id]: { met: MET_AT, shiny: MET_AT, isNew: true } },
   })
 })
 

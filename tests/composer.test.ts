@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BUBBLE_COLOR, MARK_COLOR, RING_COLOR, ZZZ_COLOR, compose } from '../src/composer'
+import { BUBBLE_COLOR, MARK_COLOR, RING_COLOR, SPARKLE_COLOR, ZZZ_COLOR, compose } from '../src/composer'
 import type { Size } from '../src/composer'
 import { KIT } from '../src/kit'
 import type { Grid, Kit } from '../src/kit'
@@ -293,4 +293,71 @@ test('a legendary shuts its eyes too, over its own body color', () => {
 
   expect(asleep[5]?.[5]).toBe(GREY)
   expect(asleep[6]?.slice(4, 7)).toEqual([EYE, EYE, EYE])
+})
+
+// Sparkles: a shiny or legendary squishy's glints, for a while after it appears
+
+/** The pixels where `over` differs from `under`, as "row,column", with the colors `over` shows there. */
+function changed(under: ReturnType<typeof compose>, over: ReturnType<typeof compose>): { at: string[]; colors: Set<number | null> } {
+  const at: string[] = []
+  const colors = new Set<number | null>()
+  over.forEach((row, r) =>
+    row.forEach((pixel, c) => {
+      if (pixel !== under[r]?.[c]) {
+        at.push(`${r},${c}`)
+        colors.add(pixel)
+      }
+    }),
+  )
+  return { at, colors }
+}
+
+const GLINT_WARM = 0xffaa00
+const SPARKLY_KIT: Kit = {
+  ...TEST_KIT,
+  palettes: TEST_KIT.palettes.map(palette => ({ ...palette, shiny: { ...palette.shiny, sparkle: GLINT_WARM } })),
+}
+
+test('a sparkling squishy shows glints over its picture that move from frame to frame, in SPARKLE_COLOR where its colors give none', () => {
+  const glints = [0, 1, 2, 3].map(frame =>
+    changed(compose(TEST_KIT, SHINY, { state: 'working', frame }), compose(TEST_KIT, SHINY, { state: 'working', frame, sparkle: true })),
+  )
+
+  for (const { at, colors } of glints) {
+    expect(at.length).toBeGreaterThan(0)
+    expect([...colors]).toEqual([SPARKLE_COLOR])
+  }
+  for (const [frame, { at }] of glints.entries()) {
+    if (frame > 0) expect(at).not.toEqual(glints[frame - 1]?.at)
+  }
+})
+
+test('a shiny’s glints take its palette’s sparkle color when it has one', () => {
+  const { colors } = changed(compose(SPARKLY_KIT, SHINY, { state: 'asleep', frame: 0 }), compose(SPARKLY_KIT, SHINY, { state: 'asleep', frame: 0, sparkle: true }))
+
+  expect([...colors]).toEqual([GLINT_WARM])
+})
+
+test('glints are drawn at the picture’s own size: two pluses at full size, twice as long at 2×, lone pixels that twinkle on the mini', () => {
+  const glintsAt = (size: Size, frame: number) =>
+    changed(compose(TEST_KIT, SHINY, { state: 'asleep', frame, size }), compose(TEST_KIT, SHINY, { state: 'asleep', frame, size, sparkle: true })).at.length
+
+  // A glint is a lone pixel, then a plus whose arms are a pixel of the kit's art long
+  expect(glintsAt('full', 0)).toBe(2)
+  expect(glintsAt('full', 1)).toBe(2 * 5)
+  expect(glintsAt('double', 1)).toBe(2 * 9)
+  expect(glintsAt('mini', 0)).toBe(2)
+  expect(glintsAt('mini', 1)).toBe(0)
+})
+
+test('a sparkling squishy that Needs you keeps its “!” bubble on top of the glints', () => {
+  for (const frame of [0, 1, 2, 3]) {
+    const plain = compose(TEST_KIT, SHINY, { state: 'needsYou', frame })
+    const sparkling = compose(TEST_KIT, SHINY, { state: 'needsYou', frame, sparkle: true })
+    for (const [r, row] of plain.entries()) {
+      for (const [c, pixel] of row.entries()) {
+        if (pixel === RING_COLOR || pixel === BUBBLE_COLOR || pixel === MARK_COLOR) expect(sparkling[r]?.[c]).toBe(pixel)
+      }
+    }
+  }
 })

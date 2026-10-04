@@ -8,7 +8,7 @@ import { PARTNER_BUTTON, PARTNER_PICTURE } from '../src/partner'
 import { REMEMBERED_KEY, rememberedFrom } from '../src/rebuild'
 import { squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
-import { BAND_GAP, BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS } from '../src/slots'
+import { BAND_GAP, BAND_NAME_COLUMNS, BAND_PICTURE_COLUMNS, BAND_PICTURE_ROWS, nameCut } from '../src/slots'
 import { PANE, PARTNERED, SQUISHYS_COMMAND, readFrom, spawnOf, stubBlits, stubSpawns, stubStore } from './fixtures'
 import { cellsOf } from './pictures'
 
@@ -315,6 +315,24 @@ test('a Working mini squishy in the band wiggles, repainted by blits to the band
 
   expect(blits).toEqual([{ key: pictureKey('agent-1', 'mini'), cells: cellsOf(squishy, 'working', 2, 'mini') }])
 })
+
+for (const roll of ['shiny', 'legendary'] as const) {
+  test(`a ${roll}’s mini squishy in the band sparkles, repainted by blits to the band, under its Name cut to fit`, async ($, on) => {
+    const clock = mock.clock(on)
+    const stored = stubStore(on)
+    stubSpawns(on, roll)
+    stubPanes(on, { wide: false })
+    const blits = stubBlits(on)
+    await $.agent.spawn(spawnOf('toolu_1'))
+    const band = await $.ui.mount(bandSized(1))
+    const squishy = squishyOfAgent(stored, 'agent-1')
+
+    expect((await band.find({ type: 'Raster', key: pictureKey('agent-1', 'mini') }))?.props.cells).toBe(cellsOf(squishy, 'working', 0, 'mini', true))
+    expect((await band.find({ type: 'Button', key: 'squishy-agent-1' }))?.props.label).toBe(nameCut(squishy.name))
+    await clock.advance(FRAME_MS)
+    expect(blits).toEqual([{ key: pictureKey('agent-1', 'mini'), cells: cellsOf(squishy, 'working', 1, 'mini', true) }])
+  })
+}
 
 test('with no agents, as after a /clear that found none, the band leaves the space to Claude Code though the pane is unplaced', async ($, on) => {
   stubBandBeneath(on)

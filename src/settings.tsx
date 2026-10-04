@@ -22,6 +22,11 @@ export type Settings = {
    * its next request. Off when absent.
    */
   liveModelSwitch?: true
+  /**
+   * A chime plays when a shiny or legendary squishy is rolled. Off when
+   * absent. Offered only where `$.audio` makes a sound (macOS).
+   */
+  chime?: true
 }
 
 /** Where the settings live in the mod's store. */
@@ -36,11 +41,12 @@ const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 
 /** The settings a stored value holds, with defaults for anything missing or no longer valid. */
 export function settingsFrom(stored: unknown): Settings {
-  const { model, slotCap, liveModelSwitch } = (typeof stored === 'object' && stored !== null ? stored : {}) as Record<string, unknown>
+  const { model, slotCap, liveModelSwitch, chime } = (typeof stored === 'object' && stored !== null ? stored : {}) as Record<string, unknown>
   return {
     ...(isModel(model) ? { model } : {}),
     slotCap: isSlotCap(slotCap) ? slotCap : MAX_SLOTS,
     ...(liveModelSwitch === true ? { liveModelSwitch } : {}),
+    ...(chime === true ? { chime } : {}),
   }
 }
 
@@ -75,6 +81,7 @@ export function registerSettings(on: On): void {
     if (e.surface !== 'terminal' || (await read($, mode)) !== 'settings') return next(e)
     const { Box, Button, Select, Text } = $.ui.resolve(e)
     const settings = await readSettings($)
+    const chimes = await chimePlays($)
     return (
       <Box flexDirection="column" rowGap={1}>
         <Text bold>Settings</Text>
@@ -107,10 +114,37 @@ export function registerSettings(on: On): void {
             void saveSettings($, ({ liveModelSwitch: _, ...rest }) => (value === String(true) ? { ...rest, liveModelSwitch: true } : rest))
           }
         />
+        {chimes ? (
+          <Select
+            key="chime"
+            label="Chime on a shiny or legendary: "
+            options={[
+              { value: String(false), label: 'Off' },
+              { value: String(true), label: 'On' },
+            ]}
+            value={String(settings.chime === true)}
+            onSelect={value => void saveSettings($, ({ chime: _, ...rest }) => (value === String(true) ? { ...rest, chime: true } : rest))}
+          />
+        ) : null}
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>
     )
   })
+}
+
+/**
+ * Whether `$.audio` makes a sound here, so the chime setting is worth
+ * offering. Nothing on `$` names the platform; `$.audio` plays a clip with
+ * `afplay` on macOS and plays nothing on Linux or Windows, which have no
+ * player, so the chime is offered wherever afplay is. A check that fails
+ * hides it.
+ */
+async function chimePlays($: EngineInterface): Promise<boolean> {
+  try {
+    return await $.fs.exists('/usr/bin/afplay')
+  } catch {
+    return false
+  }
 }
 
 async function readSettings($: EngineInterface): Promise<Settings> {
