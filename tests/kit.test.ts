@@ -1,14 +1,34 @@
 import { expect, test } from 'claude-code/testing'
 
-import { compose } from '../src/composer'
-import { KIT } from '../src/kit'
-import type { PartBase, Rarity } from '../src/kit'
+import { PICTURE_SIZE, SEE_THROUGH, SIDES, compose } from '../src/composer'
+import type { Pose, Size } from '../src/composer'
+import { KEY_COLORS, KIT } from '../src/kit'
+import type { Grid, PartBase, Rarity } from '../src/kit'
+import { halfBlockRows } from '../src/raster'
 import { SHINY_MARK, roll } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { seeded } from '../src/seeded'
+import { MAX_SLOTS } from '../src/settings'
+import { SQUISHY_STATES } from '../src/states'
 import { eachPart } from './pictures'
 
 const RARITIES: readonly Rarity[] = ['common', 'uncommon', 'rare']
+
+test('every part’s and legendary’s grid is PICTURE_SIZE rows of PICTURE_SIZE keys, each see-through or one KEY_COLORS documents', () => {
+  const grids: [string, Grid][] = [
+    ...[...KIT.bodies, ...KIT.faces, ...KIT.accessories].map(part => [part.id, part.grid] as [string, Grid]),
+    ...KIT.legendaries.map(legendary => [legendary.id, legendary.grid] as [string, Grid]),
+  ]
+  const keys = new Set([SEE_THROUGH, ...Object.keys(KEY_COLORS)])
+  for (const [id, grid] of grids) {
+    if (grid.length !== PICTURE_SIZE) throw new Error(`${id} has ${grid.length} rows`)
+    for (const [row, line] of grid.entries()) {
+      if ([...line].length !== PICTURE_SIZE) throw new Error(`${id}'s row ${row} is ${[...line].length} wide`)
+      const unknown = [...line].find(key => !keys.has(key))
+      if (unknown !== undefined) throw new Error(`${id}'s row ${row} uses "${unknown}", which no key documents`)
+    }
+  }
+})
 const KINDS = [
   ['bodies', KIT.bodies],
   ['faces', KIT.faces],
@@ -202,18 +222,30 @@ test('every outline shows against a dark and a light terminal, and every face ag
   }
 })
 
-/** The foreground and background pairs a squishy's half-block cells paint. */
+// Every pose a squishy's picture takes: each state's frames, sparkling or not, at every size
+const POSES: Pose[] = (Object.keys(SIDES) as Size[]).flatMap(size =>
+  [false, true].flatMap(sparkle =>
+    SQUISHY_STATES.flatMap(state => [0, 1, 2, 3].map(frame => ({ state, frame, size, sparkle }))),
+  ),
+)
+
+/**
+ * The foreground and background pairs a squishy's half-block cells paint in
+ * any pose: its colors, its glints, the Needs you bubble and the z, beside
+ * one another and the terminal's own (null).
+ */
 function colorPairs(squishy: Squishy): Set<string> {
-  const pixels = compose(KIT, squishy, { state: 'working', frame: 0 })
   const pairs = new Set<string>()
-  for (let row = 0; row < pixels.length; row += 2) {
-    pixels[row]?.forEach((top, column) => pairs.add(`${top}/${pixels[row + 1]?.[column]}`))
+  for (const pose of POSES) {
+    for (const { foreground, background } of halfBlockRows(compose(KIT, squishy, pose)).flat()) pairs.add(`${foreground}/${background}`)
   }
   return pairs
 }
 
-test('a full roster of nine squishys paints fewer than the 1024 color pairs a Raster paints exactly', () => {
-  const most = Math.max(...[...ROLLED.slice(0, 300), ...eachPart(KIT)].map(squishy => colorPairs(squishy).size))
+test('a full roster, every slot and the partner, paints fewer than the 1024 color pairs a Raster paints exactly, in any pose', () => {
+  // Counted as one budget shared by every Raster on screen, the safe assumption
+  const onScreen = MAX_SLOTS + 1
+  const most = Math.max(...[...ROLLED.slice(0, 30), ...eachPart(KIT)].map(squishy => colorPairs(squishy).size))
 
-  expect(most * 9).toBeLessThan(1024)
+  expect(most * onScreen).toBeLessThan(1024)
 })
