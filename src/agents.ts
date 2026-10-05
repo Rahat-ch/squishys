@@ -9,10 +9,10 @@ import type { Agent, Squishy, SquishyState } from '../types'
 import { KIT } from './kit'
 import { OPEN_PANE, PANE_ID, notePaneOpened, squishysOnScreen } from './pane'
 import { PARTNER_KEY, partnerFrom } from './partner'
-import { forcedMoment, rememberSquishys, takeFreshRolls } from './rebuild'
+import { REMEMBERED_KEY, forcedMoment, rememberSquishys, rememberedFrom, sessionOfSpawn, takeFreshRolls } from './rebuild'
 import type { Rolled } from './rebuild'
 import { momentToast, sparkleUntil, withSparklesTidied } from './moments'
-import { cryptoRandom, forcedOdds, roll } from './roller'
+import { cryptoRandom, forcedOdds, roll, squishyOf } from './roller'
 import { carriesRedirect, forgetResumed, forgetResumes, isResumedByRedirect } from './resumes'
 import { recordMet } from './squishydex-record'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
@@ -348,13 +348,18 @@ function hasSquishy(known: readonly Agent[], agentId: string): boolean {
  * agent takes it (see liveSquishys). An ended agent that wakes
  * keeps its own squishy, even if another agent has rolled it since: an
  * agent's identity wins over keeping squishys apart. Nor does it repeat
- * the partner's. Returns the agent it gave a squishy, if any, and whether
- * SQUISHYS_FORCE_ROLL forced it to come up shiny or legendary (Rolled).
+ * the partner's. An agent the store kept a squishy for gets it back, as
+ * from a rebuild: one of another session that /clear or /resume left out,
+ * first seen again through its tool call. Returns the agent it rolled a
+ * squishy for, if any, and whether SQUISHYS_FORCE_ROLL forced it to come up
+ * shiny or legendary (Rolled); never one whose squishy came back.
  */
 async function assignSquishy($: EngineInterface, agentId: string, description: string, model?: string): Promise<Rolled | undefined> {
   let partner: Squishy | undefined
+  let kept: Squishy | undefined
   try {
     partner = partnerFrom(await $.store.get(PARTNER_KEY))
+    kept = squishyOf(KIT, new Map(rememberedFrom(await $.store.get(REMEMBERED_KEY))).get(agentId) ?? '')
   } catch {}
   // SQUISHYS_FORCE_ROLL forces what the roll is (src/roller.ts): how the
   // tests, and a person trying the mod out, see a Moment
@@ -366,7 +371,7 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   let first = false
   await update($, agents, known => {
     if (hasSquishy(known, agentId)) return known
-    const squishy = roll(KIT, { live: liveSquishys(known, squishysOnScreen(), partner), rng: cryptoRandom, ...(odds !== undefined ? { odds } : {}) })
+    const squishy = kept ?? roll(KIT, { live: liveSquishys(known, squishysOnScreen(), partner), rng: cryptoRandom, ...(odds !== undefined ? { odds } : {}) })
     assigned = { id: agentId, description, squishy, state: 'working', ...(model !== undefined ? { model } : {}) }
     first = known.length === 0
     return [...known, assigned]
@@ -376,12 +381,13 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   // Kept in the store too, with the session it started in, so it comes back
   // after /resume of that session even once the agent list drops it
   if (assigned === undefined) return undefined
-  let sessionId: string | undefined
+  // `$.session.id()` lags a session start a while (sessionOfSpawn)
+  let answered: string | undefined
   try {
-    sessionId = await $.session.id()
+    answered = await $.session.id()
   } catch {}
-  await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, [assigned], sessionId)
-  return { agent: assigned, forced: forcedMoment(odds, assigned.squishy) }
+  await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, [assigned], sessionOfSpawn(answered))
+  return kept !== undefined ? undefined : { agent: assigned, forced: forcedMoment(odds, assigned.squishy) }
 }
 
 /**

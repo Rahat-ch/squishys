@@ -20,7 +20,7 @@ import type { Odds } from './roller'
 import { liveSquishys } from './slots'
 import { recordMet } from './squishydex-record'
 import type { StoreCalls } from './squishydex-record'
-import { stateOfStatus } from './states'
+import { endedState, stateOfStatus } from './states'
 
 // The engine reads each $.state reference off the file that uses it, so
 // every file declares its own atom for the values it reads or writes.
@@ -170,12 +170,45 @@ let remembering: Promise<void> = Promise.resolve()
  */
 export function rememberSquishys({ get, set }: StoreCalls, seen: readonly Pick<Agent, 'id' | 'squishy' | 'description'>[], sessionId?: string): Promise<void> {
   remembering = remembering.then(async () => {
+    // Each value on its own, so one that fails costs only itself
     try {
       await set(REMEMBERED_KEY, withRemembered(rememberedFrom(await get(REMEMBERED_KEY)), seen))
-      if (sessionId !== undefined) await set(SESSIONS_KEY, withSessionAgents(sessionsFrom(await get(SESSIONS_KEY)), sessionId, seen))
+    } catch {}
+    if (sessionId === undefined) return
+    try {
+      await set(SESSIONS_KEY, withSessionAgents(sessionsFrom(await get(SESSIONS_KEY)), sessionId, seen))
     } catch {}
   })
   return remembering
+}
+
+/**
+ * Whether the roster of a session shows an agent the agent list names, which
+ * names the agents of every session in the process: one the store keeps as
+ * that session's does, one it keeps as only other sessions' doesn't, and one
+ * it keeps under no session only while it runs.
+ */
+export function isOfSession(sessions: Sessions, sessionId: string, { id, status }: { id: string; status: string }): boolean {
+  const keptUnder = sessions.filter(([, started]) => started.some(([agentId]) => agentId === id)).map(([session]) => session)
+  if (keptUnder.length === 0) return endedState(status) === undefined
+  return keptUnder.includes(sessionId)
+}
+
+/**
+ * The session the latest classic.SessionStart (clear, resume, fork) named,
+ * and what `$.session.id()` answered then. For a while after a resume,
+ * `$.session.id()` still answers the session being left (seen for #63).
+ */
+let sessionStarted: { id: string; answered: string | undefined } | undefined
+
+/**
+ * The session an agent the tracker gives a squishy now started in, from what
+ * `$.session.id()` answers (undefined when it failed): the session the latest
+ * session start named while `$.session.id()` still answers what it did then.
+ */
+export function sessionOfSpawn(answered: string | undefined): string | undefined {
+  if (sessionStarted !== undefined && (answered === undefined || answered === sessionStarted.answered)) return sessionStarted.id
+  return answered
 }
 
 export function registerRebuild(on: On): void {
@@ -183,9 +216,18 @@ export function registerRebuild(on: On): void {
   // /resume also brings back the resumed session's agents the list no longer
   // names. It names that session by the event's session_id: at this point
   // `$.session.id()` still answers the session being left (seen for #63).
-  // /clear goes on under a new session id, so it starts fresh.
+  // /clear goes on under a new session id, so it starts fresh. Both show
+  // only the agents the list names that are their session's (isOfSession).
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork', 'compact'] }, async ($, e, next) => {
-    const added = await rebuild($, e.source === 'resume' ? e.session_id : undefined)
+    if (e.source !== 'compact') {
+      let answered: string | undefined
+      try {
+        answered = await $.session.id()
+      } catch {}
+      sessionStarted = { id: e.session_id, answered }
+    }
+    const ofSession = e.source === 'clear' || e.source === 'resume' ? e.session_id : undefined
+    const added = await rebuild($, ofSession, e.source === 'resume')
     const started = await next(e)
     // Met: the Squishydex records the rebuilt squishys once the event has
     // gone on, all but forced rolls. It keeps a squishy's first-met date,
@@ -198,7 +240,8 @@ export function registerRebuild(on: On): void {
 
 /**
  * Adds every agent the agent list names that the roster lacks, in its
- * status's state (with the resumed session's, below). An agent the store kept a squishy for gets it back,
+ * status's state; given a session (/clear's or /resume's), only those of
+ * that session (isOfSession), and for /resume the session's own (below). An agent the store kept a squishy for gets it back,
  * even one another agent shows (an agent's identity wins); any other gets
  * a fresh roll that repeats no live squishy (see liveSquishys), no
  * restored one and not the partner's.
@@ -215,8 +258,9 @@ export function registerRebuild(on: On): void {
  * restored squishy's never was), and keeps the fresh rolls for the
  * tracker to announce (takeFreshRolls).
  */
-async function rebuild($: EngineInterface, resumedSession: string | undefined): Promise<Rolled[]> {
+async function rebuild($: EngineInterface, sessionId: string | undefined, restoring: boolean): Promise<Rolled[]> {
   freshRolls = []
+  const resumedSession = restoring ? sessionId : undefined
   let listed: AgentInfo[] = []
   try {
     listed = await $.agent.list()
@@ -229,9 +273,11 @@ async function rebuild($: EngineInterface, resumedSession: string | undefined): 
   let partner: Squishy | undefined
   try {
     remembered = rememberedFrom(await $.store.get(REMEMBERED_KEY))
-    if (resumedSession !== undefined) sessions = sessionsFrom(await $.store.get(SESSIONS_KEY))
+    if (sessionId !== undefined) sessions = sessionsFrom(await $.store.get(SESSIONS_KEY))
     partner = partnerFrom(await $.store.get(PARTNER_KEY))
   } catch {}
+  // The list names other sessions' agents too
+  if (sessionId !== undefined) listed = listed.filter(info => isOfSession(sessions, sessionId, info))
   let odds: ReturnType<typeof forcedOdds>
   try {
     odds = forcedOdds(await $.env.get('SQUISHYS_FORCE_ROLL'))

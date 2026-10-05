@@ -268,7 +268,7 @@ test('the longest share text, reminder and link included, fits in a post on X', 
   stubStore(on, { ...PARTNERED, [REMEMBERED_KEY]: [['agent-b', legendaryKey(legendary.id, true)]] })
   stubSessionStart(on)
   stubAgentList(on, [{ id: 'agent-b', description: '設定'.repeat(100), status: 'completed' }])
-  await $.classic.SessionStart({ source: 'clear' })
+  await $.classic.SessionStart({ source: 'fork' })
   await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-b' })
 
@@ -372,7 +372,7 @@ test('a shiny legendary shows its crown and sparkle in the share text', async ($
   stubStore(on, { ...PARTNERED, [REMEMBERED_KEY]: [['agent-b', legendaryKey(legendary.id, true)]] })
   stubSessionStart(on)
   stubAgentList(on, [{ id: 'agent-b', description: 'Run the tests', status: 'completed' }])
-  await $.classic.SessionStart({ source: 'clear' })
+  await $.classic.SessionStart({ source: 'fork' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-b' })
 

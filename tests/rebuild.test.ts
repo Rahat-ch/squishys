@@ -44,11 +44,16 @@ function rememberedIds(stored: Map<string, unknown>): string[] {
 
 for (const source of ['clear', 'resume', 'fork'] as const) {
   test(`after a session start from ${source}, the roster is rebuilt from the agent list, each squishy in its agent’s state`, async ($, on) => {
-    stubStore(on, PARTNERED)
+    // The store keeps the listed agents as the session's own, as /clear and
+    // /resume want (isOfSession); a branch takes the whole list
+    const rng = seeded(16)
+    const rolled: Squishy[] = []
+    for (const _ of LISTED) rolled.push(roll(KIT, { live: rolled, rng }))
+    stubStore(on, leftBy([['session-now', LISTED.map(({ id, description }, index) => ({ id, description, squishy: rolled[index] as Squishy }))]]))
     stubSessionStart(on)
     stubAgentList(on, LISTED)
 
-    await $.classic.SessionStart({ source })
+    await $.classic.SessionStart({ source, session_id: 'session-now' })
 
     // Room for the partner and every listed agent
     const ui = await $.ui.mount({ ...paneSized(roomFor('dock', LISTED.length + 1, 1)), surface: 'terminal' })
@@ -277,7 +282,7 @@ for (const surface of ['desktop', 'vscode', 'mobile', null] as const) {
     on('settings.read', () => ({ value: {} }))
     stubAgentList(on, [
       { id: 'agent-1', description: 'Find config parser', status: 'running' },
-      { id: 'agent-2', description: 'Run the tests', status: 'completed' },
+      { id: 'agent-2', description: 'Run the tests', status: 'running' },
     ])
     // Stands for what Claude Code would draw in the pane
     on('ui.render', () => ({ type: 'Text', props: {}, children: ['drawn by Claude Code'] }))
@@ -462,3 +467,125 @@ test('the store keeps the agents of the sessions that started one latest, at mos
   expect(sessions.map(([sessionId]) => sessionId)).toEqual([EARLIER_SESSION, 'session-now'])
   expect(sessions[0]?.[1]).toHaveLength(half)
 })
+
+// The agent list names the agents of every session in the process
+test('after /resume, listed agents another session started stay away, and of listed agents kept under no session only running ones join', async ($, on) => {
+  const [mine, otherRunning, otherEnded] = earlierSquishys()
+  stubStore(
+    on,
+    leftBy([
+      [
+        OTHER_SESSION,
+        [
+          { id: 'agent-other-running', description: 'Run the tests', squishy: otherRunning },
+          { id: 'agent-other-ended', description: 'Fix the build', squishy: otherEnded },
+        ],
+      ],
+      [EARLIER_SESSION, [{ id: 'agent-mine', description: 'Reply alpha', squishy: mine }]],
+    ]),
+  )
+  stubSessionStart(on)
+  stubAgentList(on, [
+    { id: 'agent-other-running', description: 'Run the tests', status: 'running' },
+    { id: 'agent-other-ended', description: 'Fix the build', status: 'completed' },
+    { id: 'agent-mine', description: 'Reply alpha', status: 'completed' },
+    { id: 'agent-unknown-running', description: 'Review the docs', status: 'running' },
+    { id: 'agent-unknown-ended', description: 'Find config parser', status: 'completed' },
+  ])
+
+  await $.classic.SessionStart({ source: 'resume', session_id: EARLIER_SESSION })
+
+  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 6, 1)), surface: 'terminal' })
+  expect((await ui.find({ key: 'picture-agent-mine' }))?.props.cells).toBe(cellsOf(mine, 'asleep'))
+  expect(await (await watch(ui, 'agent-unknown-running')).state()).toBe('working')
+  for (const id of ['agent-other-running', 'agent-other-ended', 'agent-unknown-ended']) expect(await ui.find({ key: `slot-${id}` })).toBeUndefined()
+  expect(await agentPictures(ui)).toHaveLength(2)
+})
+
+test('after /clear, a running agent the cleared session started stays away, while one kept under no session joins', async ($, on) => {
+  const [first] = earlierSquishys()
+  stubStore(on, leftBy([[EARLIER_SESSION, [{ id: 'agent-a', description: 'Sleep then reply', squishy: first }]]]))
+  stubSessionStart(on)
+  stubAgentList(on, [
+    { id: 'agent-a', description: 'Sleep then reply', status: 'running' },
+    { id: 'agent-b', description: 'Run the tests', status: 'running' },
+  ])
+
+  await $.classic.SessionStart({ source: 'clear', session_id: 'session-after-clear' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'slot-agent-a' })).toBeUndefined()
+  expect(await (await watch(ui, 'agent-b')).state()).toBe('working')
+})
+
+test('an agent spawned while `$.session.id()` still answers the session /resume left is kept as the resumed session’s, and once it catches up, as the one it answers', async ($, on) => {
+  const stored = stubStore(on, PARTNERED)
+  stubSpawns(on)
+  stubSessionStart(on)
+  stubAgentList(on, [])
+  // Seen for #63: for a while after a resume, it answers the session left
+  let answer = 'session-left'
+  on('session.id', () => ({ value: answer }))
+  await $.classic.SessionStart({ source: 'resume', session_id: EARLIER_SESSION })
+
+  await $.agent.spawn(spawnOf('toolu_1'))
+  answer = OTHER_SESSION
+  await $.agent.spawn(spawnOf('toolu_2'))
+
+  const kept = (sessionId: string) => agentsOfSession(sessionsFrom(stored.get(SESSIONS_KEY)), rememberedFrom(stored.get(REMEMBERED_KEY)), sessionId).map(agent => agent.id)
+  expect(kept(EARLIER_SESSION)).toEqual(['agent-1'])
+  expect(kept(OTHER_SESSION)).toEqual(['agent-2'])
+  expect(kept('session-left')).toEqual([])
+})
+
+test('two restored agents with the same squishy both keep it, an agent’s identity winning, and no agent spawned after takes it', async ($, on) => {
+  const [shared] = earlierSquishys()
+  const stored = stubStore(
+    on,
+    leftBy([
+      [
+        EARLIER_SESSION,
+        [
+          { id: 'agent-a', description: 'Reply alpha', squishy: shared },
+          { id: 'agent-b', description: 'Reply beta', squishy: shared },
+        ],
+      ],
+    ]),
+  )
+  stubSpawns(on)
+  stubSessionStart(on)
+  stubAgentList(on, [])
+  await $.classic.SessionStart({ source: 'resume', session_id: EARLIER_SESSION })
+  // The roster never shows one squishy twice, so agent-b waits in the
+  // overflow, still with its own squishy
+  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 3, 1)), surface: 'terminal' })
+  expect((await ui.find({ key: 'picture-agent-a' }))?.props.cells).toBe(cellsOf(shared, 'asleep'))
+  await $.ui.press({ plugin: 'squishys', key: 'overflow' })
+  expect((await ui.find({ key: 'squishy-agent-b' }))?.props.label).toBe(shared.name)
+
+  for (const n of [1, 2, 3]) await $.agent.spawn(spawnOf(`toolu_${n}`))
+
+  for (const id of ['agent-1', 'agent-2', 'agent-3']) expect(nameOfAgent(stored, id)).not.toBe(shared.name)
+})
+
+for (const [refused, kept] of [
+  [REMEMBERED_KEY, SESSIONS_KEY],
+  [SESSIONS_KEY, REMEMBERED_KEY],
+] as const) {
+  test(`a store that refuses to keep ${refused} still keeps ${kept} for a spawned agent`, async ($, on) => {
+    const stored = new Map<string, unknown>(Object.entries(PARTNERED))
+    on('store.get', ($, e) => ({ value: stored.get(e.key) }))
+    on('store.set', ($, e) => {
+      if (e.key === refused) throw new Error('the store refuses it')
+      stored.set(e.key, JSON.parse(JSON.stringify(e.value)))
+      return { value: undefined }
+    })
+    stubSpawns(on)
+    on('session.id', () => ({ value: EARLIER_SESSION }))
+
+    await $.agent.spawn(spawnOf('toolu_1'))
+
+    expect(stored.get(refused)).toBeUndefined()
+    expect(stored.get(kept)).toBeDefined()
+  })
+}
