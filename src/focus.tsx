@@ -17,6 +17,8 @@ import {
   noteEffortStep,
   noteModelStep,
 } from './model-switch'
+import { heldKey, heldLabel } from './held'
+import type { Hold } from './held'
 import { OPEN_PANE_ASKED, PANE_ID, PICK_PREFIX, animatedPicture, notePaneOpened, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, settingsFrom } from './settings'
@@ -377,16 +379,26 @@ export function registerFocus(on: On): void {
     const control = await read($, stopControl)
     // The compose page of a Share the browser didn't open
     const shareLink = unopenedShare(agentShareKey(agent.id))
+    // A control that doesn't apply is held: dimmed, saying why, its press
+    // answered by src/held.ts, so its hotkey never reaches the prompt
+    const held = (key: string, hotkey: string, label: string, hold: Hold) => {
+      const shown = heldLabel(label, hold)
+      return { columns: buttonColumns(shown, hotkey), drawn: <Button key={heldKey(key, hold)} hotkey={hotkey} plain dimColor label={shown} onPress={() => {}} /> }
+    }
+    const stopHold = canStop(agent) ? undefined : stopHoldOf(agent)
+    const shareHold = canShare(agent) ? undefined : shareHoldOf(agent)
     const controls: { columns: number; drawn: JSX.Element }[] = [
       { columns: buttonColumns(BACK_LABEL, 'r'), drawn: back },
-      ...(canStop(agent) ? [{ columns: buttonColumns('Stop', 's'), drawn: <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> }] : []),
-      ...(partner !== undefined
-        ? [{ columns: buttonColumns(partner.name, '1'), drawn: <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void leaveFocus($)} /> }]
-        : []),
+      stopHold === undefined
+        ? { columns: buttonColumns('Stop', 's'), drawn: <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> }
+        : held('stop', 's', 'Stop', stopHold),
+      partner !== undefined
+        ? { columns: buttonColumns(partner.name, '1'), drawn: <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void leaveFocus($)} /> }
+        : held(PARTNER_BUTTON, '1', 'Partner', NO_PARTNER),
       // Answered by the ui.press hook in share.tsx
-      ...(canShare(agent)
-        ? [{ columns: buttonColumns('Share', SHARE_HOTKEY), drawn: <Button key={agentShareKey(agent.id)} hotkey={SHARE_HOTKEY} plain label="Share" onPress={() => {}} /> }]
-        : []),
+      shareHold === undefined
+        ? { columns: buttonColumns('Share', SHARE_HOTKEY), drawn: <Button key={agentShareKey(agent.id)} hotkey={SHARE_HOTKEY} plain label="Share" onPress={() => {}} /> }
+        : held(agentShareKey(agent.id), SHARE_HOTKEY, 'Share', shareHold),
       ...(canShare(agent) && shareLink !== undefined
         ? [{ columns: SHARE_LINK_LABEL.length, drawn: <Link key="focus-share-link" href={shareLink} label={SHARE_LINK_LABEL} /> }]
         : []),
@@ -594,6 +606,23 @@ async function addActivity($: EngineInterface, agentId: string, row: ActivityRow
 function canStop(agent: Agent): boolean {
   return !isEnded(agent.state) && stopUnderWay(agent.id) === undefined
 }
+
+/** Why Stop is held for an agent it isn't offered for: it has ended, or a stop of it is under way. */
+function stopHoldOf(agent: Agent): Hold {
+  const { name } = agent.squishy
+  if (isEnded(agent.state)) return { why: 'finished', reason: `${name} has finished, so there’s nothing to stop.` }
+  return { why: 'stopping…', reason: `${name} is already being stopped.` }
+}
+
+/** Why Share is held for an agent it isn't offered for: it still runs, or it's Squished. */
+function shareHoldOf(agent: Agent): Hold {
+  const { name } = agent.squishy
+  if (!isEnded(agent.state)) return { why: 'once Asleep', reason: `${name} is still running. Share works once it’s Asleep.` }
+  return { why: STATE_NAMES[agent.state], reason: `only an Asleep squishy can be shared, and ${name} is ${STATE_NAMES[agent.state]}.` }
+}
+
+/** Why the partner's control is held while no partner is saved. */
+const NO_PARTNER: Hold = { why: 'none yet', reason: 'no partner is saved yet. r goes back to the roster.' }
 
 /** What the Stop control says about this agent, if anything: armed, or a stop under way. */
 function stopNote(agent: Agent, armed: boolean): string | undefined {

@@ -132,7 +132,7 @@ async function finishedAgent($: Engine, on: On, description = 'Find config parse
   return { ui, squishy: squishyOfAgent(stored, 'agent-1') }
 }
 
-test('Share shows in the focus view, on x, only once the agent’s squishy is Asleep', async ($, on) => {
+test('Share works in the focus view, on x, only once the agent’s squishy is Asleep; before, it’s held', async ($, on) => {
   stubStore(on)
   stubSpawns(on)
   stubTurns(on)
@@ -140,6 +140,7 @@ test('Share shows in the focus view, on x, only once the agent’s squishy is As
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'squishy-agent-1' })
   expect(await ui.find({ type: 'Button', key: agentShareKey('agent-1') })).toBeUndefined()
+  expect((await ui.find({ type: 'Button', key: `held-${agentShareKey('agent-1')}` }))?.props).toMatchObject({ label: 'Share (once Asleep)', hotkey: 'x', dimColor: true })
 
   await $.turn.complete(finishOf('agent-1'))
 
@@ -147,7 +148,7 @@ test('Share shows in the focus view, on x, only once the agent’s squishy is As
   expect(share?.props).toMatchObject({ label: 'Share', hotkey: 'x' })
 })
 
-test('a Squished squishy has no Share', async ($, on) => {
+test('a Squished squishy has no Share: x is held', async ($, on) => {
   stubStore(on)
   stubSpawns(on)
   stubTurns(on)
@@ -159,6 +160,7 @@ test('a Squished squishy has no Share', async ($, on) => {
 
   expect(await ui.find({ type: 'Text', text: 'Squished' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: agentShareKey('agent-1') })).toBeUndefined()
+  expect((await ui.find({ type: 'Button', key: `held-${agentShareKey('agent-1')}` }))?.props).toMatchObject({ label: 'Share (Squished)', hotkey: 'x', dimColor: true })
 })
 
 test('on macOS, one press saves the squishy’s card, copies it to the clipboard, then opens X’s compose page with what it finished and a paste reminder', async ($, on) => {

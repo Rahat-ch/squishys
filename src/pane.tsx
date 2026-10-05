@@ -9,6 +9,8 @@ import type { EngineInterface, On, PaneOpenArgs, Timer } from 'claude-code'
 import type { Agent, Squishy } from '../types'
 import { compose } from './composer'
 import type { Size } from './composer'
+import { heldKey, heldLabel } from './held'
+import type { Hold } from './held'
 import { pickKeys } from './keys'
 import { KIT } from './kit'
 import { isSparkling } from './moments'
@@ -79,6 +81,9 @@ export const OPEN_PANE = { id: PANE_ID, title: 'Squishys', rows: SLOT_ROWS } as 
  * and the starter pick say how to give it the keyboard while it lacks it.
  */
 export const OPEN_PANE_ASKED = { ...OPEN_PANE, focus: true } as const
+
+/** Why the overflow count is held while the overflow is empty: as wide as a count, which the footer budgets. */
+const NO_OVERFLOW: Hold = { reason: 'every agent has a slot, so the overflow is empty.' }
 
 /** The keys the roster's footer takes, which no squishy's pick does. */
 const ROSTER_KEYS = [OVERFLOW_HOTKEY, SETTINGS_BUTTON.hotkey, SQUISHYDEX_BUTTON.hotkey]
@@ -435,14 +440,16 @@ export function registerPane(on: On): void {
     )
     const overflowLabel = `+${layout.overflow.length}`
     const footer = [
-      ...(layout.overflow.length > 0
-        ? [
-            {
-              columns: buttonColumns(overflowLabel, OVERFLOW_HOTKEY),
-              button: <Button key="overflow" hotkey={OVERFLOW_HOTKEY} plain label={overflowLabel} onPress={() => void showOverflowList($, !showsList)} />,
-            },
-          ]
-        : []),
+      {
+        columns: buttonColumns(overflowLabel, OVERFLOW_HOTKEY),
+        // With no overflow, the count is held, so m never reaches the prompt (src/held.ts answers its press)
+        button:
+          layout.overflow.length > 0 ? (
+            <Button key="overflow" hotkey={OVERFLOW_HOTKEY} plain label={overflowLabel} onPress={() => void showOverflowList($, !showsList)} />
+          ) : (
+            <Button key={heldKey('overflow', NO_OVERFLOW)} hotkey={OVERFLOW_HOTKEY} plain dimColor label={heldLabel(overflowLabel, NO_OVERFLOW)} onPress={() => {}} />
+          ),
+      },
       {
         columns: buttonColumns(SETTINGS_BUTTON.label, SETTINGS_BUTTON.hotkey),
         button: <Button key="settings" {...SETTINGS_BUTTON} plain dimColor onPress={() => void update($, mode, () => 'settings')} />,

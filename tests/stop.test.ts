@@ -126,7 +126,7 @@ test('Stop disarms when the focus view goes back to the roster or on to another 
   expect(calls).toEqual([])
 })
 
-test('a stopped agent’s squishy is Squished, its feed says it was stopped by you, and Stop goes', async ($, on) => {
+test('a stopped agent’s squishy is Squished, its feed says it was stopped by you, and Stop is held', async ($, on) => {
   const statuses = new Map<string, AgentStatus>([['agent-1', 'running']])
   stubAgentList(on, statuses)
   stubTaskStop(on, statuses)
@@ -138,6 +138,7 @@ test('a stopped agent’s squishy is Squished, its feed says it was stopped by y
   expect(await ui.find({ type: 'Text', text: 'Squished' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Stopped by you' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'stop' })).toBeUndefined()
+  expect((await ui.find({ type: 'Button', key: 'held-stop' }))?.props).toMatchObject({ label: 'Stop (finished)', hotkey: 's', dimColor: true })
   await $.ui.press({ plugin: 'squishys', key: 'back' })
   expect(await slotState()).toBe('squished')
 })

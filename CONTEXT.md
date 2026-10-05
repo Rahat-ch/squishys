@@ -135,3 +135,7 @@ _Avoid_: input, text box, message field
 **Hotkey**:
 The single key a person presses to work a pane control, shown before its label (`i: Redirect`).
 _Avoid_: shortcut, key binding
+
+**Held control**:
+A pane control drawn dimmed, saying why, while it doesn't apply (`s: Stop (finished)`), so its hotkey still belongs to the pane; pressing it only says why.
+_Avoid_: disabled, hidden, greyed out

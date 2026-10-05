@@ -13,6 +13,8 @@ import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
 import { OPEN_PANE_ASKED, PANE_ID, SLOT_HOVER, notePaneOpened, openRefused } from './pane'
 import { PARTNER_KEY, partnerFrom, stillPicture } from './partner'
+import { heldKey, heldLabel } from './held'
+import type { Hold } from './held'
 import { cycleLabel, nextOf, pickKeys } from './keys'
 import { halfBlocks } from './raster'
 import type { Pixels } from './raster'
@@ -80,6 +82,14 @@ const MAKE_PARTNER_HOTKEY = 'm'
 export const PALETTE_LABEL = 'Partner palette'
 /** The palette control's hotkey, which steps a species' card to the next palette it was met in. */
 const PALETTE_HOTKEY = 'c'
+
+/** Why the pages' controls are held: paging past either end, and a species' controls on a legendary's card. */
+const FIRST_PAGE: Hold = { reason: 'this is the first page.' }
+const LAST_PAGE: Hold = { reason: 'this is the last page.' }
+const ONE_PAGE: Hold = { reason: 'every place fits on this one page.' }
+const LEGENDARY_PALETTE: Hold = { why: 'species only', reason: 'a legendary has one look: only a species’ partner palette can be picked.' }
+const LEGENDARY_PARTNER: Hold = { why: 'species only', reason: 'a legendary can’t be your partner: only a species can.' }
+const LEGENDARY_SHARE: Hold = { why: 'species only', reason: 'only a species’ card can be shared.' }
 
 /** The hotkeys the pages' own controls take, which no place's pick does (Back shows only on a card). */
 const PAGE_KEYS = [NEXT_HOTKEY, PREVIOUS_HOTKEY, ROSTER_HOTKEY]
@@ -186,6 +196,15 @@ export function registerSquishydex(on: On): void {
       columns: buttonColumns(label, hotkey),
       drawn: <Button key={key} hotkey={hotkey} plain label={label} onPress={onPress} />,
     })
+    // A control that doesn't apply here is held: dimmed, saying why, its
+    // press answered by src/held.ts, so its hotkey never reaches the prompt
+    const heldButton = (key: string, hotkey: string, label: string, hold: Hold): RowItem => {
+      const shown = heldLabel(label, hold)
+      return {
+        columns: buttonColumns(shown, hotkey),
+        drawn: <Button key={heldKey(key, hold)} hotkey={hotkey} plain dimColor label={shown} onPress={() => {}} />,
+      }
+    }
     const text = (key: string, value: string, dim = false): RowItem => ({
       columns: value.length,
       drawn: (
@@ -304,8 +323,11 @@ export function registerSquishydex(on: On): void {
       )
     }
     const footer = [
-      ...(page > 0 ? [button('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', () => void turnTo($, page - 1))] : []),
-      ...(page < pages - 1 ? [button('squishydex-next', NEXT_HOTKEY, 'Next', () => void turnTo($, page + 1))] : []),
+      // Held on the first and last page, as wide as the footer budgets them
+      page > 0 ? button('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', () => void turnTo($, page - 1)) : heldButton('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', FIRST_PAGE),
+      page < pages - 1
+        ? button('squishydex-next', NEXT_HOTKEY, 'Next', () => void turnTo($, page + 1))
+        : heldButton('squishydex-next', NEXT_HOTKEY, 'Next', pages > 1 ? LAST_PAGE : ONE_PAGE),
       ...(pages > 1 ? [text('squishydex-page', `${page + 1}/${pages}`, true)] : []),
       roster,
     ]
@@ -333,7 +355,9 @@ export function registerSquishydex(on: On): void {
       const sameSpecies = partner?.kind === 'assembled' && speciesKey(partner) === place.key
       const isPartner = sameSpecies && partner.palette === squishy.palette
       const actions = [
-        ...(isPartner ? [] : [button('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', () => void makePartner($, squishy))]),
+        isPartner
+          ? heldButton('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', { why: 'already', reason: `${squishy.name} is already your partner.` })
+          : button('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', () => void makePartner($, squishy)),
         // Answered by the ui.press hook in share.tsx
         button(speciesShareKey(squishy.key), SHARE_HOTKEY, 'Share', () => {}),
         back,
@@ -350,7 +374,7 @@ export function registerSquishydex(on: On): void {
             <Text wrap="wrap">{met.variants.map(variantName).join(', ')}</Text>
           </Box>
           {palettes.length > 1 ? (
-            // Steps through the plain palettes it was met in, the first met first
+            // Steps through the plain palettes it was met in, the first met first; held with one met
             <Button
               key="squishydex-palette"
               hotkey={PALETTE_HOTKEY}
@@ -360,7 +384,12 @@ export function registerSquishydex(on: On): void {
                 void update($, squishydexPalette, chosen => nextOf(palettes, chosen !== null && palettes.includes(chosen) ? chosen : palettes[0]) ?? null)
               }
             />
-          ) : null}
+          ) : (
+            heldButton('squishydex-palette', PALETTE_HOTKEY, PALETTE_LABEL, {
+              why: `${squishy.palette} only`,
+              reason: `${squishy.name} has been met in one plain palette only, so there’s none to step to.`,
+            }).drawn
+          )}
           {rowsOf('squishydex-card-footer', actions)}
           {shareLink !== undefined ? <Link key="squishydex-share-link" href={shareLink} label={SHARE_LINK_LABEL} /> : null}
         </Box>
@@ -376,7 +405,14 @@ export function registerSquishydex(on: On): void {
           <Raster key="squishydex-card-picture" {...pictured(legendary)} />
           <Text>{`First met ${dayOf(met.met)}`}</Text>
           <Text>{met.shiny !== undefined ? `First met shiny ${dayOf(met.shiny)}` : 'Not met shiny yet'}</Text>
-          {rowsOf('squishydex-card-footer', [back, roster])}
+          {/* A species' controls, held, so their hotkeys never reach the prompt */}
+          {heldButton('squishydex-palette', PALETTE_HOTKEY, PALETTE_LABEL, LEGENDARY_PALETTE).drawn}
+          {rowsOf('squishydex-card-footer', [
+            heldButton('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', LEGENDARY_PARTNER),
+            heldButton('share', SHARE_HOTKEY, 'Share', LEGENDARY_SHARE),
+            back,
+            roster,
+          ])}
         </Box>
       )
     }
