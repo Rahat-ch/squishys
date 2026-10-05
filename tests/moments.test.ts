@@ -221,13 +221,14 @@ test('on macOS, settings offer the chime, off by default, and turning it on save
   expect(stored.get('settings')).toEqual({ slotCap: 9 })
 })
 
-test('where $.audio makes no sound, settings hide the chime', async ($, on) => {
+test('where $.audio makes no sound, settings hold the chime: dimmed, saying why', async ($, on) => {
   stubStore(on)
   stubPlatform(on, 'linux')
   const ui = await openSettings($)
 
   expect(await ui.find({ type: 'Button', key: 'model' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'chime' })).toBeUndefined()
+  expect((await ui.find({ type: 'Button', key: 'held-chime' }))?.props).toMatchObject({ label: `${CHIME_LABEL} (macOS only)`, hotkey: 'c', dimColor: true })
 })
 
 test('with the chime on, a shiny or legendary roll plays the chime, and a plain one plays nothing', async ($, on) => {

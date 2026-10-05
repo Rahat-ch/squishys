@@ -17,11 +17,13 @@ import {
   noteEffortStep,
   noteModelStep,
 } from './model-switch'
+import { controlColumns, heldButton } from './held'
+import type { Hold } from './held'
 import { OPEN_PANE_ASKED, PANE_ID, PICK_PREFIX, animatedPicture, notePaneOpened, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
 import { SETTINGS_KEY, settingsFrom } from './settings'
 import { SHARE_HOTKEY, SHARE_LINK_LABEL, agentShareKey, unopenedShare } from './share'
-import { buttonColumns, linedUp } from './slots'
+import { linedUp } from './slots'
 import { canShare, endedState, isEnded } from './states'
 import {
   STOP_CONFIRM_MS,
@@ -332,11 +334,68 @@ export function registerFocus(on: On): void {
     const id = await read($, focusedAgentId)
     const agent = (await read($, agents)).find(each => each.id === id)
     const back = <Button key="back" hotkey="r" plain label={BACK_LABEL} onPress={() => void leaveFocus($)} />
+    // The partner stands for the orchestrator: picking it returns to the
+    // roster, like the slot's digit there
+    let partner: Squishy | undefined
+    try {
+      partner = partnerFrom(await $.store.get(PARTNER_KEY))
+    } catch {}
+    // Every control is drawn in every state, so no hotkey reaches the prompt:
+    // one that doesn't apply is held (src/held.tsx answers its press). Each is
+    // budgeted at its widest, live or held, so the rows they're lined up in
+    // don't change between states.
+    const stopHold = agent === undefined ? GONE : canStop(agent) ? undefined : stopHoldOf(agent)
+    const shareHold = agent === undefined ? GONE : canShare(agent) ? undefined : shareHoldOf(agent)
+    const shareKey = agentShareKey(agent?.id ?? id ?? '')
+    // The compose page of a Share the browser didn't open
+    const shareLink = shareHold === undefined ? unopenedShare(shareKey) : undefined
+    const controls: { columns: number; drawn: JSX.Element }[] = [
+      { columns: controlColumns(BACK_LABEL, 'r'), drawn: back },
+      {
+        columns: controlColumns('Stop', 's', STOP_WHYS),
+        drawn: stopHold === undefined ? <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> : heldButton(Button, 'stop', 's', 'Stop', stopHold),
+      },
+      {
+        columns: Math.max(controlColumns(partner?.name ?? PARTNER_LABEL, '1'), controlColumns(PARTNER_LABEL, '1', [NO_PARTNER_WHY])),
+        drawn:
+          partner !== undefined ? (
+            <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void leaveFocus($)} />
+          ) : (
+            heldButton(Button, PARTNER_BUTTON, '1', PARTNER_LABEL, NO_PARTNER)
+          ),
+      },
+      // Answered by the ui.press hook in share.tsx
+      {
+        columns: controlColumns('Share', SHARE_HOTKEY, SHARE_WHYS),
+        drawn:
+          shareHold === undefined ? (
+            <Button key={shareKey} hotkey={SHARE_HOTKEY} plain label="Share" onPress={() => {}} />
+          ) : (
+            heldButton(Button, shareKey, SHARE_HOTKEY, 'Share', shareHold)
+          ),
+      },
+      ...(shareLink !== undefined ? [{ columns: SHARE_LINK_LABEL.length, drawn: <Link key="focus-share-link" href={shareLink} label={SHARE_LINK_LABEL} /> }] : []),
+    ]
+    // As many controls to a row as fit the pane
+    const controlRows = (
+      <Box key="controls" flexDirection="column">
+        {linedUp(
+          controls.map(control => control.columns),
+          e.props.bodyColumns,
+          CONTROL_GAP,
+        ).map((line, index) => (
+          <Box key={`controls-${index}`} flexDirection="row" columnGap={CONTROL_GAP}>
+            {line.map(at => controls[at]?.drawn)}
+          </Box>
+        ))}
+      </Box>
+    )
     if (agent === undefined) {
       return (
         <Box flexDirection="column" rowGap={1}>
           <Text dimColor>That agent is no longer here.</Text>
-          {back}
+          {controlRows}
+          <Box key="redirect-row">{heldButton(Button, REDIRECT_CONTROL_KEY, REDIRECT_HOTKEY, 'Redirect', GONE)}</Box>
         </Box>
       )
     }
@@ -350,12 +409,6 @@ export function registerFocus(on: On): void {
         switchable = []
         switchable = allowedModels((await $.settings.read()).availableModels)
       }
-    } catch {}
-    // The partner stands for the orchestrator: picking it returns to the
-    // roster, like the slot's digit there
-    let partner: Squishy | undefined
-    try {
-      partner = partnerFrom(await $.store.get(PARTNER_KEY))
     } catch {}
     const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
     const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
@@ -375,22 +428,6 @@ export function registerFocus(on: On): void {
           })
     if (effort !== undefined) noteEffortStep(agent.id, effort)
     const control = await read($, stopControl)
-    // The compose page of a Share the browser didn't open
-    const shareLink = unopenedShare(agentShareKey(agent.id))
-    const controls: { columns: number; drawn: JSX.Element }[] = [
-      { columns: buttonColumns(BACK_LABEL, 'r'), drawn: back },
-      ...(canStop(agent) ? [{ columns: buttonColumns('Stop', 's'), drawn: <Button key="stop" hotkey="s" plain label="Stop" onPress={() => {}} /> }] : []),
-      ...(partner !== undefined
-        ? [{ columns: buttonColumns(partner.name, '1'), drawn: <Button key={PARTNER_BUTTON} hotkey="1" plain dimColor label={partner.name} onPress={() => void leaveFocus($)} /> }]
-        : []),
-      // Answered by the ui.press hook in share.tsx
-      ...(canShare(agent)
-        ? [{ columns: buttonColumns('Share', SHARE_HOTKEY), drawn: <Button key={agentShareKey(agent.id)} hotkey={SHARE_HOTKEY} plain label="Share" onPress={() => {}} /> }]
-        : []),
-      ...(canShare(agent) && shareLink !== undefined
-        ? [{ columns: SHARE_LINK_LABEL.length, drawn: <Link key="focus-share-link" href={shareLink} label={SHARE_LINK_LABEL} /> }]
-        : []),
-    ]
     const note = stopNote(agent, control?.agentId === agent.id && isArmed(control, agent.id, await $.clock.now()))
     // The latest redirect: to a running agent, while it hasn't ended since; to
     // an ended one, through the run it resumes (its turn.complete clears it)
@@ -427,18 +464,7 @@ export function registerFocus(on: On): void {
             )}
           </Box>
         </Box>
-        {/* As many controls to a row as fit the pane */}
-        <Box key="controls" flexDirection="column">
-          {linedUp(
-            controls.map(control => control.columns),
-            e.props.bodyColumns,
-            CONTROL_GAP,
-          ).map((line, index) => (
-            <Box key={`controls-${index}`} flexDirection="row" columnGap={CONTROL_GAP}>
-              {line.map(at => controls[at]?.drawn)}
-            </Box>
-          ))}
-        </Box>
+        {controlRows}
         {note === undefined ? null : (
           <Box key="stop-note">
             <Text color="yellow">{note}</Text>
@@ -594,6 +620,37 @@ async function addActivity($: EngineInterface, agentId: string, row: ActivityRow
 function canStop(agent: Agent): boolean {
   return !isEnded(agent.state) && stopUnderWay(agent.id) === undefined
 }
+
+/** Why the controls of an agent the tracker no longer knows are held. */
+const GONE: Hold = { why: 'gone', reason: 'that agent is no longer here.' }
+
+/** Why Stop can be held, which its budget in the row counts: ended, a stop under way, or gone. */
+const STOP_FINISHED = 'finished'
+const STOP_STOPPING = 'stopping…'
+const STOP_WHYS = [STOP_FINISHED, STOP_STOPPING, 'gone']
+
+/** Why Stop is held for an agent it isn't offered for: it has ended, or a stop of it is under way. */
+function stopHoldOf(agent: Agent): Hold {
+  const { name } = agent.squishy
+  if (isEnded(agent.state)) return { why: STOP_FINISHED, reason: `${name} has finished, so there’s nothing to stop.` }
+  return { why: STOP_STOPPING, reason: `${name} is already being stopped.` }
+}
+
+/** Why Share can be held, which its budget in the row counts: still running, Squished, or gone. */
+const SHARE_RUNNING = 'once Asleep'
+const SHARE_WHYS = [SHARE_RUNNING, STATE_NAMES.squished, 'gone']
+
+/** Why Share is held for an agent it isn't offered for: it still runs, or it's Squished. */
+function shareHoldOf(agent: Agent): Hold {
+  const { name } = agent.squishy
+  if (!isEnded(agent.state)) return { why: SHARE_RUNNING, reason: `${name} is still running. Share works once it’s Asleep.` }
+  return { why: STATE_NAMES.squished, reason: `only an Asleep squishy can be shared, and ${name} is ${STATE_NAMES.squished}.` }
+}
+
+/** The partner's control while no partner is saved, held. */
+const PARTNER_LABEL = 'Partner'
+const NO_PARTNER_WHY = 'none yet'
+const NO_PARTNER: Hold = { why: NO_PARTNER_WHY, reason: 'no partner is saved yet. r goes back to the roster.' }
 
 /** What the Stop control says about this agent, if anything: armed, or a stop under way. */
 function stopNote(agent: Agent, armed: boolean): string | undefined {

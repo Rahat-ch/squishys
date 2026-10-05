@@ -5,6 +5,8 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentSpawnInput, EngineInterface, On } from 'claude-code'
 
+import { heldButton } from './held'
+import type { Hold } from './held'
 import { cycleLabel, nextOf } from './keys'
 
 /** The Agent tool's model aliases a default can name. */
@@ -128,7 +130,12 @@ export function registerSettings(on: On): void {
           onPress={() => void saveSettings($, current => ({ ...current, slotCap: nextSlotCap(current.slotCap) }))}
         />
         {toggle('liveModelSwitch', 'l', LIVE_MODEL_SWITCH_LABEL)}
-        {chimes ? toggle('chime', 'c', CHIME_LABEL) : null}
+        {/* Where no chime plays, held: src/held.tsx answers its press, so c never reaches the prompt */}
+        {chimes ? (
+          toggle('chime', 'c', CHIME_LABEL)
+        ) : (
+          heldButton(Button, 'chime', 'c', CHIME_LABEL, NO_CHIME)
+        )}
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>
     )
@@ -140,6 +147,9 @@ export const MODEL_DEFAULT_LABEL = 'Model for new agents'
 export const SLOT_CAP_LABEL = 'Roster slots, at most'
 export const LIVE_MODEL_SWITCH_LABEL = "Experimental: switch a running agent's model and effort from its focus view"
 export const CHIME_LABEL = 'Chime on a shiny or legendary'
+
+/** Why the chime setting is held where `$.audio` makes no sound (chimePlays). */
+const NO_CHIME: Hold = { why: 'macOS only', reason: 'no chime plays here: Claude Code plays sounds only on macOS.' }
 
 /** The model default's choices, in the order its control steps through them. */
 const MODEL_DEFAULTS = modelCycle(LET_CLAUDE_CHOOSE)

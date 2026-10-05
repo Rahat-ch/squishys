@@ -6,6 +6,7 @@ import type { Register } from 'claude-code'
 import { registerAgentTracking } from '../src/agents'
 import { registerBand } from '../src/band'
 import { registerFocus } from '../src/focus'
+import { registerHeld } from '../src/held'
 import { registerModelSwitch } from '../src/model-switch'
 import { registerPane } from '../src/pane'
 import { registerPartner } from '../src/partner'
@@ -23,6 +24,7 @@ export const register: Register = on => {
   // turn.step hook sits inside the tracker's, which sees requests unswitched.
   registerAgentTracking(on)
   registerPane(on)
+  registerHeld(on)
   registerRebuild(on)
   registerSettings(on)
   registerPartner(on)
