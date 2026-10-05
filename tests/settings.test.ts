@@ -46,7 +46,7 @@ test('every setting answers to a hotkey of its own, and r returns to the roster'
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
 
   const keys = Object.fromEntries((await ui.findAll({ type: 'Button' })).map(button => [String(button.props.key), button.props.hotkey]))
-  expect(keys).toEqual({ model: 'm', slotCap: 's', liveModelSwitch: 'l', chime: 'c', back: 'r' })
+  expect(keys).toEqual({ model: 'm', slotCap: 's', chime: 'c', back: 'r' })
   expect(await ui.find({ type: 'Select' })).toBeUndefined()
 })
 
@@ -84,6 +84,16 @@ test('a stored setting that is no longer valid falls back to its default', async
 
   expect(await label(ui, 'model')).toBe(model('Let Claude choose', 'haiku'))
   expect(await label(ui, 'slotCap')).toBe(slots(9, 1))
+})
+
+test('the removed live model switch setting, saved by an earlier version, is dropped at the next save', async ($, on) => {
+  const stored = stubStore(on, { settings: { slotCap: 9, liveModelSwitch: true } })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.ui.press({ plugin: 'squishys', key: 'settings' })
+
+  expect(await ui.find({ type: 'Button', key: 'liveModelSwitch' })).toBeUndefined()
+  await $.ui.press({ plugin: 'squishys', key: 'slotCap' })
+  expect(stored.get('settings')).toEqual({ slotCap: 1 })
 })
 
 // Answers each agent.spawn as Claude Code would, keeping the model each one

@@ -5,23 +5,30 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, On, Timer } from 'claude-code'
 
-import type { ActivityRow, Agent, Delivery, Model, RedirectOutcome, Squishy, SquishyState } from '../types'
+import type { ActivityRow, Agent, Delivery, Model, NextRun, RedirectOutcome, Squishy, SquishyState } from '../types'
 import {
+  AS_STARTED,
+  EFFORT_CONTROL_NAME,
   EFFORT_SWITCH_PREFIX,
+  MODEL_CONTROL_NAME,
   MODEL_SWITCH_PREFIX,
-  allowedModels,
+  NEXT_RUN_NOTE_ENDED,
+  NEXT_RUN_NOTE_RUNNING,
+  NO_EFFORT_TAKEN,
+  NO_OTHER_MODEL,
   effortControlLabel,
   effortStep,
   modelControlLabel,
+  modelSources,
   modelStep,
   noteEffortStep,
   noteModelStep,
+  offeredModels,
 } from './model-switch'
 import { controlColumns, heldButton } from './held'
 import type { Hold } from './held'
 import { OPEN_PANE_ASKED, PANE_ID, PICK_PREFIX, animatedPicture, notePaneOpened, openRefused, pictureKey } from './pane'
 import { PARTNER_BUTTON, PARTNER_KEY, partnerFrom } from './partner'
-import { SETTINGS_KEY, settingsFrom } from './settings'
 import { SHARE_HOTKEY, SHARE_LINK_LABEL, agentShareKey, unopenedShare } from './share'
 import { linedUp } from './slots'
 import { canShare, endedState, isEnded } from './states'
@@ -47,9 +54,9 @@ const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
 const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 const focusedAgentId = atom({ plugin: 'squishys', key: 'focusedAgentId' } as const, null)
 const fedAgentIds = atom({ plugin: 'squishys', key: 'fedAgentIds' } as const, [])
-const switchedModels = atom({ plugin: 'squishys', key: 'switchedModels' } as const, {})
-const switchedEfforts = atom({ plugin: 'squishys', key: 'switchedEfforts' } as const, {})
-const effortTaken = atom({ plugin: 'squishys', key: 'effortTaken' } as const, {})
+const nextRuns = atom({ plugin: 'squishys', key: 'nextRuns' } as const, {})
+const runChoices = atom({ plugin: 'squishys', key: 'runChoices' } as const, {})
+const seenModels = atom({ plugin: 'squishys', key: 'seenModels' } as const, {})
 const stopControl = atom({ plugin: 'squishys', key: 'stopControl' } as const, null)
 const delivery = atom({ plugin: 'squishys', key: 'delivery' } as const, null)
 /** The feeds, one member per agent id, each read as `atom({ ...activity, id }, [])`. */
@@ -103,10 +110,10 @@ const REDIRECT_CONTROL_KEY = 'focus-redirect'
 /** The redirect control's hotkey, as `i` starts typing in vi. */
 const REDIRECT_HOTKEY = 'i'
 
-/** The model control's hotkey, which steps a switched agent to its next model. */
+/** The model control's hotkey, which steps the model of an agent's next run. */
 const MODEL_HOTKEY = 'm'
 
-/** The effort control's hotkey, which steps a running agent to its next effort. */
+/** The effort control's hotkey, which steps the effort of an agent's next run. */
 const EFFORT_HOTKEY = 'e'
 
 /** What the Redirect box says while the pane has the keyboard but the box hasn't. */
@@ -395,38 +402,41 @@ export function registerFocus(on: On): void {
         <Box flexDirection="column" rowGap={1}>
           <Text dimColor>That agent is no longer here.</Text>
           {controlRows}
+          {heldButton(Button, `${MODEL_SWITCH_PREFIX}${id ?? ''}`, MODEL_HOTKEY, MODEL_CONTROL_NAME, GONE)}
+          {heldButton(Button, `${EFFORT_SWITCH_PREFIX}${id ?? ''}`, EFFORT_HOTKEY, EFFORT_CONTROL_NAME, GONE)}
           <Box key="redirect-row">{heldButton(Button, REDIRECT_CONTROL_KEY, REDIRECT_HOTKEY, 'Redirect', GONE)}</Box>
         </Box>
       )
     }
     // Only this agent's feed: another agent's activity doesn't redraw it
     const feed = await read($, atom({ ...activity, id: agent.id }, []))
-    // Experimental: the models the live model switch may name, while it's on
-    // (src/model-switch.ts keeps the switches and answers the model control)
-    let switchable: Model[] | undefined
+    // The models the model control offers for the agent's next run: those
+    // the session's requests used that the allowlist names; none while it
+    // can't be read (src/model-switch.ts keeps the picks and answers the
+    // model and effort controls)
+    const seen = await read($, seenModels)
+    let main: string | undefined
     try {
-      if (settingsFrom(await $.store.get(SETTINGS_KEY)).liveModelSwitch === true) {
-        switchable = []
-        switchable = allowedModels((await $.settings.read()).availableModels)
-      }
+      main = await $.session.model()
     } catch {}
-    const switched = switchable !== undefined ? (await read($, switchedModels))[agent.id] : undefined
-    const shownModel = switched === undefined ? agent.model : switched.sent ? `${switched.model} (switched)` : `switching to ${switched.model}…`
-    // The model control steps through the models allowed; src/model-switch.ts
-    // answers its press with the step it was drawn with
-    const step = switchable === undefined ? undefined : modelStep(switchable, switched?.model)
-    if (step !== undefined) noteModelStep(agent.id, step)
-    // The effort control steps through the efforts while the model the agent
-    // is on takes one; src/model-switch.ts answers its press
-    const effort =
-      switchable === undefined
-        ? undefined
-        : effortStep(agent.id, {
-            switchedModels: await read($, switchedModels),
-            switchedEfforts: await read($, switchedEfforts),
-            effortTaken: await read($, effortTaken),
-          })
-    if (effort !== undefined) noteEffortStep(agent.id, effort)
+    const sources = modelSources(await read($, agents), agent.id, main)
+    let offered: Model[] = []
+    try {
+      offered = offeredModels(sources, (await $.settings.read()).availableModels)
+    } catch {}
+    // The run going on, on a model picked for it, shows that model
+    const runModel = isEnded(agent.state) ? undefined : (await read($, runChoices))[agent.id]?.model
+    const shownModel = runModel !== undefined ? `${runModel} (picked)` : agent.model
+    // The controls step through the next run's choices, held while there's
+    // nothing to pick; src/model-switch.ts answers their presses with the
+    // steps they were drawn with
+    const picks = await read($, nextRuns)
+    const step = modelStep(offered, picks[agent.id]?.model)
+    noteModelStep(agent.id, step)
+    const effort = effortStep(agent.id, { nextRuns: picks, seenModels: seen, sources })
+    noteEffortStep(agent.id, effort)
+    const modelKey = `${MODEL_SWITCH_PREFIX}${agent.id}`
+    const effortKey = `${EFFORT_SWITCH_PREFIX}${agent.id}`
     const control = await read($, stopControl)
     const note = stopNote(agent, control?.agentId === agent.id && isArmed(control, agent.id, await $.clock.now()))
     // The latest redirect: to a running agent, while it hasn't ended since; to
@@ -441,19 +451,15 @@ export function registerFocus(on: On): void {
             <Text bold>{agent.squishy.name}</Text>
             <Text>{STATE_NAMES[agent.state]}</Text>
             {shownModel !== undefined ? <Text dimColor>{shownModel}</Text> : null}
-            {switchable === undefined || step === undefined || isEnded(agent.state) ? null : switchable.length === 0 ? (
-              <Text dimColor>Experimental: no model can be switched to, by your availableModels setting.</Text>
+            {step.on === AS_STARTED && step.next === AS_STARTED ? (
+              heldButton(Button, modelKey, MODEL_HOTKEY, MODEL_CONTROL_NAME, NO_OTHER_MODEL)
             ) : (
-              <Button
-                key={`${MODEL_SWITCH_PREFIX}${agent.id}`}
-                hotkey={MODEL_HOTKEY}
-                plain
-                label={modelControlLabel(step)}
-                onPress={() => {}}
-              />
+              <Button key={modelKey} hotkey={MODEL_HOTKEY} plain label={modelControlLabel(step)} onPress={() => {}} />
             )}
-            {effort === undefined || isEnded(agent.state) ? null : (
-              <Button key={`${EFFORT_SWITCH_PREFIX}${agent.id}`} hotkey={EFFORT_HOTKEY} plain label={effortControlLabel(effort)} onPress={() => {}} />
+            {effort.isTaken ? (
+              <Button key={effortKey} hotkey={EFFORT_HOTKEY} plain label={effortControlLabel(effort)} onPress={() => {}} />
+            ) : (
+              heldButton(Button, effortKey, EFFORT_HOTKEY, EFFORT_CONTROL_NAME, NO_EFFORT_TAKEN)
             )}
             <Text>{agent.description}</Text>
             {/* Beside the 2× picture, which is taller than this column, and cut short: it never adds a row */}
@@ -465,6 +471,12 @@ export function registerFocus(on: On): void {
           </Box>
         </Box>
         {controlRows}
+        {/* Which runs a pick reaches: AGENTS.md, "Which runs a pick reaches" */}
+        {picks[agent.id] === undefined ? null : (
+          <Box key="next-run-note">
+            <Text dimColor>{isEnded(agent.state) ? NEXT_RUN_NOTE_ENDED : NEXT_RUN_NOTE_RUNNING}</Text>
+          </Box>
+        )}
         {note === undefined ? null : (
           <Box key="stop-note">
             <Text color="yellow">{note}</Text>
@@ -485,7 +497,13 @@ export function registerFocus(on: On): void {
           {shownDelivery === undefined ? null : shownDelivery.outcome === undefined ? (
             <Text dimColor>Sending…</Text>
           ) : shownDelivery.outcome.isDelivered ? (
-            <Text>{shownDelivery.outcome.viaResume ? `Sent to ${agent.squishy.name}. It had finished; the message resumed it.` : `Sent to ${agent.squishy.name}`}</Text>
+            <Text>
+              {shownDelivery.outcome.viaClaude !== undefined
+                ? `${viaClaudeNote(shownDelivery.outcome.viaClaude)} Claude passes it to ${agent.squishy.name} once it’s free.`
+                : shownDelivery.outcome.viaResume
+                  ? `Sent to ${agent.squishy.name}. It had finished; the message resumed it.`
+                  : `Sent to ${agent.squishy.name}`}
+            </Text>
           ) : (
             <Text color="red">Not sent: {printable(shownDelivery.outcome.reason)}</Text>
           )}
@@ -577,6 +595,11 @@ async function deliver($: EngineInterface, agent: Agent, message: string): Promi
     }
     if (!NO_RUNNING_LOOP.test(refusal)) return { isDelivered: false, reason: refusal }
   }
+  // With a model or effort picked for its next run, through Claude: a run
+  // the mod's own send resumes never reaches its turn.step, so the pick
+  // couldn't apply (AGENTS.md, "Which runs a pick reaches")
+  const pick = (await read($, nextRuns))[agent.id]
+  if (pick !== undefined) return relayThroughClaude($, agent.id, message, pick)
   // Marked before the send, which may start the run before it answers
   markResumed(agent.id)
   let outcome: RedirectOutcome
@@ -588,6 +611,34 @@ async function deliver($: EngineInterface, agent: Agent, message: string): Promi
   }
   if (!outcome.isDelivered) forgetResumed(agent.id)
   return outcome
+}
+
+/**
+ * Hands a redirect to Claude, which sends it to the agent with SendMessage:
+ * a run the orchestrator resumes reaches the mod's turn.step, so the agent's
+ * pick applies. Submitted as the user's own words, since the user typed the
+ * redirect; Claude Code runs it once Claude is free.
+ */
+async function relayThroughClaude($: EngineInterface, agentId: string, message: string, pick: NextRun): Promise<RedirectOutcome> {
+  try {
+    const submitted = await $.prompt.submit({ text: relayPrompt(agentId, message), asUser: true })
+    if (submitted.drop !== undefined) return { isDelivered: false, reason: submitted.drop }
+  } catch (error) {
+    return { isDelivered: false, reason: reasonOf(error) }
+  }
+  $.ui.toast(`Squishys: ${viaClaudeNote(pick)}`)
+  return { isDelivered: true, viaResume: true, viaClaude: pick }
+}
+
+/** What Claude is asked to do with a redirect: send it on, word for word, and nothing more. */
+export function relayPrompt(agentId: string, message: string): string {
+  return `Use SendMessage to send this exact message to agent ${agentId}, then do nothing else:\n\n${message}`
+}
+
+/** What the focus view and toast say of a redirect sent through Claude. */
+export function viaClaudeNote(pick: NextRun): string {
+  const what = pick.model !== undefined && pick.effort !== undefined ? 'model and effort apply' : pick.model !== undefined ? 'model applies' : 'effort applies'
+  return `Sent via Claude so the new ${what}.`
 }
 
 function reasonOf(error: unknown): string {

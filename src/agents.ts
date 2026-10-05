@@ -29,6 +29,7 @@ export const AGENT_CHECK_MS = 5000
 /** Every agent seen this session, in the order they were first seen. */
 const agents = atom({ plugin: 'squishys', key: 'agents' } as const, [])
 const stopControl = atom({ plugin: 'squishys', key: 'stopControl' } as const, null)
+const runChoices = atom({ plugin: 'squishys', key: 'runChoices' } as const, {})
 
 /**
  * Ids a tool call carried that `$.agent.list()` didn't name (workflow agents,
@@ -263,11 +264,14 @@ async function setState(
   // An agent that ends or resumes: Stop no longer holds it back, forgets it
   // once it resumes, and disarms for it either way. However it ended (its
   // turn.complete, SubagentStop, the agent list check, TaskStop), a run a
-  // redirect resumed is over, so a later run's tool calls show only once.
+  // redirect resumed is over, so a later run's tool calls show only once,
+  // and the run's choice of model and effort (src/model-switch.ts) goes, so
+  // no later run shows it.
   if (state === undefined || before === undefined || isEnded(state) === isEnded(before)) return
   if (isEnded(state)) {
     runEnded(agentId)
     forgetResumed(agentId)
+    if ((await read($, runChoices))[agentId] !== undefined) await update($, runChoices, ({ [agentId]: _, ...rest }) => rest)
   } else {
     resumed(agentId)
   }

@@ -11,6 +11,7 @@ import type { AgentStatus, On } from 'claude-code'
 
 import { KIT, everySpecies } from '../src/kit'
 import { bareAccessory, legendaryKey } from '../src/roller'
+import { NO_OTHER_MODEL } from '../src/model-switch'
 import { agentShareKey } from '../src/share'
 import { LABEL_SLOT_ROWS, MINI_SLOT_ROWS } from '../src/slots'
 import { SQUISHYDEX_KEY, speciesKey, variantKey } from '../src/squishydex-record'
@@ -55,7 +56,7 @@ test('the roster’s mini and label slots, in a short inline pane, keep the digi
 })
 
 test('the focus view: r back, s Stop, m the model, e the effort, i Redirect, 1 the partner, and x Share, held until it’s Asleep', async ($, on) => {
-  stubStore(on, { ...PARTNERED, settings: { slotCap: 9, liveModelSwitch: true } })
+  stubStore(on, PARTNERED)
   on('settings.read', () => ({ value: {} }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   stubSpawns(on)
@@ -68,7 +69,8 @@ test('the focus view: r back, s Stop, m the model, e the effort, i Redirect, 1 t
     stop: 's',
     partner: '1',
     [`held-${agentShareKey('agent-1')}`]: 'x',
-    'model-switch-agent-1': 'm',
+    // No other model has run this session, so there's none to pick
+    'held-model-switch-agent-1': 'm',
     'effort-switch-agent-1': 'e',
     'focus-redirect': 'i',
   })
@@ -76,7 +78,15 @@ test('the focus view: r back, s Stop, m the model, e the effort, i Redirect, 1 t
   expect(await ui.find({ type: 'Input', key: 'redirect' })).toBeDefined()
 
   await $.turn.complete(finishOf('agent-1'))
-  expect(await hotkeysOf(ui)).toEqual({ back: 'r', 'held-stop': 's', partner: '1', [agentShareKey('agent-1')]: 'x', 'focus-redirect': 'i' })
+  expect(await hotkeysOf(ui)).toEqual({
+    back: 'r',
+    'held-stop': 's',
+    partner: '1',
+    [agentShareKey('agent-1')]: 'x',
+    'held-model-switch-agent-1': 'm',
+    'effort-switch-agent-1': 'e',
+    'focus-redirect': 'i',
+  })
 })
 
 test('the Squishydex: digits pick the places met, then n, p and r, with a card’s keys held; a card has m, c, x, b and r, with n and p held', async ($, on) => {
@@ -222,9 +232,8 @@ test('the roster holds m with no overflow: drawn as +0, dimmed, its press says w
   expect(await ui.find({ key: 'overflow-list' })).toBeUndefined()
 })
 
-// The focus view's hotkeys besides the model and effort controls, which
-// another ticket reworks: r, s, 1, x and i in every state
-const FOCUS_HOTKEYS = ['1', 'i', 'r', 's', 'x']
+// The focus view's hotkeys: r, s, 1, x, m, e and i in every state
+const FOCUS_HOTKEYS = ['1', 'e', 'i', 'm', 'r', 's', 'x']
 
 test('the focus view holds s, x and 1 in every state: running, stopping, Asleep, Squished, and with no partner', async ($, on) => {
   const toasts = stubToasts(on)
@@ -277,18 +286,22 @@ test('the focus view holds s, x and 1 in every state: running, stopping, Asleep,
   held.noPartner = await pressHeld($, ui, toasts)
 
   const finished = (name: string | undefined) => `Squishys: ${name} has finished, so there’s nothing to stop.`
+  // Every agent runs on the one model, so the model control has none other to pick
+  const noOtherModel = (agentId: string) => ({ [`held-model-switch-${agentId}`]: `Squishys: ${NO_OTHER_MODEL.reason}` })
   expect(held).toEqual({
-    working: { [`held-${agentShareKey('agent-1')}`]: `Squishys: ${first} is still running. Share works once it’s Asleep.` },
+    working: { [`held-${agentShareKey('agent-1')}`]: `Squishys: ${first} is still running. Share works once it’s Asleep.`, ...noOtherModel('agent-1') },
     stopping: {
       'held-stop': `Squishys: ${second} is already being stopped.`,
       [`held-${agentShareKey('agent-2')}`]: `Squishys: ${second} is still running. Share works once it’s Asleep.`,
+      ...noOtherModel('agent-2'),
     },
-    asleep: { 'held-stop': finished(first) },
+    asleep: { 'held-stop': finished(first), ...noOtherModel('agent-1') },
     squished: {
       'held-stop': finished(third),
       [`held-${agentShareKey('agent-3')}`]: `Squishys: only an Asleep squishy can be shared, and ${third} is Squished.`,
+      ...noOtherModel('agent-3'),
     },
-    noPartner: { 'held-stop': finished(first), 'held-partner': 'Squishys: no partner is saved yet. r goes back to the roster.' },
+    noPartner: { 'held-stop': finished(first), 'held-partner': 'Squishys: no partner is saved yet. r goes back to the roster.', ...noOtherModel('agent-1') },
   })
 })
 
@@ -302,7 +315,7 @@ const STALE_PICK: Plugin = {
   },
 }
 
-test('the focus view of an agent no longer here holds s, x and i, and keeps 1 and r', { plugins: [STALE_PICK] }, async ($, on) => {
+test('the focus view of an agent no longer here holds s, x, m, e and i, and keeps 1 and r', { plugins: [STALE_PICK] }, async ($, on) => {
   const toasts = stubToasts(on)
   stubStore(on, PARTNERED)
   stubSpawns(on)
@@ -316,10 +329,18 @@ test('the focus view of an agent no longer here holds s, x and i, and keeps 1 an
     'held-stop': 's',
     partner: '1',
     [`held-${agentShareKey('agent-9')}`]: 'x',
+    'held-model-switch-agent-9': 'm',
+    'held-effort-switch-agent-9': 'e',
     'held-focus-redirect': 'i',
   })
   const gone = 'Squishys: that agent is no longer here.'
-  expect(await pressHeld($, ui, toasts)).toEqual({ 'held-stop': gone, [`held-${agentShareKey('agent-9')}`]: gone, 'held-focus-redirect': gone })
+  expect(await pressHeld($, ui, toasts)).toEqual({
+    'held-stop': gone,
+    [`held-${agentShareKey('agent-9')}`]: gone,
+    'held-model-switch-agent-9': gone,
+    'held-effort-switch-agent-9': gone,
+    'held-focus-redirect': gone,
+  })
 })
 
 test('settings hold c where no chime plays: dimmed, its press says why', async ($, on) => {
@@ -329,11 +350,11 @@ test('settings hold c where no chime plays: dimmed, its press says why', async (
   on('fs.exists', ($, e) => ({ value: afplay && e.path === '/usr/bin/afplay' }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.ui.press({ plugin: 'squishys', key: 'settings' })
-  expect(await hotkeysOf(ui)).toEqual({ model: 'm', slotCap: 's', liveModelSwitch: 'l', chime: 'c', back: 'r' })
+  expect(await hotkeysOf(ui)).toEqual({ model: 'm', slotCap: 's', chime: 'c', back: 'r' })
 
   afplay = false
   await ui.redraw(PANE.props)
-  expect(await hotkeysOf(ui)).toEqual({ model: 'm', slotCap: 's', liveModelSwitch: 'l', 'held-chime': 'c', back: 'r' })
+  expect(await hotkeysOf(ui)).toEqual({ model: 'm', slotCap: 's', 'held-chime': 'c', back: 'r' })
   expect(await pressHeld($, ui, toasts)).toEqual({ 'held-chime': 'Squishys: no chime plays here: Claude Code plays sounds only on macOS.' })
 })
 
