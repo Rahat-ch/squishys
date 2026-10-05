@@ -92,7 +92,7 @@ export function stillPixels(kit: Kit, squishy: Squishy): Pixels {
 
 /**
  * The squishy's mini picture at rest: frame 0 of Working, at the mini size.
- * The Squishydex's places and the spinner's mini.
+ * The Squishydex's places.
  */
 export function stillMiniPixels(kit: Kit, squishy: Squishy): Pixels {
   return compose(kit, squishy, { state: 'working', frame: 0, size: 'mini' })
