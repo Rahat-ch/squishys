@@ -7,7 +7,7 @@ import { KIT } from '../src/kit'
 import { FEED_ROWS, MARKDOWN_LIMIT, focusHint } from '../src/focus'
 import { FRAME_MS, OPEN_PANE, OPEN_PANE_ASKED, PANE_ID, pictureKey } from '../src/pane'
 import { halfBlocks } from '../src/raster'
-import { PANE, bashFrom, finishOf, nameOfAgent, readFrom, spawnOf, stepOf, stubBlits, stubPanes, stubSpawns, stubStore, stubTurns } from './fixtures'
+import { PANE, bashFrom, finishOf, handbackFrom, nameOfAgent, readFrom, spawnOf, stepOf, stubBlits, stubPanes, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, spawnAndWatch } from './pictures'
 
 test('pressing a squishy’s button opens its focus view, and r returns to the roster', async ($, on) => {
@@ -207,6 +207,17 @@ test('an Asleep agent’s focus view still shows its activity, and its final ans
   expect(await ui.find({ type: 'Text', text: 'Asleep' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'src/config.ts' })).toBeDefined()
   expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Found it in src/config.ts')
+})
+
+test('an agent that hands its report back through SubagentHandback, its run’s answer left empty, shows the report as its final answer', async ($, on) => {
+  stubTurns(on)
+  const ui = await focusOnAgent($, on)
+
+  await $.tool.call(handbackFrom('agent-1', 'Counted 2 runs of sleep 2'))
+  await $.turn.complete({ ...finishOf('agent-1'), answer: '' })
+
+  expect((await ui.findAll({ type: 'Markdown' })).map(answer => answer.props.text)).toEqual(['Counted 2 runs of sleep 2'])
+  expect(await ui.find({ type: 'Text', text: 'SubagentHandback' })).toBeUndefined()
 })
 
 test('a feed keeps only the latest final answer of an agent that was resumed', async ($, on) => {

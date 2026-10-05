@@ -1,7 +1,7 @@
 // Inputs Claude Code would hand the mod, shared by the test files.
 
 import type { AgentStatus, BoxHoverProps, On, PaneOpenArgs, RenderElement, RenderNode, TextHoverProps } from 'claude-code'
-import type { Mounted } from 'claude-code/testing'
+import type { Engine, Mounted } from 'claude-code/testing'
 
 import { KIT } from '../src/kit'
 import { PANE_ID } from '../src/pane'
@@ -186,6 +186,13 @@ export function bashFrom(agentId: string, command: string) {
   return { tool: 'Bash', command, agentId } as const
 }
 
+// The SubagentHandback call through which the agent with this id hands its
+// report back. The engine's types leave that tool out (it's internal), so
+// the call is typed as the kit's for any tool.
+export function handbackFrom(agentId: string, message: string): Parameters<Engine['tool']['call']>[0] {
+  return { tool: 'SubagentHandback', message, agentId } as unknown as Parameters<Engine['tool']['call']>[0]
+}
+
 // One model request inside the agent's loop, as the engine raises turn.step
 export function stepOf(agentId: string) {
   return { turnId: `turn-${agentId}`, index: 0, model: 'claude-opus-5-5', messageCount: 3, agentId } as const
@@ -195,6 +202,28 @@ export function stepOf(agentId: string) {
 export function finishOf(agentId: string, reason: 'answer' | 'error' | 'aborted' = 'answer') {
   const answer = 'Found it in src/config.ts'
   return { answer, durationMs: 4000, isAborted: reason === 'aborted', turnId: `turn-${agentId}`, agentId, reason } as const
+}
+
+// Rows Claude Code appends to the agent's conversation, as the engine raises
+// session.append: the message that resumed it, and a block of its response
+// calling a tool
+type Row = Parameters<Engine['session']['append']>[0]
+let rows = 0
+export function promptRowOf(agentId: string, text: string): Row {
+  return { message: { type: 'user', role: 'user', content: [{ type: 'text', text }] }, door: 'prompt', origin: { kind: 'coordinator' }, uuid: `row-${++rows}`, agentId }
+}
+export function toolUseRowOf(agentId: string, tool: string, input: Record<string, unknown>): Row {
+  const block = { type: 'tool_use', id: `toolu_row_${++rows}`, name: tool, input }
+  return { message: { type: 'assistant', role: 'assistant', content: [block] }, door: 'response', origin: { kind: 'model', model: 'claude-opus-5-5' }, uuid: `row-${rows}`, agentId }
+}
+
+// Claude Code appending a row: the mod's hooks see it on its way down. The
+// kit has nothing to store it beneath them, and a session.append hook can't
+// answer without `next`, so the call itself always rejects.
+export async function appendRow($: Engine, row: Row): Promise<void> {
+  try {
+    await $.session.append(row)
+  } catch {}
 }
 
 // Reads a stream to its end, as Claude Code does a model response

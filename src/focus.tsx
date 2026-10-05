@@ -36,6 +36,7 @@ import {
   taskIdOf,
   wasStoppedByUser,
 } from './stop'
+import { forgetResumed, fromUser, isResumedByRedirect, markResumed } from './resumes'
 import { printable } from './text'
 
 // The engine reads each $.state reference off the file that uses it, so
@@ -170,6 +171,24 @@ function rowAfterRun(reason: string, answer: string): ActivityRow | undefined {
 }
 
 /**
+ * The tool through which an agent may hand its report back (Claude Code's
+ * SubagentHandback, seen in a session for #60), in place of a final answer:
+ * its run's turn.complete then carries an empty one.
+ */
+const HANDBACK_TOOL = 'SubagentHandback'
+
+/**
+ * What a tool call adds to its agent's feed: the report a handback carries,
+ * as the agent's answer, or else the tool and what it was called on.
+ */
+function rowOfToolCall(tool: string, call: Record<string, unknown>): ActivityRow {
+  const report = call.message
+  if (tool === HANDBACK_TOOL && typeof report === 'string' && report.trim() !== '') return { kind: 'answer', text: drawable(report) }
+  return { kind: 'tool', tool: printable(tool), summary: summaryOf(call) }
+}
+
+
+/**
  * A feed with a row added: only the latest answer kept, and only the latest
  * FEED_ROWS rows. A run the user stopped reads Stopped by you, not also
  * Interrupted, whichever of the two comes first.
@@ -204,8 +223,22 @@ export function registerFocus(on: On): void {
   // tracker first, and a plugin's registrations nest in order, first
   // outermost.
   on('tool.call', { agentId: /./ }, async ($, e, next) => {
-    if (e.agentId !== undefined) {
-      await addActivity($, e.agentId, { kind: 'tool', tool: printable(e.tool), summary: summaryOf({ ...e }) })
+    if (e.agentId !== undefined) await addActivity($, e.agentId, rowOfToolCall(e.tool, { ...e }))
+    return next(e)
+  })
+
+  // A run a redirect resumed raises no tool.call the mod sees (AGENTS.md, "The
+  // run a redirect resumes"), so its tool calls come from the blocks of its response
+  // as Claude Code appends them, read on their way down: the row goes on as
+  // it came. Any other run's tool calls reach the hook above.
+  on('session.append', { agentId: /./, door: 'response' }, async ($, e, next) => {
+    const { agentId } = e
+    if (agentId !== undefined && isResumedByRedirect(agentId)) {
+      for (const block of e.message.content) {
+        if (block.type !== 'tool_use' || typeof block.name !== 'string') continue
+        const input = typeof block.input === 'object' && block.input !== null ? { ...block.input } : {}
+        await addActivity($, agentId, rowOfToolCall(block.name, input))
+      }
     }
     return next(e)
   })
@@ -218,6 +251,7 @@ export function registerFocus(on: On): void {
     if (agentId === undefined) return completed
     const row = wasStoppedByUser(agentId) ? { kind: 'stopped' as const } : rowAfterRun(e.reason, e.answer)
     if (row !== undefined) await addActivity($, agentId, row)
+    forgetResumed(agentId)
     // A redirect's delivery is out of date once its agent ends
     await update($, delivery, latest => (latest?.agentId === agentId ? null : latest))
     return completed
@@ -358,9 +392,10 @@ export function registerFocus(on: On): void {
         : []),
     ]
     const note = stopNote(agent, control?.agentId === agent.id && isArmed(control, agent.id, await $.clock.now()))
-    // The latest redirect, while its agent has neither ended nor resumed since
+    // The latest redirect: to a running agent, while it hasn't ended since; to
+    // an ended one, through the run it resumes (its turn.complete clears it)
     const latest = await read($, delivery)
-    const shownDelivery = latest?.agentId === agent.id && latest.wasEnded === isEnded(agent.state) ? latest : undefined
+    const shownDelivery = latest?.agentId === agent.id && (latest.wasEnded || !isEnded(agent.state)) ? latest : undefined
     return (
       <Box key="focus" flexDirection="column" rowGap={1}>
         <Box key="focus-header" flexDirection="row" columnGap={2}>
@@ -495,15 +530,11 @@ async function redirect($: EngineInterface, agent: Agent, typed: string): Promis
   }
 }
 
-/** A redirect as the agent reads it: from its user, never from another agent or the coordinator. */
-function fromUser(text: string): string {
-  return `Message from your user, typed into the squishys focus view (not from another agent or the coordinator): ${text}`
-}
-
 /**
  * Delivers a message to an agent: a running one reads it, appended to its
  * conversation, at the start of its next step; an ended one is sent it,
- * which resumes it, and the tracker wakes its squishy on its next activity.
+ * which resumes it, and the tracker wakes its squishy as the message lands
+ * in its conversation (AGENTS.md, "The run a redirect resumes").
  * A running agent's append refused for want of a running loop (it ended
  * before its squishy showed it) is sent instead; any other refusal stands.
  * The test kit can't append: AGENTS.md, "A redirect goes".
@@ -520,12 +551,17 @@ async function deliver($: EngineInterface, agent: Agent, message: string): Promi
     }
     if (!NO_RUNNING_LOOP.test(refusal)) return { isDelivered: false, reason: refusal }
   }
+  // Marked before the send, which may start the run before it answers
+  markResumed(agent.id)
+  let outcome: RedirectOutcome
   try {
     const sent = await $.session.send({ to: { agentId: agent.id }, text: message })
-    return sent.isDelivered ? { isDelivered: true, viaResume: true } : { isDelivered: false, reason: sent.reason }
+    outcome = sent.isDelivered ? { isDelivered: true, viaResume: true } : { isDelivered: false, reason: sent.reason }
   } catch (error) {
-    return { isDelivered: false, reason: reasonOf(error) }
+    outcome = { isDelivered: false, reason: reasonOf(error) }
   }
+  if (!outcome.isDelivered) forgetResumed(agent.id)
+  return outcome
 }
 
 function reasonOf(error: unknown): string {
@@ -611,9 +647,16 @@ function noteRing($: EngineInterface, element: string | undefined): void {
   if (wasOnRedirect !== (element === REDIRECT_BOX_KEY)) $.ui.invalidate('ui.render')
 }
 
-/** Back to the roster, disarming Stop and clearing the latest redirect's delivery on the way. */
+/**
+ * Back to the roster, disarming Stop and clearing the latest redirect's
+ * delivery on the way. The mark of a redirect's run goes too once its agent
+ * shows ended, as when the run never started; one still running keeps
+ * filling its feed.
+ */
 async function leaveFocus($: EngineInterface): Promise<void> {
   ringOn = undefined
+  const id = await read($, focusedAgentId)
+  if (id !== null && (await read($, agents)).some(agent => agent.id === id && isEnded(agent.state))) forgetResumed(id)
   await leaveStop($)
   await update($, delivery, () => null)
   await update($, mode, () => 'roster')
