@@ -5,7 +5,7 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentSpawnInput, EngineInterface, On } from 'claude-code'
 
-import { heldKey, heldLabel } from './held'
+import { heldButton } from './held'
 import type { Hold } from './held'
 import { cycleLabel, nextOf } from './keys'
 
@@ -130,11 +130,11 @@ export function registerSettings(on: On): void {
           onPress={() => void saveSettings($, current => ({ ...current, slotCap: nextSlotCap(current.slotCap) }))}
         />
         {toggle('liveModelSwitch', 'l', LIVE_MODEL_SWITCH_LABEL)}
-        {/* Where no chime plays, held: src/held.ts answers its press, so c never reaches the prompt */}
+        {/* Where no chime plays, held: src/held.tsx answers its press, so c never reaches the prompt */}
         {chimes ? (
           toggle('chime', 'c', CHIME_LABEL)
         ) : (
-          <Button key={heldKey('chime', NO_CHIME)} hotkey="c" plain dimColor label={heldLabel(CHIME_LABEL, NO_CHIME)} onPress={() => {}} />
+          heldButton(Button, 'chime', 'c', CHIME_LABEL, NO_CHIME)
         )}
         <Button key="back" hotkey="r" plain label="Back to the roster" onPress={() => void update($, mode, () => 'roster')} />
       </Box>

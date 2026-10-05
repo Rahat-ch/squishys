@@ -137,5 +137,5 @@ The single key a person presses to work a pane control, shown before its label (
 _Avoid_: shortcut, key binding
 
 **Held control**:
-A pane control drawn dimmed, saying why, while it doesn't apply (`s: Stop (finished)`), so its hotkey still belongs to the pane; pressing it only says why.
+A pane control drawn dimmed while it doesn't apply (`s: Stop (finished)`, `m: +0`), so its hotkey still belongs to the pane; pressing it says why.
 _Avoid_: disabled, hidden, greyed out

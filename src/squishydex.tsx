@@ -13,7 +13,7 @@ import { KIT, everySpecies } from './kit'
 import type { Kit, Species } from './kit'
 import { OPEN_PANE_ASKED, PANE_ID, SLOT_HOVER, notePaneOpened, openRefused } from './pane'
 import { PARTNER_KEY, partnerFrom, stillPicture } from './partner'
-import { heldKey, heldLabel } from './held'
+import { controlColumns, heldButton } from './held'
 import type { Hold } from './held'
 import { cycleLabel, nextOf, pickKeys } from './keys'
 import { halfBlocks } from './raster'
@@ -83,15 +83,53 @@ export const PALETTE_LABEL = 'Partner palette'
 /** The palette control's hotkey, which steps a species' card to the next palette it was met in. */
 const PALETTE_HOTKEY = 'c'
 
-/** Why the pages' controls are held: paging past either end, and a species' controls on a legendary's card. */
+/**
+ * Why the Squishydex's controls are held. The pages and the cards are one
+ * mode, so each holds the other's keys: paging on a card, a card's
+ * controls on the pages. Those keep their labels' width; a card's own held
+ * controls say why, and the rows they're lined up in budget each at its
+ * widest (`controlColumns`).
+ */
 const FIRST_PAGE: Hold = { reason: 'this is the first page.' }
 const LAST_PAGE: Hold = { reason: 'this is the last page.' }
 const ONE_PAGE: Hold = { reason: 'every place fits on this one page.' }
-const LEGENDARY_PALETTE: Hold = { why: 'species only', reason: 'a legendary has one look: only a species’ partner palette can be picked.' }
-const LEGENDARY_PARTNER: Hold = { why: 'species only', reason: 'a legendary can’t be your partner: only a species can.' }
-const LEGENDARY_SHARE: Hold = { why: 'species only', reason: 'only a species’ card can be shared.' }
+const ON_A_CARD: Hold = { reason: 'go back to the pages first (b).' }
+const ON_THE_PAGES: Hold = { reason: 'open a card first: pick a squishy you’ve met.' }
+const SPECIES_ONLY = 'species only'
+const ALREADY = 'already'
+const ONE_MET = 'one met'
+const LEGENDARY_PALETTE: Hold = { why: SPECIES_ONLY, reason: 'a legendary has one look: only a species’ partner palette can be picked.' }
+const LEGENDARY_PARTNER: Hold = { why: SPECIES_ONLY, reason: 'a legendary can’t be your partner: only a species can.' }
+const LEGENDARY_SHARE: Hold = { why: SPECIES_ONLY, reason: 'only a species’ card can be shared.' }
+/** How a card's controls are budgeted: at their widest, held for any reason a card holds them. */
+const PARTNER_WHYS = [ALREADY, SPECIES_ONLY]
+const SHARE_WHYS = [SPECIES_ONLY]
+/** A card's controls, as the pages hold them, unless a pick there takes the hotkey. */
+const CARD_CONTROLS = [
+  { key: 'squishydex-back', hotkey: BACK_HOTKEY, label: 'Back' },
+  { key: 'squishydex-partner', hotkey: MAKE_PARTNER_HOTKEY, label: 'Make partner' },
+  { key: 'squishydex-palette', hotkey: PALETTE_HOTKEY, label: PALETTE_LABEL },
+  { key: 'squishydex-share', hotkey: SHARE_HOTKEY, label: 'Share' },
+] as const
 
-/** The hotkeys the pages' own controls take, which no place's pick does (Back shows only on a card). */
+/**
+ * The pages' footer as budgeted, every item there: paging, the page count
+ * at its widest, the way back, and a card's controls held.
+ */
+const FOOTER_BUDGET = [
+  buttonColumns('Prev', PREVIOUS_HOTKEY),
+  buttonColumns('Next', NEXT_HOTKEY),
+  `${placesOf(KIT).length}/${placesOf(KIT).length}`.length,
+  buttonColumns('Roster', ROSTER_HOTKEY),
+  ...CARD_CONTROLS.map(control => buttonColumns(control.label, control.hotkey)),
+]
+
+/** The rows the pages' footer takes in a pane this wide. */
+export function dexFooterRows(bodyColumns: number): number {
+  return linedUp(FOOTER_BUDGET, bodyColumns, DEX_ITEM_GAP).length
+}
+
+/** The hotkeys the pages' own controls take, which no place's pick does. A card's controls, held on the pages, give way to a pick that takes their letter. */
 const PAGE_KEYS = [NEXT_HOTKEY, PREVIOUS_HOTKEY, ROSTER_HOTKEY]
 
 /**
@@ -192,19 +230,17 @@ export function registerSquishydex(on: On): void {
     const dex = await readSquishydex($)
     const places = placesOf(KIT)
 
-    const button = (key: string, hotkey: string, label: string, onPress: () => void): RowItem => ({
-      columns: buttonColumns(label, hotkey),
+    // A control, budgeted at its widest, live or held for any of `whys`
+    const button = (key: string, hotkey: string, label: string, onPress: () => void, whys: readonly string[] = []): RowItem => ({
+      columns: controlColumns(label, hotkey, whys),
       drawn: <Button key={key} hotkey={hotkey} plain label={label} onPress={onPress} />,
     })
     // A control that doesn't apply here is held: dimmed, saying why, its
-    // press answered by src/held.ts, so its hotkey never reaches the prompt
-    const heldButton = (key: string, hotkey: string, label: string, hold: Hold): RowItem => {
-      const shown = heldLabel(label, hold)
-      return {
-        columns: buttonColumns(shown, hotkey),
-        drawn: <Button key={heldKey(key, hold)} hotkey={hotkey} plain dimColor label={shown} onPress={() => {}} />,
-      }
-    }
+    // press answered by src/held.tsx, so its hotkey never reaches the prompt
+    const held = (key: string, hotkey: string, label: string, hold: Hold, whys: readonly string[] = []): RowItem => ({
+      columns: controlColumns(label, hotkey, whys),
+      drawn: heldButton(Button, key, hotkey, label, hold),
+    })
     const text = (key: string, value: string, dim = false): RowItem => ({
       columns: value.length,
       drawn: (
@@ -229,6 +265,8 @@ export function registerSquishydex(on: On): void {
     )
     const roster = button('squishydex-roster', ROSTER_HOTKEY, 'Roster', () => void leave($))
     const back = button('squishydex-back', BACK_HOTKEY, 'Back', () => void update($, squishydexPicked, () => null))
+    // A card holds the pages' paging, as wide as on the pages
+    const paging = [held('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', ON_A_CARD), held('squishydex-next', NEXT_HOTKEY, 'Next', ON_A_CARD)]
 
     // A card, while a met species or legendary is picked
     const pickedKey = await read($, squishydexPicked)
@@ -253,14 +291,11 @@ export function registerSquishydex(on: On): void {
       text('squishydex-count-shinies', `Shinies ${progress.shinies}`),
       text('squishydex-count-legendaries', `Legendaries ${progress.legendaries}/${progress.legendariesTotal}`),
     ]
-    // The footer is budgeted with every item there, the page count at its widest
-    const widestPages = `${places.length}/${places.length}`
-    const footerBudget = [buttonColumns('Prev', PREVIOUS_HOTKEY), buttonColumns('Next', NEXT_HOTKEY), widestPages.length, roster.columns]
     const layout = pageLayout(
       bodyColumns,
       bodyRows,
       counts.map(count => count.columns),
-      footerBudget,
+      FOOTER_BUDGET,
     )
     const perPage = layout.across * layout.down
     const pages = Math.max(1, Math.ceil(places.length / perPage))
@@ -269,6 +304,7 @@ export function registerSquishydex(on: On): void {
     const rows = Array.from({ length: Math.ceil(shown.length / layout.across) }, (_, row) => shown.slice(row * layout.across, (row + 1) * layout.across))
     // Digits, then the letters the pages leave free, pick the places met on the page, in page order
     const pickHotkeys = pickKeys(shown.length, PAGE_KEYS)
+    const takenByPicks = pickHotkeys.slice(0, shown.filter(place => isMet(dex, place)).length)
     let picks = 0
     const pick = (place: Place, name: string) => {
       const hotkey = pickHotkeys[picks++]
@@ -324,12 +360,14 @@ export function registerSquishydex(on: On): void {
     }
     const footer = [
       // Held on the first and last page, as wide as the footer budgets them
-      page > 0 ? button('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', () => void turnTo($, page - 1)) : heldButton('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', FIRST_PAGE),
+      page > 0 ? button('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', () => void turnTo($, page - 1)) : held('squishydex-previous', PREVIOUS_HOTKEY, 'Prev', FIRST_PAGE),
       page < pages - 1
         ? button('squishydex-next', NEXT_HOTKEY, 'Next', () => void turnTo($, page + 1))
-        : heldButton('squishydex-next', NEXT_HOTKEY, 'Next', pages > 1 ? LAST_PAGE : ONE_PAGE),
+        : held('squishydex-next', NEXT_HOTKEY, 'Next', pages > 1 ? LAST_PAGE : ONE_PAGE),
       ...(pages > 1 ? [text('squishydex-page', `${page + 1}/${pages}`, true)] : []),
       roster,
+      // A card's controls, held, where no pick on this page takes their hotkeys
+      ...CARD_CONTROLS.filter(control => !takenByPicks.includes(control.hotkey)).map(control => held(control.key, control.hotkey, control.label, ON_THE_PAGES)),
     ]
     return (
       <Box key="squishydex-view" flexDirection="column">
@@ -356,12 +394,13 @@ export function registerSquishydex(on: On): void {
       const isPartner = sameSpecies && partner.palette === squishy.palette
       const actions = [
         isPartner
-          ? heldButton('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', { why: 'already', reason: `${squishy.name} is already your partner.` })
-          : button('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', () => void makePartner($, squishy)),
+          ? held('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', { why: ALREADY, reason: `${squishy.name} is already your partner.` }, PARTNER_WHYS)
+          : button('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', () => void makePartner($, squishy), PARTNER_WHYS),
         // Answered by the ui.press hook in share.tsx
-        button(speciesShareKey(squishy.key), SHARE_HOTKEY, 'Share', () => {}),
+        button(speciesShareKey(squishy.key), SHARE_HOTKEY, 'Share', () => {}, SHARE_WHYS),
         back,
         roster,
+        ...paging,
       ]
       return (
         <Box key="squishydex-card" flexDirection="column" rowGap={1}>
@@ -385,8 +424,8 @@ export function registerSquishydex(on: On): void {
               }
             />
           ) : (
-            heldButton('squishydex-palette', PALETTE_HOTKEY, PALETTE_LABEL, {
-              why: `${squishy.palette} only`,
+            held('squishydex-palette', PALETTE_HOTKEY, PALETTE_LABEL, {
+              why: ONE_MET,
               reason: `${squishy.name} has been met in one plain palette only, so there’s none to step to.`,
             }).drawn
           )}
@@ -406,17 +445,25 @@ export function registerSquishydex(on: On): void {
           <Text>{`First met ${dayOf(met.met)}`}</Text>
           <Text>{met.shiny !== undefined ? `First met shiny ${dayOf(met.shiny)}` : 'Not met shiny yet'}</Text>
           {/* A species' controls, held, so their hotkeys never reach the prompt */}
-          {heldButton('squishydex-palette', PALETTE_HOTKEY, PALETTE_LABEL, LEGENDARY_PALETTE).drawn}
+          {held('squishydex-palette', PALETTE_HOTKEY, PALETTE_LABEL, LEGENDARY_PALETTE).drawn}
           {rowsOf('squishydex-card-footer', [
-            heldButton('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', LEGENDARY_PARTNER),
-            heldButton('share', SHARE_HOTKEY, 'Share', LEGENDARY_SHARE),
+            held('squishydex-partner', MAKE_PARTNER_HOTKEY, 'Make partner', LEGENDARY_PARTNER, PARTNER_WHYS),
+            held('squishydex-share', SHARE_HOTKEY, 'Share', LEGENDARY_SHARE, SHARE_WHYS),
             back,
             roster,
+            ...paging,
           ])}
         </Box>
       )
     }
   })
+}
+
+/** Whether a place is met and drawn, so it has a pick, as the pages draw it. */
+function isMet(dex: Squishydex, place: Place): boolean {
+  if (place.kind === 'legendary') return dex.legendaries[place.legendary.legendary] !== undefined
+  const met = dex.species[place.key]
+  return met !== undefined && drawnSpecies(place.species, met) !== undefined
 }
 
 /** The Squishydex from the store; a store that can't be read shows nothing met. */

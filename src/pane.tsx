@@ -9,7 +9,7 @@ import type { EngineInterface, On, PaneOpenArgs, Timer } from 'claude-code'
 import type { Agent, Squishy } from '../types'
 import { compose } from './composer'
 import type { Size } from './composer'
-import { heldKey, heldLabel } from './held'
+import { HELD_PREFIX, heldButton } from './held'
 import type { Hold } from './held'
 import { pickKeys } from './keys'
 import { KIT } from './kit'
@@ -275,11 +275,12 @@ export function registerPane(on: On): void {
     return {}
   })
 
-  // Any press in the pane but the overflow count's own shuts the overflow
-  // list: a pick from it (src/focus.tsx answers that same press, nested
-  // inside this hook), Settings, or anything else. It picks nothing itself.
+  // Any press in the pane but the overflow count's own, or a held control's
+  // (src/held.tsx), which does nothing but say why, shuts the overflow list: a
+  // pick from it (src/focus.tsx answers that same press, nested inside this
+  // hook), Settings, or anything else. It picks nothing itself.
   on('ui.press', { plugin: 'squishys' }, async ($, e, next) => {
-    if (e.element !== 'overflow') await closeOverflowList($)
+    if (e.element !== 'overflow' && !e.element.startsWith(HELD_PREFIX)) await closeOverflowList($)
     return next(e)
   })
 
@@ -442,12 +443,12 @@ export function registerPane(on: On): void {
     const footer = [
       {
         columns: buttonColumns(overflowLabel, OVERFLOW_HOTKEY),
-        // With no overflow, the count is held, so m never reaches the prompt (src/held.ts answers its press)
+        // With no overflow, the count is held, so m never reaches the prompt (src/held.tsx answers its press)
         button:
           layout.overflow.length > 0 ? (
             <Button key="overflow" hotkey={OVERFLOW_HOTKEY} plain label={overflowLabel} onPress={() => void showOverflowList($, !showsList)} />
           ) : (
-            <Button key={heldKey('overflow', NO_OVERFLOW)} hotkey={OVERFLOW_HOTKEY} plain dimColor label={heldLabel(overflowLabel, NO_OVERFLOW)} onPress={() => {}} />
+            heldButton(Button, 'overflow', OVERFLOW_HOTKEY, overflowLabel, NO_OVERFLOW)
           ),
       },
       {

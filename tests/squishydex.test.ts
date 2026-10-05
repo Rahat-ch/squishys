@@ -17,7 +17,7 @@ import type { Remembered } from '../src/rebuild'
 import { assembledKey, bareAccessory, legendaryKey, speciesSquishy, squishyOf } from '../src/roller'
 import type { Squishy } from '../src/roller'
 import { FOOTER_COLUMNS } from '../src/slots'
-import { DEX_COLUMN_GAP, DEX_GAP, DEX_PLACE_COLUMNS, DEX_PLACE_ROWS, DEX_TITLE_ROWS, PALETTE_LABEL, SILHOUETTE_COLOR } from '../src/squishydex'
+import { DEX_COLUMN_GAP, DEX_GAP, DEX_PLACE_COLUMNS, DEX_PLACE_ROWS, DEX_TITLE_ROWS, PALETTE_LABEL, SILHOUETTE_COLOR, dexFooterRows } from '../src/squishydex'
 import { SQUISHYDEX_KEY, speciesKey, speciesOfKey, variantKey } from '../src/squishydex-record'
 import {
   PANE,
@@ -399,7 +399,7 @@ test('a page fits a narrow pane at every height from one row of places to a few'
   stubStore(on, PARTNERED)
   const bodyColumns = 2 * DEX_PLACE_COLUMNS + DEX_COLUMN_GAP
   await (await openSquishydex($)).unmount()
-  for (let bodyRows = DEX_TITLE_ROWS + DEX_PLACE_ROWS + DEX_GAP + 2; bodyRows <= 4 * DEX_PLACE_ROWS; bodyRows += 1) {
+  for (let bodyRows = DEX_TITLE_ROWS + DEX_PLACE_ROWS + DEX_GAP + dexFooterRows(bodyColumns); bodyRows <= 4 * DEX_PLACE_ROWS + dexFooterRows(bodyColumns); bodyRows += 1) {
     const ui = await $.ui.mount({ ...paneSized({ placement: 'inline', bodyColumns, bodyRows }), surface: 'terminal' })
     expect(await rowsDrawn(ui)).toBeLessThanOrEqual(bodyRows)
     await ui.unmount()
