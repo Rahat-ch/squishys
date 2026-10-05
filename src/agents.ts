@@ -16,7 +16,7 @@ import { cryptoRandom, forcedOdds, roll } from './roller'
 import { recordMet } from './squishydex-record'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
 import { liveSquishys } from './slots'
-import { answered, endedState, isEnded, stateAfterRun, stateAtStop } from './states'
+import { answered, endedState, isEnded, stateAfterRun, stateAtRow, stateAtStop } from './states'
 import { STOPPED_BY_USER, disarmed, entryNamed, forgetStops, isHeldBack, refusalOf, resumed, runEnded, wasStoppedByUser } from './stop'
 
 /**
@@ -191,6 +191,17 @@ export function registerAgentTracking(on: On): void {
   })
   on('classic.PermissionDenied', async ($, e, next) => {
     await signOfLife($, e.agent_id)
+    return next(e)
+  })
+
+  // A message or a response landing in an ended agent's conversation means
+  // it was resumed: Working again. It's how a run the focus view's redirect
+  // resumed wakes its squishy, since that run raises its turn.step, tool.call
+  // and SubagentStop under the mod's own origin, which skips the mod's hooks
+  // (AGENTS.md, "The run a redirect resumes"). Read only, on the row's way
+  // down: the row goes on as it came.
+  on('session.append', { agentId: /./, door: ['prompt', 'response'] }, async ($, e, next) => {
+    if (e.agentId !== undefined) await setState($, e.agentId, stateAtRow)
     return next(e)
   })
 

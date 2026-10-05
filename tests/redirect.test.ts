@@ -5,7 +5,7 @@ import type { AgentStatus, On, SessionSendResult } from 'claude-code'
 import { focusHint } from '../src/focus'
 import { OPEN_PANE_ASKED, PANE_ID } from '../src/pane'
 import { PARTNER_BUTTON } from '../src/partner'
-import { PANE, PARTNERED, finishOf, nameOfAgent, readFrom, spawnOf, stepOf, stubAgentList, stubPanes, stubSpawns, stubStore, stubTurns } from './fixtures'
+import { PANE, PARTNERED, appendRow, bashFrom, finishOf, nameOfAgent, promptRowOf, readFrom, spawnOf, stepOf, stubAgentList, stubPanes, stubSpawns, stubStore, stubTurns, toolUseRowOf } from './fixtures'
 
 // The kit can't append to a running agent's conversation, so its redirects
 // are refused here: AGENTS.md, "A redirect goes". Most tests redirect an
@@ -65,8 +65,14 @@ test('a running agent’s redirect that Claude Code refuses to append, for want 
   expect(await ui.find({ type: 'Text', text: /^You: / })).toBeUndefined()
 })
 
-test('a redirect to an Asleep agent is sent to it as its user’s, resumes it, and its squishy is Working again', async ($, on) => {
+// In a session, the run the mod's own send resumes raises its turn.step,
+// tool.call and SubagentStop under the mod's origin, so the mod's hooks on
+// them never run (the recursion skip, seen in a session for #60). The rows
+// Claude Code appends to the agent's conversation and its turn.complete
+// still reach the mod, so these tests resume an agent with those alone.
+test('a redirect to an Asleep agent is sent to it as its user’s and resumes it: its squishy is Working once the message reaches it, its tool calls show in the feed, and it’s Asleep with its answer once the run completes', async ($, on) => {
   const sent = stubSends(on)
+
   const { ui, name } = await focusOnAgent($, on)
   await $.turn.complete(finishOf('agent-1'))
   expect(await ui.find({ type: 'Text', text: 'Asleep' })).toBeDefined()
@@ -74,14 +80,47 @@ test('a redirect to an Asleep agent is sent to it as its user’s, resumes it, a
   await typeRedirect($, 'Now check the tests')
 
   expect(sent).toEqual([{ to: 'agent-1', text: `${FROM_USER}Now check the tests` }])
-  expect(await ui.find({ type: 'Text', text: `Sent to ${name}. It had finished; the message resumed it.` })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'You: Now check the tests' })).toBeDefined()
 
-  // Resumed from its transcript, the agent gets to work, and the delivery has had its say
-  await $.tool.call(readFrom('agent-1', 'tests/config.test.ts'))
+  // Resumed from its transcript, the agent reads the message and gets to work
+  await appendRow($, promptRowOf('agent-1', `The coordinator sent a message while you were working:\n${FROM_USER}Now check the tests`))
   expect(await ui.find({ type: 'Text', text: 'Working' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: `Sent to ${name}. It had finished; the message resumed it.` })).toBeDefined()
+  await appendRow($, toolUseRowOf('agent-1', 'Bash', { command: 'npm test', description: 'Run the tests' }))
+  expect(await ui.find({ type: 'Text', text: 'npm test' })).toBeDefined()
+
+  await $.turn.complete({ ...finishOf('agent-1'), answer: 'All 12 tests pass' })
+  expect(await ui.find({ type: 'Text', text: 'Asleep' })).toBeDefined()
+  expect((await ui.findAll({ type: 'Markdown' })).map(answer => answer.props.text)).toEqual(['All 12 tests pass'])
   expect(await ui.find({ type: 'Text', text: deliveryNote })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'You: Now check the tests' })).toBeDefined()
+})
+
+test('a resumed agent that hands its report back through SubagentHandback shows the report as its answer', async ($, on) => {
+  stubSends(on)
+
+  const { ui } = await focusOnAgent($, on)
+  await $.turn.complete(finishOf('agent-1'))
+  await typeRedirect($, 'Write one haiku about dumplings')
+  await appendRow($, promptRowOf('agent-1', `${FROM_USER}Write one haiku about dumplings`))
+
+  await appendRow($, toolUseRowOf('agent-1', 'SubagentHandback', { message: 'Pleated moons of dough' }))
+  await $.turn.complete({ ...finishOf('agent-1'), answer: '' })
+
+  expect((await ui.findAll({ type: 'Markdown' })).map(answer => answer.props.text)).toEqual(['Pleated moons of dough'])
+  expect(await ui.find({ type: 'Text', text: 'SubagentHandback' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Asleep' })).toBeDefined()
+})
+
+test('the rows of a run no redirect resumed add nothing to its feed: its tool calls reach the mod themselves', async ($, on) => {
+  stubSends(on)
+
+  const { ui } = await focusOnAgent($, on)
+
+  await $.tool.call(bashFrom('agent-1', 'npm test'))
+  await appendRow($, toolUseRowOf('agent-1', 'Bash', { command: 'npm test' }))
+
+  expect(await ui.findAll({ type: 'Text', text: 'npm test' })).toHaveLength(1)
 })
 
 test('a redirect that isn’t delivered says why, and adds nothing to the feed', async ($, on) => {
@@ -271,7 +310,8 @@ test('a redirect to an agent Squished by a fallback stop resumes it, and its nex
   expect(requests()).toBe(1)
   expect(await $.tool.call(readFrom('agent-1', 'src/config.ts'))).toEqual({ result: 'ok' })
   expect(await ui.find({ type: 'Text', text: 'Working' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: deliveryNote })).toBeUndefined()
+  // The note stays through the run the message resumed
+  expect(await ui.find({ type: 'Text', text: `Sent to ${name}. It had finished; the message resumed it.` })).toBeDefined()
 })
 
 // Stands in for Claude Code's focus ring in the pane, which the user moves

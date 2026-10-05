@@ -93,6 +93,15 @@ export function stateAtStop(state: SquishyState, { status, stoppedByUser }: { st
 }
 
 /**
+ * The state a squishy is in once a message or a response lands in its
+ * agent's conversation: the agent is running, so one that had ended was
+ * resumed and is Working again. Any other state stays as it was.
+ */
+export function stateAtRow(state: SquishyState): SquishyState {
+  return isEnded(state) ? 'working' : state
+}
+
+/**
  * The state a squishy is in once its agent shows a sign of life after a
  * permission prompt, since nothing says when the user answers it: Needs you
  * is Working again. Any other state stays as it was, so an agent that ended
