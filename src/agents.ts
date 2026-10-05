@@ -373,9 +373,14 @@ async function assignSquishy($: EngineInterface, agentId: string, description: s
   })
   keepChecking($)
   if (first) await openPaneUnasked($)
-  // Kept in the store too, so it comes back after /clear or /resume
+  // Kept in the store too, with the session it started in, so it comes back
+  // after /resume of that session even once the agent list drops it
   if (assigned === undefined) return undefined
-  await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, [assigned])
+  let sessionId: string | undefined
+  try {
+    sessionId = await $.session.id()
+  } catch {}
+  await rememberSquishys({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) }, [assigned], sessionId)
   return { agent: assigned, forced: forcedMoment(odds, assigned.squishy) }
 }
 

@@ -9,12 +9,13 @@ import type { AgentStatus, TraceEntry } from 'claude-code'
 import { AGENT_CHECK_MS } from '../src/agents'
 import { KIT } from '../src/kit'
 import { FRAME_MS } from '../src/pane'
-import { REMEMBERED_AGENTS, REMEMBERED_KEY } from '../src/rebuild'
-import type { Remembered, RememberedPair } from '../src/rebuild'
+import { REMEMBERED_AGENTS, REMEMBERED_KEY, SESSIONS_KEY, agentsOfSession, rememberedFrom, sessionsFrom, withRemembered, withSessionAgents } from '../src/rebuild'
+import type { Remembered, RememberedPair, Sessions } from '../src/rebuild'
 import { roll, squishyOf } from '../src/roller'
 import { seeded } from '../src/seeded'
 import type { SquishyState } from '../src/states'
-import { PANE, PARTNERED, finishOf, paneSized, roomFor, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
+import type { Agent, Squishy } from '../types'
+import { PANE, PARTNERED, finishOf, nameOfAgent, paneSized, roomFor, spawnOf, stubAgentList, stubBlits, stubSessionStart, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, spawnAndWatch, squishyIn, watch } from './pictures'
 
 const LISTED = [
@@ -334,4 +335,130 @@ test('after /clear, a rebuilt agent that fails with no stop event is caught by c
   await clock.advance(AGENT_CHECK_MS)
 
   expect(await state()).toBe('squished')
+})
+
+// Seen in a session (#63): Claude Code's agent list drops an agent within a
+// minute of its end, so by the time /resume comes the list may name only the
+// agents still running. The store keeps which agents each session
+// started, as earlier sessions left it here (leftBy).
+const EARLIER_SESSION = 'session-earlier'
+const OTHER_SESSION = 'session-other'
+
+/** Three squishys an earlier session rolled for its agents, none alike. */
+function earlierSquishys() {
+  const rng = seeded(15)
+  const rolled: Squishy[] = []
+  for (let n = 0; n < 3; n += 1) rolled.push(roll(KIT, { live: rolled, rng }))
+  return rolled as [Squishy, Squishy, Squishy]
+}
+
+type Started = Pick<Agent, 'id' | 'description' | 'squishy'>
+
+/** The store as earlier sessions left it, each having started these agents. */
+function leftBy(started: readonly (readonly [sessionId: string, agents: readonly Started[]])[]): Record<string, unknown> {
+  let remembered: Remembered = []
+  let sessions: Sessions = []
+  for (const [sessionId, agents] of started) {
+    remembered = withRemembered(remembered, agents)
+    sessions = withSessionAgents(sessions, sessionId, agents)
+  }
+  return { ...PARTNERED, [REMEMBERED_KEY]: remembered, [SESSIONS_KEY]: sessions }
+}
+
+test('after /resume, the resumed session’s ended agents come back with their squishys, Asleep, though the agent list no longer names them', { plugins: [WATCHER] }, async ($, on) => {
+  const failures: string[] = []
+  on('ui.toast', ($, e) => {
+    failures.push(e.text)
+    return { value: undefined }
+  })
+  const [first, second] = earlierSquishys()
+  const started = [
+    { id: 'agent-a', description: 'Reply alpha', squishy: first },
+    { id: 'agent-b', description: 'Reply beta', squishy: second },
+  ]
+  stubStore(on, leftBy([[EARLIER_SESSION, started]]))
+  stubSessionStart(on)
+  stubAgentList(on, [])
+
+  await $.classic.SessionStart({ source: 'resume', session_id: EARLIER_SESSION })
+
+  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 3, 1)), surface: 'terminal' })
+  for (const { id, squishy, description } of started) {
+    expect((await ui.find({ key: `squishy-${id}` }))?.props.label).toBe(squishy.name)
+    expect((await ui.find({ key: `picture-${id}` }))?.props.cells).toBe(cellsOf(squishy, 'asleep'))
+    expect(await ui.find({ type: 'Text', text: description })).toBeDefined()
+  }
+  expect(failures).toEqual([])
+})
+
+test('after /resume, an agent the list still names shows its listed state, and agents of other sessions stay away', async ($, on) => {
+  const [running, ended, elsewhere] = earlierSquishys()
+  stubStore(
+    on,
+    leftBy([
+      [
+        EARLIER_SESSION,
+        [
+          { id: 'agent-running', description: 'Sleep then reply', squishy: running },
+          { id: 'agent-ended', description: 'Reply alpha', squishy: ended },
+        ],
+      ],
+      [OTHER_SESSION, [{ id: 'agent-elsewhere', description: 'Run the tests', squishy: elsewhere }]],
+    ]),
+  )
+  stubSessionStart(on)
+  stubAgentList(on, [{ id: 'agent-running', description: 'Sleep then reply', status: 'waiting' }])
+
+  await $.classic.SessionStart({ source: 'resume', session_id: EARLIER_SESSION })
+
+  const ui = await $.ui.mount({ ...paneSized(roomFor('dock', 4, 1)), surface: 'terminal' })
+  expect((await ui.find({ key: 'squishy-agent-running' }))?.props.label).toBe(running.name)
+  expect((await ui.find({ key: 'picture-agent-running' }))?.props.cells).toBe(cellsOf(running, 'working'))
+  expect((await ui.find({ key: 'picture-agent-ended' }))?.props.cells).toBe(cellsOf(ended, 'asleep'))
+  expect(await ui.find({ key: 'slot-agent-elsewhere' })).toBeUndefined()
+  expect(await agentPictures(ui)).toHaveLength(2)
+})
+
+test('/clear starts fresh: the cleared session’s ended agents stay away, and the partner stays', async ($, on) => {
+  const [first] = earlierSquishys()
+  stubStore(on, leftBy([[EARLIER_SESSION, [{ id: 'agent-a', description: 'Reply alpha', squishy: first }]]]))
+  stubSessionStart(on)
+  stubAgentList(on, [])
+
+  // /clear goes on under a session id of its own
+  await $.classic.SessionStart({ source: 'clear', session_id: 'session-after-clear' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await agentPictures(ui)).toEqual([])
+  expect(await ui.find({ key: 'partner' })).toBeDefined()
+})
+
+test('a spawned agent is kept as the session’s it started in, with its description and squishy, for /resume to bring back', async ($, on) => {
+  const stored = stubStore(on, PARTNERED)
+  stubSpawns(on)
+  on('session.id', () => ({ value: EARLIER_SESSION }))
+
+  await $.agent.spawn(spawnOf('toolu_1'))
+
+  const kept = (sessionId: string) => agentsOfSession(sessionsFrom(stored.get(SESSIONS_KEY)), rememberedFrom(stored.get(REMEMBERED_KEY)), sessionId)
+  const [agent] = kept(EARLIER_SESSION)
+  expect(agent?.id).toBe('agent-1')
+  expect(agent?.description).toBe('Find config parser')
+  expect(agent?.squishy.name).toBe(nameOfAgent(stored, 'agent-1'))
+  expect(kept(OTHER_SESSION)).toEqual([])
+})
+
+test('the store keeps the agents of the sessions that started one latest, at most REMEMBERED_AGENTS in all, dropping whole sessions seen longest ago', async ($, on) => {
+  const [squishy] = earlierSquishys()
+  const half = REMEMBERED_AGENTS / 2
+  const agentsOf = (prefix: string) => Array.from({ length: half }, (_, n): Started => ({ id: `${prefix}-${n + 1}`, description: 'Find config parser', squishy }))
+  const stored = stubStore(on, leftBy([[OTHER_SESSION, agentsOf('agent-other')], [EARLIER_SESSION, agentsOf('agent-earlier')]]))
+  stubSpawns(on)
+  on('session.id', () => ({ value: 'session-now' }))
+
+  await $.agent.spawn(spawnOf('toolu_1'))
+
+  const sessions = sessionsFrom(stored.get(SESSIONS_KEY))
+  expect(sessions.map(([sessionId]) => sessionId)).toEqual([EARLIER_SESSION, 'session-now'])
+  expect(sessions[0]?.[1]).toHaveLength(half)
 })
