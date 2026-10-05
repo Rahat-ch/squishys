@@ -74,11 +74,20 @@ export type Agent = {
 /** A model alias the Agent tool takes. Mirrors `Model` in src/settings.tsx. */
 export type Model = 'haiku' | 'sonnet' | 'opus' | 'fable'
 
-/** Experimental: the model an agent was switched to in its focus view. */
-export type ModelSwitch = {
-  model: Model
-  /** Whether a request has gone out on it yet; until then it's still switching. */
-  sent: boolean
+/** What an agent's next run uses, as picked in its focus view; absent: as it started. */
+export type NextRun = {
+  /** The model, by alias, sent as the full id the session's requests used for it. */
+  model?: Model
+  effort?: Effort
+}
+
+/** What an agent's run uses, settled at the run's first request from its NextRun. */
+export type RunChoice = {
+  /** The run, by the turn id its requests and its turn.complete carry. */
+  turnId: string
+  /** The full model id picked for it; absent: as it started. */
+  model?: string
+  effort?: Effort
 }
 
 /**
@@ -134,6 +143,11 @@ export type RedirectOutcome =
       isDelivered: true
       /** Sent to an agent that had ended, which the message resumed. */
       viaResume: boolean
+      /**
+       * Handed to Claude to send with SendMessage, so the run it resumes uses
+       * the agent's picked model and effort; present only so.
+       */
+      viaClaude?: NextRun
     }
   | {
       isDelivered: false
@@ -175,25 +189,24 @@ declare module 'claude-code' {
       /** The latest redirect, being sent or what became of it; null when there's none to show. */
       delivery: Delivery | null
       /**
-       * Experimental: the model each agent was switched to in its focus view,
-       * by agent id, which its requests use from then on. An agent's switch
-       * ends with its run; all end when the live model switch is turned off.
+       * The model and effort each agent's next run uses, by agent id, as picked
+       * in its focus view: from its next run seen through turn.step on, until
+       * picked again, and until /clear, /resume or a branch.
        */
-      switchedModels: Record<string, ModelSwitch>
+      nextRuns: Record<string, NextRun>
       /**
-       * Experimental: the effort each agent was switched to in its focus view,
-       * by agent id, which its requests carry from then on while its model
-       * takes one. Ends like a model switch.
+       * What each agent's run going on uses, by agent id: settled from
+       * nextRuns at the run's first request, so a pick made meanwhile waits
+       * for the next run. Gone as the run ends.
        */
-      switchedEfforts: Record<string, Effort>
+      runChoices: Record<string, RunChoice>
       /**
-       * Experimental: whether each agent's latest request, as the engine made
-       * it, carried an effort, by agent id: the engine leaves it out for a
-       * model that takes none. Absent until the agent's first request, and
-       * cleared with the effort switches: as the agent's run ends, as the
-       * setting is turned off, and on /clear, /resume and a branch.
+       * Every model id a request of this session has named, orchestrator's
+       * included, and whether it carried an effort: the engine leaves it out
+       * for a model that takes none. The model controls offer these models,
+       * since a request needs the full id and nothing on $ resolves an alias.
        */
-      effortTaken: Record<string, boolean>
+      seenModels: Record<string, boolean>
       /**
        * Claude Code's `prefersReducedMotion` setting, read at session start
        * and after each /config change: while it's on, nothing animates.

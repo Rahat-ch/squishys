@@ -21,11 +21,13 @@ Everything in the pane has a hotkey, shown before its label (`i: Redirect`). Hot
 | Where | Keys |
 | --- | --- |
 | Roster | `1`–`9` pick a squishy (letters after that), `m` the `+N` list, `o` settings, `d` Squishydex |
-| An agent’s view | `i` type in the Redirect box (Enter sends, Esc leaves), `s` stop (press twice), `x` share, `m` switch model (experimental), `1` or `r` back to the roster |
-| Settings | `m` model for new agents, `s` roster slots, `l` live model switch (experimental), `c` chime, `r` back |
+| An agent’s view | `i` type in the Redirect box (Enter sends, Esc leaves), `s` stop (press twice), `x` share, `m` model and `e` effort for its next run, `1` or `r` back to the roster |
+| Settings | `m` model for new agents, `s` roster slots, `c` chime, `r` back |
 | Squishydex | `1`–`9` open a squishy's card, `n`/`p` next and previous page, `r` roster; on a card `m` make partner, `c` palette, `x` share, `b` back |
 
 Hotkeys for a few choices (model, slots, palette) step to the next choice on each press. The label shows the current choice and the next one.
+
+An agent's model and effort apply from its next run, usually picked while it's Asleep. They take effect when the agent is resumed. If you redirect an Asleep agent that has a pick, the message goes through Claude, which resumes the agent with SendMessage so the pick applies; that takes a moment, since Claude passes it on once it's free. Without a pick, a redirect goes straight to the agent. A redirect to a running agent joins its current run, which keeps its current model. The model control offers the models this session already runs on: Claude's own and the other agents'.
 
 ## Docs
 

@@ -20,8 +20,9 @@ export const register: Register = on => {
   // The order matters: a plugin's registrations nest in order, first
   // outermost. The agent tracker records an agent before the focus view's
   // feed hooks look it up, and the pane's render hook wraps every other
-  // mode's, so it can animate the squishys they draw. The model switch's
-  // turn.step hook sits inside the tracker's, which sees requests unswitched.
+  // mode's, so it can animate the squishys they draw. The next run's
+  // turn.step hook sits inside the tracker's, which sees requests as the
+  // engine made them.
   registerAgentTracking(on)
   registerPane(on)
   registerHeld(on)

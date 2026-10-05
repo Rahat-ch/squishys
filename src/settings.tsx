@@ -22,11 +22,6 @@ export type Settings = {
   /** The most slots the roster shows. */
   slotCap: number
   /**
-   * Experimental: the focus view can switch a running agent's model and
-   * effort from its next request. Off when absent.
-   */
-  liveModelSwitch?: true
-  /**
    * A chime plays when a shiny or legendary squishy is rolled. Off when
    * absent. Offered only where `$.audio` makes a sound (macOS).
    */
@@ -45,11 +40,10 @@ const mode = atom({ plugin: 'squishys', key: 'mode' } as const, 'roster')
 
 /** The settings a stored value holds, with defaults for anything missing or no longer valid. */
 export function settingsFrom(stored: unknown): Settings {
-  const { model, slotCap, liveModelSwitch, chime } = (typeof stored === 'object' && stored !== null ? stored : {}) as Record<string, unknown>
+  const { model, slotCap, chime } = (typeof stored === 'object' && stored !== null ? stored : {}) as Record<string, unknown>
   return {
     ...(isModel(model) ? { model } : {}),
     slotCap: isSlotCap(slotCap) ? slotCap : MAX_SLOTS,
-    ...(liveModelSwitch === true ? { liveModelSwitch } : {}),
     ...(chime === true ? { chime } : {}),
   }
 }
@@ -75,14 +69,14 @@ function isSlotCap(value: unknown): value is number {
 /**
  * What a model control steps through: `first` (no model of its own), then
  * each of `allowed` in MODELS order. Every model control (the default for
- * new agents, the live switch) orders models so.
+ * new agents, an agent's next run) orders models so.
  */
 export function modelCycle<First extends string>(first: First, allowed: readonly Model[] = MODELS): (First | Model)[] {
   return [first, ...MODELS.filter(model => allowed.includes(model))]
 }
 
 /** The on-off settings, each `true` or absent. */
-type Toggle = 'liveModelSwitch' | 'chime'
+type Toggle = 'chime'
 
 /** Settings with an on-off setting turned the other way. */
 export function toggled(settings: Settings, name: Toggle): Settings {
@@ -129,7 +123,6 @@ export function registerSettings(on: On): void {
           label={cycleLabel(SLOT_CAP_LABEL, String(settings.slotCap), String(nextSlotCap(settings.slotCap)))}
           onPress={() => void saveSettings($, current => ({ ...current, slotCap: nextSlotCap(current.slotCap) }))}
         />
-        {toggle('liveModelSwitch', 'l', LIVE_MODEL_SWITCH_LABEL)}
         {/* Where no chime plays, held: src/held.tsx answers its press, so c never reaches the prompt */}
         {chimes ? (
           toggle('chime', 'c', CHIME_LABEL)
@@ -145,7 +138,6 @@ export function registerSettings(on: On): void {
 /** What each setting's control is labeled, before what it's on. */
 export const MODEL_DEFAULT_LABEL = 'Model for new agents'
 export const SLOT_CAP_LABEL = 'Roster slots, at most'
-export const LIVE_MODEL_SWITCH_LABEL = "Experimental: switch a running agent's model and effort from its focus view"
 export const CHIME_LABEL = 'Chime on a shiny or legendary'
 
 /** Why the chime setting is held where `$.audio` makes no sound (chimePlays). */
