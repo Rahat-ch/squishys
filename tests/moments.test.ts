@@ -509,9 +509,10 @@ async function markedNew(ui: Awaited<ReturnType<typeof openSquishydex>>, placeKe
   return (await ui.find({ key: `squishydex-new-${placeKey}` })) !== undefined
 }
 
-// Agents that come back after /clear with these squishys, which the
+// Agents that come back after a branch with these squishys, which the
 // Squishydex meets then: forced rolls aren't recorded, so these tests meet
-// shinies and legendaries the way a rebuild restores them
+// shinies and legendaries the way a rebuild restores them. A branch rebuilds
+// from the whole agent list; /clear would leave these ended agents out.
 async function meetAfterClear($: Engine, on: On, keys: readonly string[], dex?: unknown) {
   mock.clock(on)
   const stored = stubStore(on, {
@@ -521,7 +522,7 @@ async function meetAfterClear($: Engine, on: On, keys: readonly string[], dex?: 
   })
   stubSessionStart(on)
   stubAgentList(on, keys.map((_, index) => ({ id: `agent-${index + 1}`, description: 'Find config parser', status: 'completed' as const })))
-  await $.classic.SessionStart({ source: 'clear' })
+  await $.classic.SessionStart({ source: 'fork' })
   return stored
 }
 

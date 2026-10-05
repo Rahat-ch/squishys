@@ -161,7 +161,7 @@ test('a species met before keeps its first-met date and gains the new variant; a
   stubSessionStart(on)
   stubAgentList(on, ['agent-a', 'agent-b', 'agent-c'].map(id => ({ id, description: 'Find config parser', status: 'completed' as const })))
 
-  await $.classic.SessionStart({ source: 'clear' })
+  await $.classic.SessionStart({ source: 'fork' })
 
   expect(stored.get(SQUISHYDEX_KEY)).toEqual({
     species: {
