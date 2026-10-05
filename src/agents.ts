@@ -13,6 +13,7 @@ import { forcedMoment, rememberSquishys, takeFreshRolls } from './rebuild'
 import type { Rolled } from './rebuild'
 import { momentToast, sparkleUntil, withSparklesTidied } from './moments'
 import { cryptoRandom, forcedOdds, roll } from './roller'
+import { carriesRedirect, forgetResumed, forgetResumes, isResumedByRedirect } from './resumes'
 import { recordMet } from './squishydex-record'
 import { SETTINGS_KEY, settingsFrom, withModelDefault } from './settings'
 import { liveSquishys } from './slots'
@@ -55,9 +56,13 @@ export function registerAgentTracking(on: On): void {
   // the roster before passing the event on, and this one checks after it:
   // the agent list is checked while any rebuilt agent runs, and a fresh
   // roll that came up shiny or legendary is announced, as from a spawn.
-  // Stop forgets every agent but after compaction, which keeps the session.
+  // Stop forgets every agent but after compaction, which keeps the session,
+  // and so do the marks of runs a redirect resumed.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork', 'compact'] }, async ($, e, next) => {
-    if (e.source !== 'compact') forgetStops()
+    if (e.source !== 'compact') {
+      forgetStops()
+      forgetResumes()
+    }
     const started = await next(e)
     if ((await read($, agents)).some(agent => !isEnded(agent.state))) keepChecking($)
     for (const { agent } of takeFreshRolls()) await announce($, agent)
@@ -194,14 +199,21 @@ export function registerAgentTracking(on: On): void {
     return next(e)
   })
 
-  // A message or a response landing in an ended agent's conversation means
-  // it was resumed: Working again. It's how a run the focus view's redirect
-  // resumed wakes its squishy, since that run raises its turn.step, tool.call
-  // and SubagentStop under the mod's own origin, which skips the mod's hooks
-  // (AGENTS.md, "The run a redirect resumes"). Read only, on the row's way
-  // down: the row goes on as it came.
+  // How a run the focus view's redirect resumed wakes its squishy, since that
+  // run raises its turn.step, tool.call and SubagentStop under the mod's own
+  // origin, which skips the mod's hooks (AGENTS.md, "The run a redirect
+  // resumes"): a row of it landing in the ended agent's conversation, while
+  // the agent is marked as resumed by a redirect or the row carries one.
+  // Any other row, as one after Stop, changes nothing, so setState (which
+  // also lets Stop and Needs you go) runs only for a genuine resume. Read
+  // only, on the row's way down: the row goes on as it came.
   on('session.append', { agentId: /./, door: ['prompt', 'response'] }, async ($, e, next) => {
-    if (e.agentId !== undefined) await setState($, e.agentId, stateAtRow)
+    const { agentId } = e
+    const isRedirectRun = agentId !== undefined && (isResumedByRedirect(agentId) || (e.door === 'prompt' && carriesRedirect(e.message.content)))
+    const wakes = (agent: Agent) => agent.id === agentId && stateAtRow(agent.state, { isRedirectRun }) !== agent.state
+    if (agentId !== undefined && (await read($, agents)).some(wakes)) {
+      await setState($, agentId, state => stateAtRow(state, { isRedirectRun }))
+    }
     return next(e)
   })
 
@@ -249,10 +261,16 @@ async function setState(
   const state = written.find(agent => agent.id === agentId)?.state
   if (state !== undefined && !isEnded(state)) keepChecking($)
   // An agent that ends or resumes: Stop no longer holds it back, forgets it
-  // once it resumes, and disarms for it either way.
+  // once it resumes, and disarms for it either way. However it ended (its
+  // turn.complete, SubagentStop, the agent list check, TaskStop), a run a
+  // redirect resumed is over, so a later run's tool calls show only once.
   if (state === undefined || before === undefined || isEnded(state) === isEnded(before)) return
-  if (isEnded(state)) runEnded(agentId)
-  else resumed(agentId)
+  if (isEnded(state)) {
+    runEnded(agentId)
+    forgetResumed(agentId)
+  } else {
+    resumed(agentId)
+  }
   await update($, stopControl, control => disarmed(control, agentId))
 }
 

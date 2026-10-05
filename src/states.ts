@@ -94,11 +94,12 @@ export function stateAtStop(state: SquishyState, { status, stoppedByUser }: { st
 
 /**
  * The state a squishy is in once a message or a response lands in its
- * agent's conversation: the agent is running, so one that had ended was
- * resumed and is Working again. Any other state stays as it was.
+ * agent's conversation: one that had ended is Working again only when the
+ * row belongs to a run a redirect resumed, since nothing else of that run
+ * reaches the mod. Any other row, as one after Stop, leaves the state be.
  */
-export function stateAtRow(state: SquishyState): SquishyState {
-  return isEnded(state) ? 'working' : state
+export function stateAtRow(state: SquishyState, { isRedirectRun }: { isRedirectRun: boolean }): SquishyState {
+  return isRedirectRun && isEnded(state) ? 'working' : state
 }
 
 /**

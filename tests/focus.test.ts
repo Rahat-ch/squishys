@@ -7,7 +7,7 @@ import { KIT } from '../src/kit'
 import { FEED_ROWS, MARKDOWN_LIMIT, focusHint } from '../src/focus'
 import { FRAME_MS, OPEN_PANE, OPEN_PANE_ASKED, PANE_ID, pictureKey } from '../src/pane'
 import { halfBlocks } from '../src/raster'
-import { PANE, bashFrom, finishOf, handbackFrom,nameOfAgent, readFrom, spawnOf, stepOf, stubBlits, stubPanes, stubSpawns, stubStore, stubTurns } from './fixtures'
+import { PANE, bashFrom, finishOf, handbackFrom, nameOfAgent, readFrom, spawnOf, stepOf, stubBlits, stubPanes, stubSpawns, stubStore, stubTurns } from './fixtures'
 import { cellsOf, spawnAndWatch } from './pictures'
 
 test('pressing a squishy’s button opens its focus view, and r returns to the roster', async ($, on) => {
