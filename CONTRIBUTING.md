@@ -23,7 +23,7 @@ From your clone:
 - Type-check with `npm run typecheck` after `npm install`. It uses the types Claude Code writes into `.claude-plugin/types/` each time it loads the mod, so load the mod once first.
 - Before opening a PR, validate the marketplace with `claude plugin validate .` and the plugin itself with `claude plugin validate .claude-plugin/plugin.json`.
 
-Mods need Claude Code 2.1.287 or later. See the [mods documentation](https://code.claude.com/docs/en/plugins/mods/overview).
+Mods need Claude Code 2.1.287 or later. See the [mods documentation](https://code.claude.com/docs/en/plugins/mods/overview), and [the research behind building squishys as a mod](docs/research/claude-code-mods.md).
 
 ## Art
 

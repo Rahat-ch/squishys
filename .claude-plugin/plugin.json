@@ -1,7 +1,7 @@
 {
   "name": "squishys",
   "version": "0.1.0",
-  "description": "Gives every agent the orchestrator starts its own tiny pixel-art squishy.",
+  "description": "A companion mod for Claude Code's agents: every agent gets its own tiny pixel-art squishy you can watch, stop, redirect and collect.",
   "author": { "name": "Rahat" },
   "homepage": "https://github.com/Rahat-ch/squishys",
   "repository": "https://github.com/Rahat-ch/squishys",
