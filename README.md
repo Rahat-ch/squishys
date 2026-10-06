@@ -34,19 +34,19 @@ Or inside a Claude Code session:
 
 ### Updating
 
-Run `claude plugin update squishys@squishys` and restart Claude Code, or turn on auto-update for the `squishys` marketplace in `/plugin`.
+Run `claude plugin update squishys@squishys` and restart Claude Code, or turn on auto-update for the `squishys` marketplace (`/plugin` → Marketplaces → Enable auto-update).
 
 ## Requirements
 
 - Claude Code 2.1.287 or later (tested on 2.1.289), in a terminal.
-- Fullscreen rendering is recommended (`/tui fullscreen`): it gives you clicks, hover and the pane docked beside the transcript.
+- Fullscreen rendering is recommended (`/tui fullscreen`): it gives you clicks, hover and, at 110 columns or wider, the pane docked beside the transcript.
 - The classic renderer works too, with hotkeys and a compact pane inline above the prompt.
-- Nothing draws in the VS Code panel, in `-p` (print) runs or in cloud sessions.
+- v0.1 draws in the terminal only: nothing shows in the VS Code panel, the desktop Code tab, `-p` (print) runs or cloud sessions.
 - The chime plays on macOS only.
 
 ## Using it
 
-The pane opens by itself when Claude starts its first agent, if there's room for it. `/squishys` opens or closes it, and `/squishydex` opens the Squishydex. Opened that way, the pane takes the keyboard, so its hotkeys work at once. Esc hands the keyboard back to the prompt, and Ctrl+X Tab (Ctrl+X, then Tab) gives it to the pane again. Under fullscreen rendering you can also click a squishy.
+The pane opens by itself when Claude starts its first agent, if the terminal is 144 columns or wider. `/squishys` opens or closes it, and `/squishydex` opens the Squishydex. Opened that way, the pane takes the keyboard, so its hotkeys work at once. Esc hands the keyboard back to the prompt, and Ctrl+X Tab (Ctrl+X, then Tab) gives it to the pane again. Under fullscreen rendering you can also click a squishy.
 
 When the terminal is too narrow for the pane, a **band** of mini squishys sits above the prompt instead. It has no hotkeys, so typing in the prompt never presses it; under fullscreen rendering, click a squishy there to open its focus view.
 
@@ -62,7 +62,7 @@ Every control in the pane has a hotkey, shown before its label (`i: Redirect`). 
 | Settings | `m` model for new agents, `s` roster slots, `c` chime, `r` back |
 | Squishydex | `1`–`9` open a squishy's card (letters after the digits), `n`/`p` next and previous page, `r` roster; on a card `m` make partner, `c` palette, `x` share, `b` back |
 
-Controls with a few choices (model, effort, slots, palette) step to the next choice on each press. The label shows the current choice and the next one.
+Controls with a few choices (model, effort, slots, chime, palette) step to the next choice on each press. The label shows the current choice and the next one.
 
 **Held controls:** a control that doesn't apply right now stays on screen, dimmed, with a few words of why, such as `s: Stop (finished)`. Pressing it tells you why instead of typing the key into the prompt.
 
@@ -76,19 +76,23 @@ squishys runs inside your Claude Code session, with your permissions. Here is wh
 
 **It reads:**
 
-- Your agents' tool calls and conversation rows, to show their state and live activity.
+- Your agents' tool calls, conversation rows and permission requests, to show their state and live activity.
+- Claude Code's agent list, with each agent's description.
 - A few of Claude Code's settings and session details: the model allowlist (`availableModels`), reduced motion, and the models the session runs on.
 - Its own saved data in Claude Code's plugin store: your settings, your partner, the Squishydex, which squishy each agent has and which agents each session started.
+- The `SQUISHYS_FORCE_ROLL` environment variable, a development convenience that forces shiny or legendary rolls.
+- Whether `/usr/bin/afplay` exists, to offer the chime only where it can play.
 
 **It can:**
 
-- Stop an agent, with Claude Code's TaskStop tool, when you press Stop.
-- Redirect an agent with your message: into its current run (`$.session.append`), by resuming it (`$.session.send`), or by asking Claude to pass it on with SendMessage.
+- Stop an agent, with Claude Code's TaskStop tool, when you press Stop. If TaskStop hasn't stopped it within about 2 seconds, squishys holds the agent back: it refuses the agent's tool calls and answers its next model request itself ("Stopped by the user") without calling the model.
+- Redirect an agent with your message: into its current run (`$.session.append`), or by resuming a finished one (`$.session.send`). When a next-run pick is pending, squishys instead submits a prompt **in your name** to the main conversation (`$.prompt.submit` with `asUser: true`), asking Claude to relay your message to the agent with SendMessage.
 - Rewrite the model and effort of an agent's next run when you pick them, and the model new agents start on when you set one in Settings.
-- Run local commands for Share: `sh` (with `uname`, `base64`, `mktemp` and `find`) to save the card, then `osascript` and `open` on macOS, or `xdg-open` on Linux.
-- Write card PNGs to a private folder of your own (`squishys-share` in your temp folder on macOS, `~/.cache/squishys/share` on Linux). Cards older than a day are cleared.
+- Play the chime through Claude Code's audio (`$.audio`), when you turn it on.
+- Run local commands for Share, all through `sh`. It saves the card with `uname`, `base64`, `mktemp` and `find`. On macOS it copies the card to the clipboard with `osascript` (or reveals it with `open -R` if that fails), then opens the compose page with `open`. On Linux it copies with `wl-copy` or `xclip` (or opens the card's folder with `xdg-open` if that fails), then opens the compose page with `xdg-open`.
+- Write card PNGs to a private folder of your own (`$TMPDIR/squishys-share` on macOS, `${XDG_CACHE_HOME:-~/.cache}/squishys/share` on Linux). Cards older than a day are cleared.
 
-**Nothing is posted automatically.** Share saves the card, copies it to the clipboard on macOS, and opens X's compose page in your browser with the text filled in. You attach the picture and post it yourself; squishys never sees your X account. The text for a finished agent includes the start of the agent's description, which can hold private project details, so review it in the compose box before you post.
+**Nothing is posted automatically.** Share saves the card, copies it to the clipboard where it can, and opens X's compose page in your browser with the text filled in. You attach the picture and post it yourself; squishys never sees your X account. The text for a finished agent includes the start of the agent's description, which can hold private project details, so review it in the compose box before you post.
 
 ## Development
 
